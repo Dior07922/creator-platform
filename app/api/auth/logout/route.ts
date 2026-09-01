@@ -1,0 +1,2 @@
+import { cookies } from "next/headers"; import { NextResponse } from "next/server"; import { db, ensureAuthTables, SESSION_COOKIE, tokenHash } from "@/server/auth";
+export async function POST(){try{await ensureAuthTables();const token=(await cookies()).get(SESSION_COOKIE)?.value;if(token)await db()`UPDATE user_sessions SET revoked_at=NOW() WHERE token_hash=${tokenHash(token)}`;}catch{}const response=NextResponse.json({ok:true});response.cookies.set(SESSION_COOKIE,"",{httpOnly:true,path:"/",maxAge:0});return response;}
