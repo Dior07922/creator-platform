@@ -23,11 +23,37 @@ const ordersFile = path.join(dataDirectory, "orders.json");
 async function readOrders(): Promise<StoredOrder[]> {
   try {
     return JSON.parse(await readFile(ordersFile, "utf8")) as StoredOrder[];
-  } catch {
-    return [];
+  } catch (error) {
+    // 只有文件不存在时才返回空数组；其他错误（JSON 损坏、权限问题等）必须向上抛出
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw error;
   }
 }
 
+// ─── GET /api/orders?orderId=ORD-xxx ─────────────────────────────────────────
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const orderId = searchParams.get("orderId");
+
+  if (!orderId) {
+    return NextResponse.json({ message: "缺少 orderId 参数" }, { status: 400 });
+  }
+
+  try {
+    const orders = await readOrders();
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) {
+      return NextResponse.json({ message: "订单不存在" }, { status: 404 });
+    }
+    return NextResponse.json(order);
+  } catch {
+    return NextResponse.json({ message: "订单数据读取失败" }, { status: 500 });
+  }
+}
+
+// ─── POST /api/orders ─────────────────────────────────────────────────────────
 export async function POST(request: Request) {
   const body = await request.json();
 

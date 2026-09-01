@@ -1006,7 +1006,7 @@ function PayingScreen({ product, go, order, onCodeAssigned }: { product: Product
         const response = await fetch("/api/codes", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "assign", productId: product.id, orderId: order.id }),
+          body: JSON.stringify({ action: "assign", productId: order.productId, orderId: order.id }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || "兑换码发放失败");
@@ -1038,7 +1038,7 @@ function PayingScreen({ product, go, order, onCodeAssigned }: { product: Product
 
 // ─── Screen 06: Payment Success ───────────────────────────────────────────────
 
-function SuccessScreen({ product, go, order }: { product: Product; go: (s: Screen) => void; order: CreatedOrder | null }) {
+function SuccessScreen({ go, order }: { go: (s: Screen) => void; order: CreatedOrder }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [redeemed, setRedeemed] = useState(false);
   const [redeemMessage, setRedeemMessage] = useState("");
@@ -1050,7 +1050,7 @@ function SuccessScreen({ product, go, order }: { product: Product; go: (s: Scree
   }
 
   async function redeemCode() {
-    if (!order?.deliveredCode) return;
+    if (!order.deliveredCode) return;
     const response = await fetch("/api/codes", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1072,14 +1072,14 @@ function SuccessScreen({ product, go, order }: { product: Product; go: (s: Scree
           <div className="success-check">✓</div>
           <div className="success-kicker">购买成功</div>
           <div className="success-title">你的内容已经准备好了</div>
-          <div className="success-subtitle">{product.name} 已放入本次订单</div>
+          <div className="success-subtitle">{order.product} 已放入本次订单</div>
         </div>
 
         <div className="success-order-info">
           {[
-            ["商品", product.name],
-            ["订单号", order?.id ?? "—"],
-            ["支付时间", order?.paidAt ? new Date(order.paidAt).toLocaleString("zh-CN") : "刚刚"],
+            ["商品", order.product],
+            ["订单号", order.id],
+            ["支付时间", order.paidAt ? new Date(order.paidAt).toLocaleString("zh-CN") : "刚刚"],
           ].map(([k, v]) => (
             <div key={k}>
               <span>{k}</span><b>{v}</b>
@@ -1089,7 +1089,7 @@ function SuccessScreen({ product, go, order }: { product: Product; go: (s: Scree
 
         <div className="delivery-result">
           <div className="delivery-result-label">你的领取凭证</div>
-          {order?.deliveredCode ? (
+          {order.deliveredCode ? (
             <div className="delivery-code-row">
               <div>
                 <div className="delivery-code">{order.deliveredCode}</div>
@@ -1101,7 +1101,7 @@ function SuccessScreen({ product, go, order }: { product: Product; go: (s: Scree
               </button>
             </div>
           ) : <div className="delivery-service-note">该资源将从订单页面继续交付。</div>}
-          {order?.deliveredCode && (
+          {order.deliveredCode && (
             <button onClick={redeemCode} disabled={redeemed} className="redeem-button">
               {redeemed ? "已兑换" : "立即兑换"}
             </button>
@@ -1127,7 +1127,7 @@ function SuccessScreen({ product, go, order }: { product: Product; go: (s: Scree
 
 const ORDER_TABS = ["All", "Pending", "Delivered", "Completed", "Refunded"];
 
-function OrdersScreen({ go, currentOrder }: { go: (s: Screen) => void; currentOrder?: CreatedOrder | null }) {
+function OrdersScreen({ go, currentOrder, onContinuePay }: { go: (s: Screen) => void; currentOrder?: CreatedOrder | null; onContinuePay: (orderId: string) => void }) {
   const [tab, setTab] = useState("All");
 
   const orderRows: Order[] = currentOrder ? [{
@@ -1180,7 +1180,7 @@ function OrdersScreen({ go, currentOrder }: { go: (s: Screen) => void; currentOr
             </div>
             <div className="mt-3 flex gap-2">
               {o.status === "Pending" && (
-                <button onClick={() => go("checkout")}
+                <button onClick={() => onContinuePay(o.id)}
                   className="flex-1 h-9 rounded-xl bg-[var(--pink)] text-[var(--bg2)] text-xs font-bold">
                   继续支付
                 </button>
@@ -1203,7 +1203,7 @@ function OrdersScreen({ go, currentOrder }: { go: (s: Screen) => void; currentOr
 
 // ─── Screen 08: Order Detail ──────────────────────────────────────────────────
 
-function OrderDetailScreen({ go, order, product }: { go: (s: Screen) => void; order: CreatedOrder | null; product: Product | null }) {
+function OrderDetailScreen({ go, order }: { go: (s: Screen) => void; order: CreatedOrder | null }) {
   const [copied, setCopied] = useState<string | null>(null);
 
   function copy(code: string, key: string) {
@@ -1245,12 +1245,12 @@ function OrderDetailScreen({ go, order, product }: { go: (s: Screen) => void; or
         <div className="bg-[var(--bg2)] rounded-2xl p-4 border border-[var(--border)]">
           <div className="text-sm font-bold text-[var(--text)] mb-3">商品</div>
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[var(--cream)] flex items-center justify-center text-2xl">{product?.icon ?? "🎁"}</div>
+            <div className="w-12 h-12 rounded-xl bg-[var(--cream)] flex items-center justify-center text-2xl">{order?.icon ?? "🎁"}</div>
             <div className="flex-1">
-              <div className="text-sm font-bold text-[var(--text)]">{product?.name ?? order?.product ?? "—"}</div>
-              <div className="text-xs text-[var(--text2)]">数量：1</div>
+              <div className="text-sm font-bold text-[var(--text)]">{order?.product ?? "—"}</div>
+              <div className="text-xs text-[var(--text2)]">数量：{order?.quantity ?? 1}</div>
             </div>
-            <div className="text-base font-extrabold text-[var(--pink)]">{order?.amount ?? product?.price ?? "—"}</div>
+            <div className="text-base font-extrabold text-[var(--pink)]">{order?.amount ?? "—"}</div>
           </div>
         </div>
 
@@ -2368,6 +2368,7 @@ export default function App() {
   const [authReady,setAuthReady]=useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [selectedTrend, setSelectedTrend] = useState<TrendItem | null>(null);
   const [trendScrollTop, setTrendScrollTop] = useState(0);
   const [creationType, setCreationType] = useState("小说");
@@ -2394,6 +2395,12 @@ useEffect(() => {
     setSelectedProduct(designService);
     setScreen("product");
   }
+  // V7: 刷新恢复 — 统一走 loadOrderById，不自动跳转 paying
+  const savedOrderId = localStorage.getItem("ranjing.currentOrderId");
+  if (savedOrderId) {
+    setCurrentOrderId(savedOrderId);
+    void loadOrderById(savedOrderId);
+  }
   // V7 disabled: do not hydrate createdOrder from localStorage.latestOrder
   // const storedOrder = localStorage.getItem("latestOrder");
   // if (storedOrder) {
@@ -2415,6 +2422,57 @@ useEffect(() => {
   const handleCodeAssigned = useCallback((code: string) => {
     setCreatedOrder((current) => current ? { ...current, status: "Paid", deliveredCode: code, paidAt: new Date().toISOString() } : current);
   }, []);
+
+  // V7-1B: 统一订单读取入口
+  async function loadOrderById(orderId: string): Promise<CreatedOrder | null> {
+    try {
+      const res = await fetch(`/api/orders?orderId=${encodeURIComponent(orderId)}`);
+      if (res.status === 404) {
+        setCreatedOrder(null);
+        setCurrentOrderId(null);
+        localStorage.removeItem("ranjing.currentOrderId");
+        return null;
+      }
+      if (!res.ok) {
+        // 网络/500：不制造假订单，不清 ID
+        return null;
+      }
+      const order = await res.json() as CreatedOrder;
+      setCreatedOrder(order);
+      setCurrentOrderId(order.id);
+      localStorage.setItem("ranjing.currentOrderId", order.id);
+      return order;
+    } catch {
+      // 网络异常：不清 ID，不伪造订单
+      return null;
+    }
+  }
+
+  // V7-1B: 创建订单成功后的统一处理
+  function handleOrderCreated(order: CreatedOrder) {
+    setCreatedOrder(order);
+    setCurrentOrderId(order.id);
+    localStorage.setItem("ranjing.currentOrderId", order.id);
+  }
+
+  // V7-1B: 继续支付——禁止重新下单，必须读取原订单
+  async function continuePay(orderId: string) {
+    const order = await loadOrderById(orderId);
+    if (!order) return; // 404/网络错误：保持当前页面，不进入 paying
+
+    const matchedProduct =
+      products.find((p) => p.id === order.productId) ??
+      DESIGN_SERVICES.find((p) => p.id === order.productId) ??
+      null;
+
+    if (!matchedProduct) {
+      // 找不到正确商品：不进入 paying，防串单
+      // products 可能尚未加载完成，保持当前页面
+      return;
+    }
+    setSelectedProduct(matchedProduct);
+    setScreen("paying");
+  }
 
   function go(s: Screen) {
     if (s === "create" || s === "works") {
@@ -2489,13 +2547,13 @@ useEffect(() => {
         {screen === "design" && <DesignScreen go={go} onSelectProduct={setSelectedProduct} />}
         {screen === "design-brief" && selectedProduct && <DesignBriefScreen product={selectedProduct} go={go} />}
         {screen === "product" && selectedProduct && <ProductScreen product={selectedProduct} go={go} />}
-        {screen === "cart" && selectedProduct && <CheckoutScreen product={selectedProduct} go={go} onOrderCreated={setCreatedOrder} />}
-        {screen === "checkout" && selectedProduct && <CheckoutScreen product={selectedProduct} go={go} onOrderCreated={setCreatedOrder} />}
+        {screen === "cart" && selectedProduct && <CheckoutScreen product={selectedProduct} go={go} onOrderCreated={handleOrderCreated} />}
+        {screen === "checkout" && selectedProduct && <CheckoutScreen product={selectedProduct} go={go} onOrderCreated={handleOrderCreated} />}
         {screen === "paying" && selectedProduct && createdOrder && <PayingScreen product={selectedProduct} go={go} order={createdOrder} onCodeAssigned={handleCodeAssigned} />}
-        {screen === "success" && selectedProduct && <SuccessScreen product={selectedProduct} go={go} order={createdOrder} />}
-        {screen === "orders" && <OrdersScreen go={go} currentOrder={createdOrder} />}
-        {screen === "order-detail" && <OrderDetailScreen go={go} order={createdOrder} product={selectedProduct} />}
-        {screen === "library" && <OrdersScreen go={go} currentOrder={createdOrder} />}
+        {screen === "success" && createdOrder && <SuccessScreen go={go} order={createdOrder} />}
+        {screen === "orders" && <OrdersScreen go={go} currentOrder={createdOrder} onContinuePay={continuePay} />}
+        {screen === "order-detail" && <OrderDetailScreen go={go} order={createdOrder} />}
+        {screen === "library" && <OrdersScreen go={go} currentOrder={createdOrder} onContinuePay={continuePay} />}
         {screen === "profile" && <ProfileScreen go={go} />}
         {screen === "about" && <ProfileScreen go={go} />}
         {screen === "support" && <SupportScreen go={go} />}
