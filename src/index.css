@@ -384,7 +384,6 @@ body {
 .success-page {
   color: #302f2b;
   background: #f8f7f3;
-  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
 .purchase-header {
@@ -496,7 +495,7 @@ body {
   color: #fff;
   border: 0;
   border-radius: 10px;
-  background: #8f7563;
+  background: var(--pink);
   font-size: 12px;
   font-weight: 500;
   box-shadow: none;
@@ -626,7 +625,7 @@ body {
 .service-action span,.service-action strong { display:block; }
 .service-action span { color:#a59e96;font-size:8px; }
 .service-action strong { margin-top:4px;color:#6c655f;font-size:9px;font-weight:400; }
-.service-action button,.brief-action button,.brief-success button { height:44px;color:#fff;border:0;border-radius:10px;background:#8f7563;font-size:11px;font-weight:500; }
+.service-action button,.brief-action button,.brief-success button { height:44px;color:#fff;border:0;border-radius:10px;background:var(--pink);font-size:11px;font-weight:500; }
 
 .brief-progress { color:#a39c95;font-family:Arial,sans-serif;font-size:9px;text-align:right; }
 .brief-content { padding:43px 24px 30px; }
@@ -650,14 +649,16 @@ body {
 .brief-success button { width:190px;margin-top:28px; }
 
 .hotspot-tabs-scroll {
+  position: relative;
   scrollbar-width: none;
-  touch-action: pan-x;
+
   overscroll-behavior-x: contain;
 }
 
 .hotspot-tabs-scroll::-webkit-scrollbar {
   display: none;
 }
+
 
 .trends-home {
   color: #292824;
@@ -703,6 +704,8 @@ body {
   font-weight: 400;
   letter-spacing: .08em;
   transition: color .2s ease;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .trend-category.is-active {

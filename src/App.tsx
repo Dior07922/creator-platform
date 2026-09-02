@@ -21,7 +21,7 @@ import { Character, loadNovels, newCharacter, newNovel, Novel, saveNovels, total
 
 type Screen =
   | "welcome" | "login" | "profile-setup" | "splash" | "home" | "resources" | "create" | "design" | "design-brief" | "works" | "writing" | "product" | "checkout" | "paying" | "success"
-  | "cart" | "orders" | "order-detail" | "library" | "profile" | "about" | "trend-detail"
+  | "cart" | "orders" | "order-detail" | "library" | "profile" | "about"
   | "support" | "help" | "settings" | "creator-register" | "wallet" | "membership"
   | "merchant-login" | "merchant-dashboard"
   | "admin-login" | "admin-dashboard" | "admin-products" | "admin-inventory" | "admin-orders" | "admin-merchants";
@@ -30,7 +30,7 @@ type Product = { id: number; name: string; desc: string; price: string; badge: s
 type Order = { id: string; product: string; icon: string; qty: number; amount: string; status: string; time: string };
 type CreatedOrder = { id: string; productId: number; product: string; icon: string; quantity: number; amount: string; paymentMethod: string; status: string; createdAt: string; deliveryEmail: string; saveDeliveryEmail: boolean; emailDeliveryStatus: "NotConfigured" | "Pending" | "Sent" | "Failed"; deliveredCode?: string; paidAt?: string };
 type RedemptionCode = { code: string; productId: number; productName: string; status: "Available" | "Issued" | "Redeemed"; orderId?: string; createdAt: string; issuedAt?: string; redeemedAt?: string };
-type TrendItem = { id: number | string; title: string; source: string; summary: string; directions: string[]; hotnum?: number; url?: string; updatedAt?: string };
+type TrendItem = { id: number | string; source: string; sourceLabel: string; rank: number; title: string; url: string | null; metricValue: number | null; metricLabel: string | null; publishedAt: string | null; fetchedAt: string };
 
 const DESIGN_SERVICES: Product[] = [
   { id: 1001, name: "UI 设计", desc: "根据产品定位定制页面结构、视觉风格和交互方案", price: "定制报价", badge: "设计服务", icon: "UI", color: "#FFFFFF" },
@@ -275,47 +275,38 @@ function SplashScreen({ go }: { go: (s: Screen) => void }) {
   );
 }
 
-const TREND_SOURCES = ["知乎", "微博", "头条", "小红书", "百度", "抖音", "哔哩哔哩", "GitHub"];
-const TREND_PREVIEW: TrendItem[] = [
-  { id: 1, title: "普通人如何把经验整理成可以分享的技能？", source: "知乎", summary: "把日常工作和生活经验拆成问题、方法、案例和交付结果，就能形成一项更容易理解和购买的技能服务。", directions: ["经验整理", "咨询服务", "技能课程"] },
-  { id: 2, title: "AI 工具正在改变哪些个人工作方式？", source: "微博", summary: "AI 正在参与资料整理、内容生成、方案比较和重复任务处理，个人可以围绕真实工作流程设计更有针对性的服务。", directions: ["AI 工作流", "效率咨询", "工具教学"] },
-  { id: 3, title: "小众兴趣如何找到真正需要它的人？", source: "头条", summary: "小众兴趣不必面向所有人，先说明它解决什么问题、适合谁，再通过作品和真实案例找到目标用户。", directions: ["兴趣社群", "作品展示", "一对一教学"] },
-  { id: 4, title: "创作者怎样建立自己的长期作品库？", source: "小红书", summary: "按照主题、时间和完成状态持续归档作品，并补充创作过程与复盘，可以逐步形成稳定的个人作品资产。", directions: ["作品集整理", "内容规划", "个人品牌"] },
-  { id: 5, title: "技能型服务如何写清楚交付边界？", source: "百度", summary: "在售卖前写清服务内容、交付形式、修改次数、完成时间和不包含的事项，可以减少双方理解偏差。", directions: ["服务说明", "交付规范", "售后规则"] },
-  { id: 6, title: "从一个小想法开始完成第一个作品", source: "抖音", summary: "先完成一个最小版本，再根据真实反馈调整，比一开始追求完整更容易积累经验和作品。", directions: ["创作陪跑", "项目拆解", "作品复盘"] },
-];
+const TREND_SOURCES = ["百度", "腾讯", "今日头条", "知乎", "哔哩哔哩", "36氪", "少数派"];
 
-function storyHook(title: string, index: number) {
-  if (title.includes("摇钱树")) return "“摇钱树”背后，真正被讨论的是什么？";
-  if (title.includes("废墟")) return "一幕被转发之前，废墟里发生了什么？";
-  if (title.includes("婚宴") || title.includes("上错")) return "十道主菜上错，婚宴里的信任该如何计算？";
-  if (title.includes("教材")) return "一本新教材，会怎样改变课堂里的日常？";
-  if (title.includes("枪战")) return "枪声出现之前，这里经历了怎样的紧张时刻？";
-  const subject = title.replace(/[？?。！!]/g, "").slice(0, 16);
-  if (index % 3 === 1) return `从“${subject}”开始，事情正在转向哪里？`;
-  if (index % 3 === 2) return `标题之外，“${subject}”还藏着什么？`;
-  return `当“${subject}”成为焦点，我们真正关心什么？`;
-}
-
-function TrendsScreen({ go, onSelectTrend, initialScrollTop, onScrollPositionChange }: { go: (s: Screen) => void; onSelectTrend: (item: TrendItem) => void; initialScrollTop: number; onScrollPositionChange: (value: number) => void }) {
+function TrendsScreen({ go, initialScrollTop, onScrollPositionChange }: { go: (s: Screen) => void; initialScrollTop: number; onScrollPositionChange: (value: number) => void }) {
   const [source, setSource] = useState("全部");
-  const [items, setItems] = useState<TrendItem[]>(TREND_PREVIEW);
+  const [items, setItems] = useState<TrendItem[]>([]);
   const [liveStatus, setLiveStatus] = useState("正在更新实时热点…");
   const tabsRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startScrollLeft: number; pointerId: number; moved: boolean; captured: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+  const isFirstSourceRef = useRef(true);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = initialScrollTop;
   }, [initialScrollTop]);
 
   useEffect(() => {
+    const isFirst = isFirstSourceRef.current;
+    if (isFirst) isFirstSourceRef.current = false;
     setLiveStatus(`正在更新${source === "全部" ? "全网" : source}热点…`);
     fetch(`/api/hotspots?source=${encodeURIComponent(source)}`)
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok || !Array.isArray(result.items) || result.items.length === 0) throw new Error(result.message || "暂无实时热点");
-        setItems((result.items as TrendItem[]).map((item) => ({ ...item, updatedAt: result.updatedAt })));
+        setItems(result.items as TrendItem[]);
         setLiveStatus(`${source === "全部" ? "全网" : source}已更新 ${result.items.length} 条实时热点`);
+        if (!isFirst) {
+          requestAnimationFrame(() => {
+            if (feedRef.current) feedRef.current.scrollTop = 0;
+          });
+        }
       })
       .catch((error) => {
         setItems([]);
@@ -329,26 +320,72 @@ function TrendsScreen({ go, onSelectTrend, initialScrollTop, onScrollPositionCha
         <div className="trends-date">今日正在发生</div>
       </div>
       <div className="trends-categories px-5">
-        <div ref={tabsRef} className="hotspot-tabs-scroll flex gap-7 overflow-x-auto scroll-smooth">
-          {["全部", ...TREND_SOURCES.slice(0, 4)].map((item) => <button key={item} onClick={() => setSource(item)} className={`trend-category shrink-0 ${source === item ? "is-active" : ""}`}>{item}</button>)}
+        <div
+          ref={tabsRef}
+          className={`hotspot-tabs-scroll flex flex-nowrap flex-row gap-7 overflow-x-auto whitespace-nowrap select-none ${dragging ? "cursor-grabbing" : ""}`}
+          onPointerDown={(e) => {
+            const el = tabsRef.current;
+            if (!el) return;
+            if (e.pointerType === "mouse" && e.button !== 0) return;
+            dragRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft, pointerId: e.pointerId, moved: false, captured: false };
+          }}
+          onPointerMove={(e) => {
+            const st = dragRef.current;
+            const el = tabsRef.current;
+            if (!st || !el) return;
+            const dx = e.clientX - st.startX;
+            if (!st.moved && Math.abs(dx) <= 5) return;
+            if (!st.moved) {
+              st.moved = true;
+              setDragging(true);
+              try { el.setPointerCapture(st.pointerId); st.captured = true; } catch { /* noop */ }
+            }
+            el.scrollLeft = st.startScrollLeft - dx;
+          }}
+          onPointerUp={() => {
+            const st = dragRef.current;
+            const el = tabsRef.current;
+            if (!st) return;
+            if (st.moved) {
+              suppressClickRef.current = true;
+              if (st.captured) { try { el?.releasePointerCapture(st.pointerId); } catch { /* noop */ } }
+            }
+            dragRef.current = null;
+            setDragging(false);
+          }}
+          onPointerCancel={() => {
+            const st = dragRef.current;
+            const el = tabsRef.current;
+            if (st?.captured) { try { el?.releasePointerCapture(st.pointerId); } catch { /* noop */ } }
+            dragRef.current = null;
+            setDragging(false);
+          }}
+        >
+          {["全部", ...TREND_SOURCES].map((item) => <button key={item} onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } setSource(item); }} className={`trend-category shrink-0 ${dragging ? "cursor-grabbing" : "cursor-pointer"} ${source === item ? "is-active" : ""}`}>{item}</button>)}
         </div>
       </div>
       <div ref={feedRef} onScroll={(event) => onScrollPositionChange(event.currentTarget.scrollTop)} className="trends-feed flex-1 overflow-y-auto px-5 pt-2">
         <div className="trends-status">{liveStatus}{source !== "全部" ? ` · 当前查看：${source}` : ""}</div>
         {items.length === 0 && <div className="py-12 text-center text-sm text-[var(--text2)]">当前平台暂时没有可显示的实时热点</div>}
         {items.map((item, index) => {
-          const featured = index === 2 || index === 7 || index === 13;
+          const metricText = item.metricValue != null && item.metricLabel
+            ? ` · ${item.metricValue.toLocaleString("zh-CN")} ${item.metricLabel}`
+            : "";
           return (
-          <button key={item.id} onClick={() => {
-            onScrollPositionChange(feedRef.current?.scrollTop ?? 0);
-            onSelectTrend(item);
-            go("trend-detail");
-          }} className={`trend-row ${featured ? "is-featured" : ""} w-full text-left`}>
+          <button
+            key={item.id}
+            onClick={() => {
+              if (!item.url) return;
+              onScrollPositionChange(feedRef.current?.scrollTop ?? 0);
+              window.open(item.url, "_blank", "noopener,noreferrer");
+            }}
+            disabled={!item.url}
+            className={`trend-row w-full text-left ${!item.url ? "is-disabled" : ""}`}
+          >
             <span className="trend-number">{String(index + 1).padStart(2, "0")}</span>
             <div className="min-w-0 flex-1">
               <div className="trend-item-title">{item.title}</div>
-              {featured && <div className="trend-hook">{storyHook(item.title, index)}</div>}
-              <div className="trend-meta">{item.source}{item.hotnum ? ` · ${item.hotnum.toLocaleString("zh-CN")} 热度` : ""}</div>
+              <div className="trend-meta">{item.sourceLabel}{metricText}</div>
             </div>
           </button>
         )})}
@@ -358,39 +395,6 @@ function TrendsScreen({ go, onSelectTrend, initialScrollTop, onScrollPositionCha
   );
 }
 
-function TrendDetailScreen({ go, item }: { go: (s: Screen) => void; item: TrendItem | null }) {
-  if (!item) return null;
-  const updatedLabel = item.updatedAt
-    ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(item.updatedAt))
-    : "实时更新";
-  const hotLabel = item.hotnum
-    ? item.hotnum >= 100_000_000
-      ? `${(item.hotnum / 100_000_000).toFixed(1)}亿`
-      : item.hotnum >= 10_000
-        ? `${(item.hotnum / 10_000).toFixed(1)}万`
-        : item.hotnum.toLocaleString("zh-CN")
-    : "";
-  return (
-    <div className="trend-detail-page flex-1 flex flex-col overflow-hidden">
-      <header className="trend-detail-header">
-        <button onClick={() => go("home")} className="trend-detail-back">←&nbsp; 全网热点</button>
-        <span>{item.source} · {updatedLabel}</span>
-      </header>
-      <main className="trend-detail-content flex-1 overflow-y-auto scrollbar-hide">
-        <div className="trend-detail-kicker">{hotLabel ? `${item.source}热度 · ${hotLabel}` : item.source}</div>
-        <h1>{item.title}</h1>
-        <section className="trend-detail-summary">
-          <div className="trend-detail-label">热点摘要</div>
-          <p>{item.summary}</p>
-        </section>
-        <div className="trend-detail-note">热度代表网络关注度，不等于信息已经得到完整核实。阅读原文时，请留意发布来源与更新时间。</div>
-        {item.url
-          ? <a href={item.url} target="_blank" rel="noopener noreferrer" className="trend-original-link">查看原始新闻&nbsp; ↗</a>
-          : <div className="trend-original-unavailable">当前暂无可用的原始新闻链接</div>}
-      </main>
-    </div>
-  );
-}
 
 const CREATOR_PLATFORMS = [
   { name: "微信公众号", mark: "微", url: "https://mp.weixin.qq.com/" },
@@ -1160,7 +1164,7 @@ function OrdersScreen({ go, currentOrder, onContinuePay }: { go: (s: Screen) => 
       <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-4 flex flex-col gap-3">
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <div className="text-4xl">📭</div>
+            <div className="text-3xl text-[var(--border)] select-none">—</div>
             <div className="text-sm text-[var(--text2)]">暂无订单</div>
           </div>
         )}
@@ -1245,7 +1249,7 @@ function OrderDetailScreen({ go, order }: { go: (s: Screen) => void; order: Crea
         <div className="bg-[var(--bg2)] rounded-2xl p-4 border border-[var(--border)]">
           <div className="text-sm font-bold text-[var(--text)] mb-3">商品</div>
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-[var(--cream)] flex items-center justify-center text-2xl">{order?.icon ?? "🎁"}</div>
+            <div className="w-12 h-12 rounded-xl bg-[var(--cream)] flex items-center justify-center text-sm font-semibold text-[var(--text2)]" style={{ fontFamily: "Arial, sans-serif", letterSpacing: 0 }}>{(order?.product ?? "—").slice(0, 2)}</div>
             <div className="flex-1">
               <div className="text-sm font-bold text-[var(--text)]">{order?.product ?? "—"}</div>
               <div className="text-xs text-[var(--text2)]">数量：{order?.quantity ?? 1}</div>
@@ -1256,7 +1260,7 @@ function OrderDetailScreen({ go, order }: { go: (s: Screen) => void; order: Crea
 
         {/* Digital delivery */}
         <div className="bg-[var(--bg2)] rounded-2xl p-4 border border-[var(--border)]">
-          <div className="text-sm font-bold text-[var(--text)] mb-3">🔑 数字交付</div>
+          <div className="text-sm font-bold text-[var(--text)] mb-3">数字交付</div>
           {order?.deliveredCode ? (
             <div className="flex items-center justify-between bg-[var(--pink-soft)] rounded-xl px-3 py-2.5 mb-2">
               <div>
@@ -2369,7 +2373,7 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
-  const [selectedTrend, setSelectedTrend] = useState<TrendItem | null>(null);
+
   const [trendScrollTop, setTrendScrollTop] = useState(0);
   const [creationType, setCreationType] = useState("小说");
   const [selectedNovelId, setSelectedNovelId] = useState<string | null>(null);
@@ -2538,8 +2542,7 @@ useEffect(() => {
         {authReady && screen === "login" && <LoginScreen onVerified={(isNew)=>setScreen(isNew?"profile-setup":"home")} />}
         {screen === "profile-setup" && <ProfileSetupScreen go={go} />}
         {screen === "splash" && <SplashScreen go={go} />}
-        {screen === "home" && <TrendsScreen go={go} onSelectTrend={setSelectedTrend} initialScrollTop={trendScrollTop} onScrollPositionChange={setTrendScrollTop} />}
-        {screen === "trend-detail" && <TrendDetailScreen go={go} item={selectedTrend} />}
+        {screen === "home" && <TrendsScreen go={go} initialScrollTop={trendScrollTop} onScrollPositionChange={setTrendScrollTop} />}
         {screen === "resources" && <HomeScreen go={go} onSelectProduct={setSelectedProduct} products={products} />}
         {screen === "create" && <CreateScreen go={go} openCreation={openCreation} openNovel={openNovel} />}
         {screen === "works" && <NovelLibraryScreen go={go} openNovel={openNovel} />}
