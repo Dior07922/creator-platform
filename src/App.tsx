@@ -404,9 +404,7 @@ const CREATION_ROOMS: { type: CreationRoomType; name: string; sub: string }[] = 
 
 function CreateScreen({ go }: { go: (s: Screen) => void }) {
   const [stage, setStage] = useState<"closed" | "open" | "room">("closed");
-  const [selectedRoom, setSelectedRoom] = useState<CreationRoomType>("minimal");
 
-  // 点击房间后直接进入创作页面
   if (stage === "room") {
     return <CreationMinimalRoom onBack={() => setStage("open")} />;
   }
@@ -415,34 +413,43 @@ function CreateScreen({ go }: { go: (s: Screen) => void }) {
     <div className="create-page flex-1 flex flex-col overflow-hidden">
       <main className="create-portal flex-1 flex items-center justify-center">
         <div className="create-door-stage">
-          <div
+          <button
+            type="button"
             className={`create-door ${stage === "open" ? "is-open" : ""}`}
-            onClick={() => { if (stage === "closed") setStage("open"); }}
+            onClick={() => {
+              if (stage === "closed") setStage("open");
+            }}
+            aria-label="打开创作入口"
           >
-            <div className="create-door-leaf create-door-leaf--left" />
-            <div className="create-door-leaf create-door-leaf--right" />
-          </div>
-
-          <div className={`create-rooms ${stage === "open" ? "is-visible" : ""}`}>
-            {CREATION_ROOMS.map((room) => (
-              <button
-                key={room.type}
-                className="create-room-item"
-                onClick={() => {
-                  setSelectedRoom(room.type);
-                  setStage("room");
-                }}
-              >
-                <span className="create-room-name">{room.name}</span>
-                {room.sub ? <span className="create-room-sub">{room.sub}</span> : null}
-              </button>
-            ))}
-          </div>
+            <span className="create-door-leaf create-door-leaf--left" />
+            <span className="create-door-leaf create-door-leaf--right" />
+          </button>
 
           {stage === "open" && (
-            <button className="create-rooms-back" onClick={() => setStage("closed")} aria-label="返回">
-              ←
-            </button>
+            <>
+              <div className="create-rooms is-visible">
+                {CREATION_ROOMS.map((room) => (
+                  <button
+                    key={room.type}
+                    type="button"
+                    className="create-room-item"
+                    onClick={() => setStage("room")}
+                  >
+                    <span className="create-room-name">{room.name}</span>
+                    {room.sub ? <span className="create-room-sub">{room.sub}</span> : null}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="create-rooms-back"
+                onClick={() => setStage("closed")}
+                aria-label="返回"
+              >
+                ←
+              </button>
+            </>
           )}
         </div>
       </main>

@@ -173,6 +173,17 @@ function CreationMinimalEditor({ onBack }: { onBack: () => void }) {
 
   const dragRef = useRef<DragState | null>(null);
 const editorRef = useRef<HTMLDivElement>(null);
+const [editorMenu, setEditorMenu] =
+  useState<
+    | "text"
+    | "paragraph"
+    | "align"
+    | "list"
+    | "color"
+    | "more"
+    | null
+  >(null);
+  const [editorMenuLeft, setEditorMenuLeft] = useState(10);
 const syncEditorContent = () => {
   const editor = editorRef.current;
   if (!editor) return;
@@ -187,24 +198,23 @@ const runEditorCommand = (
   value?: string
 ) => {
   const editor = editorRef.current;
+
   if (!editor) return;
 
   editor.focus();
 
   try {
     document.execCommand(
-      "styleWithCSS",
-      false,
-      "true"
-    );
-
-    document.execCommand(
       command,
       false,
       value
     );
-  } catch {
-    /* noop */
+  } catch (error) {
+    console.error(
+      "编辑命令执行失败：",
+      command,
+      error
+    );
   }
 
   syncEditorContent();
@@ -317,7 +327,7 @@ useLayoutEffect(() => {
   ) => {
     e.stopPropagation();
 
-    setSelected(true);
+    setSelected(false);
 
     const el = canvasRef.current;
 
@@ -569,178 +579,404 @@ useLayoutEffect(() => {
           ←
         </button>
 
-        <span>留白</span>
+        
       </header>
-{/* ===== 基础写作工具栏 ===== */}
+{/* ===== 分组写作工具栏 ===== */}
+<div className="cm-writing-toolbar-shell">
+
+  {/* 一级菜单：横向滑动 */}
 <div className="cm-writing-toolbar">
-  <button
-    title="撤销"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand("undo");
-    }}
-  >
-    ↶
-  </button>
 
   <button
-    title="重做"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand("redo");
-    }}
-  >
-    ↷
-  </button>
-
-  <span className="cm-toolbar-divider" />
-
-  <button
-    title="正文"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand(
-        "formatBlock",
-        "p"
-      );
-    }}
-  >
-    正文
-  </button>
-
-  <button
-    title="标题"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand(
-        "formatBlock",
-        "h2"
-      );
-    }}
-  >
-    标题
-  </button>
-
-  <span className="cm-toolbar-divider" />
-
-  <button
-    title="粗体"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand("bold");
-    }}
-  >
-    <b>B</b>
-  </button>
-
-  <button
-    title="斜体"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand("italic");
-    }}
-  >
-    <i>I</i>
-  </button>
-
-  <button
-    title="下划线"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand("underline");
-    }}
-  >
-    <u>U</u>
-  </button>
-
-  <button
-    title="高亮"
+    className={editorMenu === "text" ? "is-active" : ""}
     onMouseDown={(e) => {
       e.preventDefault();
 
-      try {
-        document.execCommand(
-          "hiliteColor",
-          false,
-          "#f3df8e"
-        );
-      } catch {
-        document.execCommand(
-          "backColor",
-          false,
-          "#f3df8e"
+      const toolbar = e.currentTarget.parentElement;
+      if (toolbar) {
+        setEditorMenuLeft(
+          Math.max(
+            10,
+            Math.min(
+              e.currentTarget.offsetLeft - toolbar.scrollLeft,
+              toolbar.clientWidth - 190
+            )
+          )
         );
       }
 
-      syncEditorContent();
-    }}
-  >
-    ▰
-  </button>
-
-  <span className="cm-toolbar-divider" />
-
-  <button
-    title="项目符号"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand(
-        "insertUnorderedList"
+      setEditorMenu((current) =>
+        current === "text" ? null : "text"
       );
     }}
   >
-    •≡
+    文字
   </button>
 
   <button
-    title="编号列表"
+    className={editorMenu === "paragraph" ? "is-active" : ""}
     onMouseDown={(e) => {
       e.preventDefault();
-      runEditorCommand(
-        "insertOrderedList"
+
+      const toolbar = e.currentTarget.parentElement;
+      if (toolbar) {
+        setEditorMenuLeft(
+          Math.max(
+            10,
+            Math.min(
+              e.currentTarget.offsetLeft - toolbar.scrollLeft,
+              toolbar.clientWidth - 190
+            )
+          )
+        );
+      }
+
+      setEditorMenu((current) =>
+        current === "paragraph" ? null : "paragraph"
       );
     }}
   >
-    1≡
-  </button>
-
-  <span className="cm-toolbar-divider" />
-
-  <button
-    title="左对齐"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand(
-        "justifyLeft"
-      );
-    }}
-  >
-    ≡
-  </button>
-
-  <button
-    title="居中"
-    onMouseDown={(e) => {
-      e.preventDefault();
-      runEditorCommand(
-        "justifyCenter"
-      );
-    }}
-  >
-    ≣
+    段落
   </button>
 
   <button
-    title="右对齐"
+    className={editorMenu === "align" ? "is-active" : ""}
     onMouseDown={(e) => {
       e.preventDefault();
-      runEditorCommand(
-        "justifyRight"
+
+      const toolbar = e.currentTarget.parentElement;
+      if (toolbar) {
+        setEditorMenuLeft(
+          Math.max(
+            10,
+            Math.min(
+              e.currentTarget.offsetLeft - toolbar.scrollLeft,
+              toolbar.clientWidth - 190
+            )
+          )
+        );
+      }
+
+      setEditorMenu((current) =>
+        current === "align" ? null : "align"
       );
     }}
   >
-    ≡
+    对齐
   </button>
+
+  <button
+    className={editorMenu === "list" ? "is-active" : ""}
+    onMouseDown={(e) => {
+      e.preventDefault();
+
+      const toolbar = e.currentTarget.parentElement;
+      if (toolbar) {
+        setEditorMenuLeft(
+          Math.max(
+            10,
+            Math.min(
+              e.currentTarget.offsetLeft - toolbar.scrollLeft,
+              toolbar.clientWidth - 190
+            )
+          )
+        );
+      }
+
+      setEditorMenu((current) =>
+        current === "list" ? null : "list"
+      );
+    }}
+  >
+    列表
+  </button>
+
+  <button
+    className={editorMenu === "color" ? "is-active" : ""}
+    onMouseDown={(e) => {
+      e.preventDefault();
+
+      const toolbar = e.currentTarget.parentElement;
+      if (toolbar) {
+        setEditorMenuLeft(
+          Math.max(
+            10,
+            Math.min(
+              e.currentTarget.offsetLeft - toolbar.scrollLeft,
+              toolbar.clientWidth - 190
+            )
+          )
+        );
+      }
+
+      setEditorMenu((current) =>
+        current === "color" ? null : "color"
+      );
+    }}
+  >
+    颜色
+  </button>
+
+  <button
+    className={editorMenu === "more" ? "is-active" : ""}
+    onMouseDown={(e) => {
+      e.preventDefault();
+
+      const toolbar = e.currentTarget.parentElement;
+      if (toolbar) {
+        setEditorMenuLeft(
+          Math.max(
+            10,
+            Math.min(
+              e.currentTarget.offsetLeft - toolbar.scrollLeft,
+              toolbar.clientWidth - 190
+            )
+          )
+        );
+      }
+
+      setEditorMenu((current) =>
+        current === "more" ? null : "more"
+      );
+    }}
+  >
+    更多
+  </button>
+
+</div>
+
+  {/* 二级菜单 */}
+  {editorMenu && (
+    <div
+  className="cm-editor-submenu"
+  style={{ left: `${editorMenuLeft}px` }}
+>
+
+      {editorMenu === "text" && (
+        <>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("formatBlock", "p");
+            }}
+          >
+            正文
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("formatBlock", "h2");
+            }}
+          >
+            标题
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("bold");
+            }}
+          >
+            粗体
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("italic");
+            }}
+          >
+            斜体
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("underline");
+            }}
+          >
+            下划线
+          </button>
+        </>
+      )}
+
+      {editorMenu === "paragraph" && (
+        <>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("insertParagraph");
+            }}
+          >
+            新建段落
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("indent");
+            }}
+          >
+            增加缩进
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("outdent");
+            }}
+          >
+            减少缩进
+          </button>
+        </>
+      )}
+
+      {editorMenu === "align" && (
+        <>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("justifyLeft");
+            }}
+          >
+            左对齐
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("justifyCenter");
+            }}
+          >
+            居中
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("justifyRight");
+            }}
+          >
+            右对齐
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("justifyFull");
+            }}
+          >
+            两端对齐
+          </button>
+        </>
+      )}
+
+      {editorMenu === "list" && (
+        <>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("insertUnorderedList");
+            }}
+          >
+            • 项目符号
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("insertOrderedList");
+            }}
+          >
+            1. 编号列表
+          </button>
+        </>
+      )}
+
+      {editorMenu === "color" && (
+        <>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("backColor", "#f3df8e");
+            }}
+          >
+            黄色高亮
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("backColor", "transparent");
+            }}
+          >
+            取消高亮
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("foreColor", "#3a352e");
+            }}
+          >
+            深色文字
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("foreColor", "#8b5e4b");
+            }}
+          >
+            棕色文字
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("foreColor", "#8a8580");
+            }}
+          >
+            灰色文字
+          </button>
+        </>
+      )}
+
+      {editorMenu === "more" && (
+        <>
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("undo");
+            }}
+          >
+            ↶ 撤销
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("redo");
+            }}
+          >
+            ↷ 重做
+          </button>
+
+          <button
+            onMouseDown={(e) => {
+              e.preventDefault();
+              runEditorCommand("removeFormat");
+            }}
+          >
+            清除格式
+          </button>
+        </>
+      )}
+
+    </div>
+  )}
+
 </div>
      
 
@@ -804,259 +1040,132 @@ useLayoutEffect(() => {
         </svg>
 
         <div
-          className={`cm-shape ${
-            selected
-              ? "is-selected"
-              : ""
-          }`}
-          style={{
-            left: boxLeft,
-            top: boxTop,
-            width: boxW,
-            height: boxH,
-            transform: `rotate(${state.rotation}deg)`,
-          }}
-          onPointerDown={
-            onShapePointerDown
-          }
-        >
-
-          <svg
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            className="cm-shape-svg"
-          >
-
-            {state.lines.map((l) =>
-              l.kind === "arc" &&
-              l.cx !== undefined &&
-              l.cy !== undefined ? (
-                <path
-                  key={l.id}
-                  d={`M ${
-                    l.x1 * 100
-                  } ${
-                    l.y1 * 100
-                  } Q ${
-                    l.cx * 100
-                  } ${
-                    l.cy * 100
-                  } ${
-                    l.x2 * 100
-                  } ${
-                    l.y2 * 100
-                  }`}
-                  fill="none"
-                  stroke={
-                    strokeColor
-                  }
-                  strokeWidth={
-                    state.borderWidth
-                  }
-                  strokeLinecap={
-                    bStyleDef.cap
-                  }
-                  opacity={
-                    state.borderOpacity
-                  }
-                  filter={
-                    bStyleDef.filter
-                  }
-                  vectorEffect="non-scaling-stroke"
-                />
-              ) : (
-                <line
-                  key={l.id}
-                  x1={l.x1 * 100}
-                  y1={l.y1 * 100}
-                  x2={l.x2 * 100}
-                  y2={l.y2 * 100}
-                  stroke={
-                    strokeColor
-                  }
-                  strokeWidth={
-                    state.borderWidth
-                  }
-                  strokeLinecap={
-                    bStyleDef.cap
-                  }
-                  opacity={
-                    state.borderOpacity
-                  }
-                  filter={
-                    bStyleDef.filter
-                  }
-                  vectorEffect="non-scaling-stroke"
-                />
-              )
-            )}
-
-          </svg>
-
-         <div
-  ref={editorRef}
-  className="cm-text"
-  contentEditable
-  suppressContentEditableWarning
-  data-placeholder="开始写……"
-  spellCheck={false}
-  onInput={(e) => {
-    patch({
-      content: e.currentTarget.innerHTML,
-    });
-  }}
+  className="cm-shape"
   style={{
-    clipPath,
-    WebkitClipPath: clipPath,
-    fontFamily: fontDef.stack,
-    fontWeight: fontDef.weight,
-    letterSpacing:
-      fontDef.letterSpacing ?? "normal",
-    color: inkColor,
-    whiteSpace: "pre-wrap",
-    overflowY: "auto",
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    transform: "none",
+    overflow: "visible",
+    pointerEvents: "none",
   }}
-/>
+>
+  <svg
+    viewBox="0 0 100 100"
+    preserveAspectRatio="none"
+    className="cm-shape-svg"
+    style={{
+      position: "absolute",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      zIndex: 1,
+      pointerEvents: "none",
+    }}
+  >
+    {state.lines.map((l) =>
+      l.kind === "arc" &&
+      l.cx !== undefined &&
+      l.cy !== undefined ? (
+        <path
+          key={l.id}
+          d={`M ${l.x1 * 100} ${
+            l.y1 * 100
+          } Q ${l.cx * 100} ${
+            l.cy * 100
+          } ${l.x2 * 100} ${
+            l.y2 * 100
+          }`}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={
+            state.borderWidth
+          }
+          strokeLinecap={
+            bStyleDef.cap
+          }
+          opacity={
+            state.borderOpacity
+          }
+          filter={
+            bStyleDef.filter
+          }
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : (
+        <line
+          key={l.id}
+          x1={l.x1 * 100}
+          y1={l.y1 * 100}
+          x2={l.x2 * 100}
+          y2={l.y2 * 100}
+          stroke={strokeColor}
+          strokeWidth={
+            state.borderWidth
+          }
+          strokeLinecap={
+            bStyleDef.cap
+          }
+          opacity={
+            state.borderOpacity
+          }
+          filter={
+            bStyleDef.filter
+          }
+          vectorEffect="non-scaling-stroke"
+        />
+      )
+    )}
+  </svg>
 
-          {selected && (
-            <Fragment>
-
-              {state.lines.map(
-                (l) => (
-                  <Fragment
-                    key={`ep-${l.id}`}
-                  >
-                    <span
-                      className="cm-endpoint"
-                      style={{
-                        left: `${
-                          l.x1 * 100
-                        }%`,
-                        top: `${
-                          l.y1 * 100
-                        }%`,
-                      }}
-                      onPointerDown={(
-                        e
-                      ) =>
-                        onEndpointPointerDown(
-                          e,
-                          l.id,
-                          "p1"
-                        )
-                      }
-                    />
-
-                    <span
-                      className="cm-endpoint"
-                      style={{
-                        left: `${
-                          l.x2 * 100
-                        }%`,
-                        top: `${
-                          l.y2 * 100
-                        }%`,
-                      }}
-                      onPointerDown={(
-                        e
-                      ) =>
-                        onEndpointPointerDown(
-                          e,
-                          l.id,
-                          "p2"
-                        )
-                      }
-                    />
-
-                    {l.kind ===
-                      "arc" &&
-                      l.cx !==
-                        undefined &&
-                      l.cy !==
-                        undefined && (
-                        <span
-                          className="cm-endpoint cm-endpoint-ctrl"
-                          style={{
-                            left: `${
-                              l.cx *
-                              100
-                            }%`,
-                            top: `${
-                              l.cy *
-                              100
-                            }%`,
-                          }}
-                          onPointerDown={(
-                            e
-                          ) =>
-                            onEndpointPointerDown(
-                              e,
-                              l.id,
-                              "ctrl"
-                            )
-                          }
-                        />
-                      )}
-
-                  </Fragment>
-                )
-              )}
-
-              {(
-                [
-                  {
-                    k: "tl",
-                    x: 0,
-                    y: 0,
-                  },
-                  {
-                    k: "tr",
-                    x: 1,
-                    y: 0,
-                  },
-                  {
-                    k: "br",
-                    x: 1,
-                    y: 1,
-                  },
-                  {
-                    k: "bl",
-                    x: 0,
-                    y: 1,
-                  },
-                ] as const
-              ).map((c) => (
-                <span
-                  key={c.k}
-                  className="cm-handle"
-                  style={{
-                    left: `${
-                      c.x * 100
-                    }%`,
-                    top: `${
-                      c.y * 100
-                    }%`,
-                  }}
-                  onPointerDown={
-                    onScalePointerDown
-                  }
-                />
-              ))}
-
-              <span
-                className="cm-rotate-handle"
-                style={{
-                  left: "50%",
-                  top: "-22px",
-                }}
-                onPointerDown={
-                  onRotatePointerDown
-                }
-              />
-
-            </Fragment>
-          )}
-
+  <div
+    ref={editorRef}
+    className="cm-text"
+    contentEditable
+    suppressContentEditableWarning
+    data-placeholder="开始写……"
+    spellCheck={false}
+    onPointerDown={(e) => {
+      e.stopPropagation();
+      setSelected(false);
+    }}
+    onInput={(e) => {
+      patch({
+        content:
+          e.currentTarget.innerHTML,
+      });
+    }}
+    style={{
+      position: "absolute",
+      inset: 0,
+      zIndex: 5,
+      boxSizing: "border-box",
+      width: "100%",
+      height: "100%",
+      padding:
+        "22px 20px 40px",
+      border: 0,
+      outline: "none",
+      background:
+        "transparent",
+      pointerEvents: "auto",
+      cursor: "text",
+      fontFamily:
+        fontDef.stack,
+      fontWeight:
+        fontDef.weight,
+      letterSpacing:
+        fontDef.letterSpacing ??
+        "normal",
+      color: inkColor,
+      fontSize: 15,
+      lineHeight: 1.8,
+      whiteSpace: "pre-wrap",
+      overflowY: "auto",
+      caretColor: "#3a352e",
+    }}
+  />
         </div>
 
       </div>
@@ -1064,6 +1173,8 @@ useLayoutEffect(() => {
     </div>
   );
 }
+
+
 
 
 export default function CreationMinimalRoom({
@@ -1079,7 +1190,13 @@ export default function CreationMinimalRoom({
     openedAt: number;
     state: State;
   };
-
+type CloudFolder = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
   const LIBRARY_KEY = "ranjing.creation.minimal.docs.v1";
 
   const normalizeState = (saved: Partial<State>): State => {
@@ -1231,6 +1348,36 @@ export default function CreationMinimalRoom({
     content?: string;
     vip: boolean;
   } | null>(null);
+  const [cloudFolders, setCloudFolders] =
+  useState<CloudFolder[]>([]);
+
+const [cloudFoldersLoading, setCloudFoldersLoading] =
+  useState(false);
+
+const [cloudFolderError, setCloudFolderError] =
+  useState("");
+const [showCreateCloudMenu, setShowCreateCloudMenu] =
+  useState(false);
+const [showCreateFolder, setShowCreateFolder] =
+  useState(false);
+
+const [newFolderName, setNewFolderName] =
+  useState("");
+
+const [creatingFolder, setCreatingFolder] =
+  useState(false);
+
+const [openedCloudFolder, setOpenedCloudFolder] =
+  useState<CloudFolder | null>(null);
+
+const [showMembership, setShowMembership] =
+  useState(false);
+
+const [membershipPlan, setMembershipPlan] =
+  useState<"monthly" | "yearly" | null>(null);
+
+const [membershipMessage, setMembershipMessage] =
+  useState("");
 const [cloudWidth, setCloudWidth] =
   useState(390);
 
@@ -1258,7 +1405,111 @@ useLayoutEffect(() => {
 }, [view]);
 
 const isMobile = cloudWidth < 680;
- 
+ const loadCloudFolders = async () => {
+  setCloudFoldersLoading(true);
+  setCloudFolderError("");
+
+  try {
+    const response = await fetch(
+      "/api/cloud/folders",
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "读取云端文件夹失败"
+      );
+    }
+
+    setCloudFolders(
+      Array.isArray(data.folders)
+        ? data.folders
+        : []
+    );
+  } catch (error) {
+    setCloudFolderError(
+      error instanceof Error
+        ? error.message
+        : "读取云端文件夹失败"
+    );
+  } finally {
+    setCloudFoldersLoading(false);
+  }
+};
+
+const createCloudFolder = async () => {
+  const name = newFolderName.trim();
+
+  if (!name) {
+    setCloudFolderError(
+      "请输入文件夹名称"
+    );
+    return;
+  }
+
+  setCreatingFolder(true);
+  setCloudFolderError("");
+
+  try {
+    const response = await fetch(
+      "/api/cloud/folders",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          name,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message || "创建文件夹失败"
+      );
+    }
+
+    if (data.folder) {
+      setCloudFolders((folders) => [
+        data.folder,
+        ...folders,
+      ]);
+    }
+
+    setNewFolderName("");
+    setShowCreateFolder(false);
+    setCloudSection("recent");
+  } catch (error) {
+    setCloudFolderError(
+      error instanceof Error
+        ? error.message
+        : "创建文件夹失败"
+    );
+  } finally {
+    setCreatingFolder(false);
+  }
+};
+
+useEffect(() => {
+  if (
+    view === "cloud-home" &&
+    (
+      cloudSection === "files" ||
+      cloudSection === "recent"
+    )
+  ) {
+    loadCloudFolders();
+  }
+}, [view, cloudSection]);
 
  
 
@@ -2143,15 +2394,14 @@ const cloudVipTemplates = [
             fontWeight: 400,
           }}
         >
-          云端随笔
+         
         </strong>
 
         <div style={{ flex: 1 }} />
 <button
   onClick={() => {
-    alert(
-      "会员可使用专业模板、多人实时协作、云端历史版本等功能。"
-    );
+    setMembershipPlan(null);
+    setShowMembership(true);
   }}
   style={{
     height: 32,
@@ -2292,51 +2542,173 @@ const cloudVipTemplates = [
               : "27px 30px 40px",
           }}
         >
-          <h2
+          <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  }}
+>
+  
+
+  
+</div>
+
+          {(cloudSection === "files" ||
+  cloudSection === "recent") && (
+  <div style={{ marginTop: 22 }}>
+    {cloudFoldersLoading ? (
+      <div
+        style={{
+          padding: 40,
+          textAlign: "center",
+          color: "#aaa39b",
+          fontSize: 11,
+        }}
+      >
+        正在读取云端文件…
+      </div>
+    ) : cloudFolders.length > 0 ? (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(2,minmax(0,1fr))",
+          gap: 12,
+        }}
+      >
+        {cloudFolders.map((folder) => (
+          <button
+            key={folder.id}
+            type="button"
+            onClick={() =>
+              setOpenedCloudFolder(folder)
+            }
             style={{
-              margin: 0,
-              fontFamily:
-                '"Songti SC","STSong",serif',
-              fontSize: isMobile ? 19 : 21,
-              fontWeight: 400,
+              minHeight: 92,
+              padding: 15,
+              border:
+                "1px solid rgba(128,107,92,.15)",
+              borderRadius: 9,
+              background: "#fffdfa",
+              color: "#514b45",
+              textAlign: "left",
+              cursor: "pointer",
             }}
           >
-            {cloudTitle}
-          </h2>
-
-          {cloudSection !==
-            "templates" && (
             <div
               style={{
-                minHeight: 310,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                textAlign: "center",
+                fontSize: 24,
+                color: "#a28c78",
+                marginBottom: 10,
               }}
             >
-              <div
-                style={{
-                  color: "#aaa39b",
-                  fontSize: 12,
-                }}
-              >
-                {emptyText}
-              </div>
-
-              <div
-                style={{
-                  marginTop: 8,
-                  color: "#c1bbb4",
-                  fontSize: 9,
-                  lineHeight: 1.8,
-                }}
-              >
-                当前没有真实云端数据
-              </div>
+              ▰
             </div>
-          )}
+
+            <div
+              style={{
+                fontSize: 13,
+                fontFamily:
+                  '"Songti SC","STSong",serif',
+              }}
+            >
+              {folder.name}
+            </div>
+          </button>
+        ))}
+      </div>
+    ) : (
+      <div
+  style={{
+    minHeight: 310,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  }}
+>
+  <button
+    onClick={() => {
+      setCloudFolderError("");
+      setNewFolderName("");
+      setShowCreateFolder(true);
+    }}
+    style={{
+      height: 42,
+      padding: "0 18px",
+      border: "1px solid rgba(128,107,92,.18)",
+      borderRadius: 10,
+      background: "#5f554d",
+      color: "#fff",
+      fontSize: 11,
+      fontWeight: 600,
+      cursor: "pointer",
+    }}
+  >
+    ＋ 新建文件夹
+  </button>
+</div>
+    )}
+
+    {cloudFolderError && (
+      <div
+        style={{
+          marginTop: 14,
+          color: "#a35f55",
+          fontSize: 10,
+        }}
+      >
+        {cloudFolderError}
+      </div>
+    )}
+  </div>
+)}
+
+{cloudSection !== "files" &&
+  cloudSection !== "templates" && (
+    <div
+      style={{
+        minHeight: 310,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+      }}
+    >
+      {cloudSection === "recent" ? (
+        <button
+  onClick={() => {
+    setCloudFolderError("");
+    setShowCreateCloudMenu(true);
+  }}
+          style={{
+            height: 42,
+            padding: "0 18px",
+            border: "1px solid rgba(128,107,92,.18)",
+            borderRadius: 10,
+            background: "#5f554d",
+            color: "#fff",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+         ＋ 新建云端文件
+        </button>
+      ) : (
+        <div
+          style={{
+            color: "#aaa39b",
+            fontSize: 12,
+          }}
+        >
+          {emptyText}
+        </div>
+      )}
+    </div>
+  )}
 
           {cloudSection === "templates" && (
   <>
@@ -2594,6 +2966,11 @@ setView("editor");
   .map((item) => (
         <button
           key={item.id}
+          type="button"
+          onClick={() => {
+            setMembershipPlan(null);
+            setShowMembership(true);
+          }}
           style={{
             position: "relative",
             minHeight: 126,
@@ -2719,6 +3096,578 @@ setView("editor");
   </>
 )}
         </main>
+{showCreateCloudMenu && (
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="创建云端文件"
+    style={{
+      position: "absolute",
+      inset: 0,
+      zIndex: 119,
+      display: "grid",
+      placeItems: "center",
+      padding: 24,
+      background: "rgba(55, 48, 42, .18)",
+      backdropFilter: "blur(3px)",
+    }}
+  >
+    <div
+      style={{
+        width: "min(100%, 340px)",
+        padding: "20px",
+        border: "1px solid rgba(128,107,92,.16)",
+        borderRadius: 12,
+        background: "#fffdfa",
+        boxShadow: "0 18px 50px rgba(55,45,34,.16)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 18,
+        }}
+      >
+        <h2
+          style={{
+            margin: 0,
+            fontFamily: '"Songti SC","STSong",serif',
+            fontSize: 18,
+            fontWeight: 400,
+          }}
+        >
+          创建云端文件
+        </h2>
+
+        <button
+          type="button"
+          onClick={() => setShowCreateCloudMenu(false)}
+          style={{
+            width: 30,
+            height: 30,
+            border: 0,
+            background: "transparent",
+            color: "#8f8880",
+            fontSize: 18,
+            cursor: "pointer",
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 10,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+  setShowCreateCloudMenu(false);
+
+  const now = Date.now();
+
+  const cloudState: State = {
+    ...DEFAULT_STATE,
+    templateId: null,
+    content: "",
+    lines: [],
+    updatedAt: now,
+  };
+
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(cloudState)
+    );
+  } catch {
+    /* noop */
+  }
+
+  setSelectedId(null);
+  setView("editor");
+}}
+          style={{
+            height: 48,
+            padding: "0 14px",
+            border: "1px solid rgba(128,107,92,.16)",
+            borderRadius: 8,
+            background: "#fff",
+            color: "#514b45",
+            textAlign: "left",
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+        >
+          📄　新建文档
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowCreateCloudMenu(false);
+            setCloudFolderError("");
+            setNewFolderName("");
+            setShowCreateFolder(true);
+          }}
+          style={{
+            height: 48,
+            padding: "0 14px",
+            border: "1px solid rgba(128,107,92,.16)",
+            borderRadius: 8,
+            background: "#fff",
+            color: "#514b45",
+            textAlign: "left",
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+        >
+          📁　新建文件夹
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowCreateCloudMenu(false);
+            setCloudSection("templates");
+          }}
+          style={{
+            height: 48,
+            padding: "0 14px",
+            border: "1px solid rgba(128,107,92,.16)",
+            borderRadius: 8,
+            background: "#fff",
+            color: "#514b45",
+            textAlign: "left",
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+        >
+          ▣　从模板创建
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+        {showCreateFolder && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="新建文件夹"
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 120,
+              display: "grid",
+              placeItems: "center",
+              padding: 24,
+              background: "rgba(55, 48, 42, .22)",
+              backdropFilter: "blur(3px)",
+            }}
+          >
+            <div
+              style={{
+                width: "min(100%, 330px)",
+                padding: "22px 20px 18px",
+                border: "1px solid rgba(128,107,92,.16)",
+                borderRadius: 12,
+                background: "#fffdfa",
+                boxShadow: "0 18px 50px rgba(55,45,34,.16)",
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  fontFamily: '"Songti SC","STSong",serif',
+                  fontSize: 18,
+                  fontWeight: 400,
+                }}
+              >
+                新建文件夹
+              </h2>
+
+              <label
+                style={{
+                  display: "grid",
+                  gap: 8,
+                  marginTop: 20,
+                  color: "#827b74",
+                  fontSize: 10,
+                }}
+              >
+                文件夹名称
+                <input
+                  autoFocus
+                  value={newFolderName}
+                  maxLength={50}
+                  placeholder="请输入名称"
+                  onChange={(event) => {
+                    setNewFolderName(event.target.value);
+                    setCloudFolderError("");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !creatingFolder) {
+                      void createCloudFolder();
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    height: 42,
+                    padding: "0 12px",
+                    border: "1px solid rgba(128,107,92,.2)",
+                    borderRadius: 8,
+                    outline: 0,
+                    background: "#fff",
+                    color: "#514b45",
+                    fontSize: 13,
+                  }}
+                />
+              </label>
+
+              {cloudFolderError && (
+                <div
+                  role="status"
+                  style={{
+                    marginTop: 10,
+                    color: "#a35f55",
+                    fontSize: 10,
+                  }}
+                >
+                  {cloudFolderError}
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  marginTop: 22,
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={creatingFolder}
+                  onClick={() => {
+                    setShowCreateFolder(false);
+                    setNewFolderName("");
+                    setCloudFolderError("");
+                  }}
+                  style={{
+                    flex: 1,
+                    height: 38,
+                    border: "1px solid rgba(128,107,92,.18)",
+                    borderRadius: 7,
+                    background: "#fff",
+                    color: "#716a63",
+                    cursor: "pointer",
+                  }}
+                >
+                  取消
+                </button>
+
+                <button
+                  type="button"
+                  disabled={creatingFolder || !newFolderName.trim()}
+                  onClick={() => void createCloudFolder()}
+                  style={{
+                    flex: 1,
+                    height: 38,
+                    border: 0,
+                    borderRadius: 7,
+                    background: "#5f554d",
+                    color: "#fff",
+                    cursor:
+                      creatingFolder || !newFolderName.trim()
+                        ? "default"
+                        : "pointer",
+                    opacity:
+                      creatingFolder || !newFolderName.trim()
+                        ? .55
+                        : 1,
+                  }}
+                >
+                  {creatingFolder ? "正在创建…" : "创建"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {openedCloudFolder && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 110,
+              display: "flex",
+              flexDirection: "column",
+              background: "#fbfaf7",
+            }}
+          >
+            <header
+              style={{
+                height: 60,
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "0 15px",
+                borderBottom: "1px solid rgba(74,70,63,.08)",
+              }}
+            >
+              <button
+                type="button"
+                aria-label="返回我的文件"
+                onClick={() => setOpenedCloudFolder(null)}
+                style={{
+                  width: 34,
+                  height: 34,
+                  border: 0,
+                  background: "transparent",
+                  color: "#8f8880",
+                  fontSize: 19,
+                  cursor: "pointer",
+                }}
+              >
+                ←
+              </button>
+              <strong
+                style={{
+                  fontFamily: '"Songti SC","STSong",serif',
+                  fontSize: 17,
+                  fontWeight: 400,
+                }}
+              >
+                {openedCloudFolder.name}
+              </strong>
+            </header>
+
+            <main
+              style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 15,
+                padding: 24,
+              }}
+            >
+              <div style={{ color: "#aaa39b", fontSize: 11 }}>
+                这个文件夹还没有随笔
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = Date.now();
+                  const cloudState: State = {
+                    ...DEFAULT_STATE,
+                    templateId: null,
+                    content: "",
+                    lines: [],
+                    updatedAt: now,
+                  };
+
+                  try {
+                    localStorage.setItem(
+                      STORAGE_KEY,
+                      JSON.stringify(cloudState)
+                    );
+                  } catch {
+                    /* noop */
+                  }
+
+                  setOpenedCloudFolder(null);
+                  setSelectedId(null);
+                  setView("editor");
+                }}
+                style={{
+                  height: 40,
+                  padding: "0 17px",
+                  border: 0,
+                  borderRadius: 8,
+                  background: "#5f554d",
+                  color: "#fff",
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                ＋ 新建随笔
+              </button>
+            </main>
+          </div>
+        )}
+
+        {showMembership && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 115,
+              display: "flex",
+              flexDirection: "column",
+              background: "#fbfaf7",
+            }}
+          >
+            <header
+              style={{
+                height: 60,
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "0 15px",
+                borderBottom: "1px solid rgba(74,70,63,.08)",
+              }}
+            >
+              <button
+                type="button"
+                aria-label="返回云端"
+                onClick={() => {
+                  setShowMembership(false);
+                  setMembershipPlan(null);
+                  setMembershipMessage("");
+                }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  border: 0,
+                  background: "transparent",
+                  color: "#8f8880",
+                  fontSize: 19,
+                  cursor: "pointer",
+                }}
+              >
+                ←
+              </button>
+              <strong
+                style={{
+                  fontFamily: '"Songti SC","STSong",serif',
+                  fontSize: 17,
+                  fontWeight: 400,
+                }}
+              >
+                升级会员
+              </strong>
+            </header>
+
+            <main
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                padding: "28px 20px 36px",
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  fontFamily: '"Songti SC","STSong",serif',
+                  fontSize: 22,
+                  fontWeight: 400,
+                }}
+              >
+                解锁完整云端创作
+              </h2>
+              <p
+                style={{
+                  margin: "10px 0 24px",
+                  color: "#918981",
+                  fontSize: 11,
+                  lineHeight: 1.8,
+                }}
+              >
+                专业模板、多人协作与历史版本均包含在会员方案中。
+              </p>
+
+              {(["monthly", "yearly"] as const).map((plan) => (
+                <button
+                  key={plan}
+                  type="button"
+                  onClick={() => {
+                    setMembershipPlan(plan);
+                    setMembershipMessage("");
+                  }}
+                  style={{
+                    width: "100%",
+                    minHeight: 78,
+                    marginBottom: 12,
+                    padding: "15px 16px",
+                    border:
+                      membershipPlan === plan
+                        ? "1px solid #75655a"
+                        : "1px solid rgba(128,107,92,.15)",
+                    borderRadius: 10,
+                    background:
+                      membershipPlan === plan ? "#f3eee8" : "#fffdfa",
+                    color: "#514b45",
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <strong style={{ fontSize: 14, fontWeight: 500 }}>
+                    {plan === "monthly" ? "月度会员" : "年度会员"}
+                  </strong>
+                  <div
+                    style={{
+                      marginTop: 7,
+                      color: "#928980",
+                      fontSize: 10,
+                    }}
+                  >
+                    {plan === "monthly" ? "按月使用，随时续订" : "全年使用，更适合长期创作"}
+                  </div>
+                </button>
+              ))}
+
+              <button
+                type="button"
+                disabled={!membershipPlan}
+                onClick={() =>
+                  setMembershipMessage(
+                    "方案已选择。正式支付通道接入后可在这里完成开通。"
+                  )
+                }
+                style={{
+                  width: "100%",
+                  height: 42,
+                  marginTop: 8,
+                  border: 0,
+                  borderRadius: 8,
+                  background: "#5f554d",
+                  color: "#fff",
+                  fontSize: 11,
+                  cursor: membershipPlan ? "pointer" : "default",
+                  opacity: membershipPlan ? 1 : .5,
+                }}
+              >
+                继续
+              </button>
+
+              {membershipMessage && (
+                <div
+                  role="status"
+                  style={{
+                    marginTop: 14,
+                    padding: "12px 13px",
+                    borderRadius: 8,
+                    background: "#f1ece5",
+                    color: "#716a63",
+                    fontSize: 10,
+                    lineHeight: 1.7,
+                  }}
+                >
+                  {membershipMessage}
+                </div>
+              )}
+            </main>
+          </div>
+        )}
+
         {cloudPreview && (
   <div
     style={{

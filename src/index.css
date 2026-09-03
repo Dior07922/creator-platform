@@ -1005,24 +1005,156 @@ body {
 .trend-original-unavailable { margin-top: 30px; color: #b2ada7; font-size: 10px; }
 
 /* Creation — current work first, destinations second */
-.create-page { position: relative; color: #4a463f; background: #fbfaf7; }
-.create-portal { padding: 0; }
-.create-door-stage { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; perspective: 600px; }
-.create-door { position: relative; width: 72px; height: 48px; cursor: pointer; z-index: 1; }
-.create-door.is-open { cursor: default; }
-.create-door-leaf { position: absolute; top: 0; width: 36px; height: 48px; border: 1px solid #3a352e; background: #f3ece0; box-shadow: inset 0 0 0 1px rgba(255,255,255,.3); transition: transform .42s cubic-bezier(.22,.61,.36,1), opacity .42s ease; }
-.create-door-leaf--left { left: 0; border-radius: 4px 2px 3px 4px; transform-origin: left center; }
-.create-door-leaf--right { right: 0; border-radius: 2px 4px 4px 3px; transform-origin: right center; }
-.create-door.is-open .create-door-leaf--left { transform: translateX(-30px) rotateY(-14deg); opacity: .5; }
-.create-door.is-open .create-door-leaf--right { transform: translateX(30px) rotateY(14deg); opacity: .5; }
-.create-rooms { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); display: flex; flex-direction: column; align-items: center; gap: 22px; opacity: 0; pointer-events: none; transition: opacity .4s ease; z-index: 0; }
-.create-rooms.is-visible { opacity: 1; pointer-events: auto; }
-.create-room-item { border: 0; background: transparent; cursor: pointer; padding: 8px 12px; transition: color .25s ease; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.create-room-name { color: #4a463f; font-family: "Songti SC", "STSong", "Noto Serif SC", serif; font-size: 22px; font-weight: 400; letter-spacing: .15em; white-space: nowrap; transition: color .25s ease; }
-.create-room-sub { color: #b4ada5; font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
-.create-room-item:hover .create-room-name { color: #947864; }
-.create-rooms-back { position: absolute; top: 18px; left: 20px; width: 28px; height: 28px; border: 0; background: transparent; color: #c4bdb5; font-size: 16px; cursor: pointer; z-index: 3; }
-.create-rooms-back:hover { color: #947864; }
+
+.create-page {
+  position: relative;
+  color: #4a463f;
+  background: #fbfaf7;
+}
+
+.create-portal {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+}
+
+.create-door-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  perspective: 600px;
+}
+
+.create-door {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.create-door.is-open {
+  cursor: default;
+  pointer-events: none;
+}
+
+.create-door-leaf {
+  position: absolute;
+  top: 0;
+  display: block;
+  width: 36px;
+  height: 48px;
+  border: 1px solid #3a352e;
+  background: #f3ece0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3);
+  pointer-events: none;
+  transition: transform .42s cubic-bezier(.22, .61, .36, 1), opacity .42s ease;
+}
+
+.create-door-leaf--left {
+  left: 0;
+  border-radius: 4px 2px 3px 4px;
+  transform-origin: left center;
+}
+
+.create-door-leaf--right {
+  right: 0;
+  border-radius: 2px 4px 4px 3px;
+  transform-origin: right center;
+}
+
+.create-door.is-open .create-door-leaf--left {
+  transform: translateX(-30px) rotateY(-14deg);
+  opacity: .5;
+}
+
+.create-door.is-open .create-door-leaf--right {
+  transform: translateX(30px) rotateY(14deg);
+  opacity: .5;
+}
+
+.create-rooms {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: opacity .32s ease, visibility 0s linear .32s;
+}
+
+.create-rooms.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity .32s ease .18s, visibility 0s linear 0s;
+}
+
+.create-room-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.create-room-name {
+  color: #4a463f;
+  font-family: "Songti SC", "STSong", "Noto Serif SC", serif;
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: .15em;
+  white-space: nowrap;
+  transition: color .25s ease;
+}
+
+.create-room-sub {
+  color: #b4ada5;
+  font-size: 11px;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+
+.create-room-item:hover .create-room-name {
+  color: #947864;
+}
+
+.create-rooms-back {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  z-index: 30;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #c4bdb5;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.create-rooms-back:hover {
+  color: #947864;
+}
+
 .creation-room { color: #4a463f; background: #fbfaf7; }
 .creation-room-header { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid rgba(74, 70, 63, .08); flex: none; }
 .creation-room-header button { border: 0; background: transparent; font-size: 18px; color: #9d968f; cursor: pointer; padding: 4px 8px; }
@@ -1190,19 +1322,33 @@ body {
 .shared-writing-paper textarea { min-height: 0; flex: 1; resize: none; padding: 23px; border: 0; outline: 0; color: #4b4741; background: transparent; font-family: "Songti SC", "STSong", "PingFang SC", serif; font-size: 15px; line-height: 2; }
 .shared-writing-paper footer { display: flex; min-height: 42px; align-items: center; justify-content: space-between; margin: 0 17px; border-top: 1px solid rgba(74,70,63,.07); color: #aaa39b; font-size: 8px; }
 .shared-writing-paper footer button { border: 0; color: #78806f; background: transparent; font-size: 9px; }
-/* ===== 随笔基础写作工具栏 ===== */
+/* ===== 编辑器一级菜单 ===== */
+
+.cm-writing-toolbar-shell {
+  position: relative;
+  z-index: 30;
+  flex: none;
+  width: 100%;
+  background: #fbfaf7;
+  border-bottom: 1px solid rgba(74, 70, 63, 0.08);
+}
 
 .cm-writing-toolbar {
-  flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
+
+  width: 100%;
   min-height: 42px;
-  padding: 4px 10px;
+  padding: 7px 10px;
+
   overflow-x: auto;
-  border-bottom: 1px solid rgba(74,70,63,.08);
-  background: #fbfaf7;
+  overflow-y: hidden;
+
+  white-space: nowrap;
+  scroll-behavior: smooth;
   scrollbar-width: none;
+  touch-action: pan-x;
 }
 
 .cm-writing-toolbar::-webkit-scrollbar {
@@ -1210,29 +1356,83 @@ body {
 }
 
 .cm-writing-toolbar button {
-  flex: none;
-  min-width: 31px;
-  height: 31px;
-  padding: 0 7px;
+  flex: 0 0 auto;
+  min-width: 58px;
+  height: 32px;
+  padding: 0 13px;
+
   border: 0;
-  border-radius: 5px;
+  border-radius: 16px;
+
   background: transparent;
-  color: #615b55;
+  color: #777069;
+
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .cm-writing-toolbar button:hover {
-  background: rgba(74,70,63,.07);
+  background: rgba(74, 70, 63, 0.06);
 }
 
-.cm-toolbar-divider {
-  flex: none;
-  width: 1px;
-  height: 19px;
-  margin: 0 4px;
-  background: rgba(74,70,63,.12);
+.cm-writing-toolbar button.is-active {
+  background: #e7e0d7;
+  color: #4f4943;
+}
+
+
+/* ===== 编辑器二级菜单 ===== */
+
+.cm-editor-submenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  
+
+  z-index: 100;
+
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  width: 180px;
+  max-height: 220px;
+  padding: 7px;
+
+  overflow-x: hidden;
+  overflow-y: auto;
+
+  border: 1px solid rgba(74, 70, 63, 0.1);
+  border-radius: 10px;
+
+  background: #fffdfa;
+
+  box-shadow:
+    0 10px 28px rgba(55, 45, 34, 0.12);
+
+  scrollbar-width: thin;
+  touch-action: pan-y;
+}
+
+.cm-editor-submenu button {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 13px;
+
+  border: 0;
+  border-radius: 7px;
+
+  background: transparent;
+  color: #5f5952;
+
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cm-editor-submenu button:hover {
+  background: #f1ece5;
 }
 
 .cm-text h2 {
@@ -1246,26 +1446,21 @@ body {
   margin: 0 0 0.7em;
 }
 
-.cm-text ul,
+.cm-text ul {
+  margin: 0.5em 0;
+  padding-left: 1.7em;
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
 .cm-text ol {
   margin: 0.5em 0;
   padding-left: 1.7em;
-}
-/* ===== 强制修复：随笔入口点击层 ===== */
-
-.create-door.is-open,
-.create-door.is-open * {
-  pointer-events: none !important;
+  list-style-type: decimal;
+  list-style-position: outside;
 }
 
-.create-rooms.is-visible {
-  pointer-events: auto !important;
-  z-index: 100 !important;
-}
-
-.create-rooms.is-visible .create-room-item {
-  pointer-events: auto !important;
-  position: relative;
-  z-index: 101 !important;
-  cursor: pointer !important;
+.cm-text li {
+  display: list-item;
+  margin: 0.2em 0;
 }
