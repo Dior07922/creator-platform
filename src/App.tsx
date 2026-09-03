@@ -8,6 +8,7 @@ import pageSuccess from "./assets/page-success.png";
 import pageOrders from "./assets/page-orders.png";
 import pageOrderDetail from "./assets/page-order-detail.png";
 import pageLibrary from "./assets/page-library.png";
+import CreationMinimalRoom from "./CreationMinimalRoom";
 import pageProfile from "./assets/page-profile.png";
 import pageAbout from "./assets/page-about.png";
 import skillCreatorMascot from "./assets/skill-creator-mascot.png";
@@ -163,7 +164,7 @@ function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) 
     { s: "home" as Screen, label: "首页" },
     { s: "resources" as Screen, label: "资源" },
     { s: "create" as Screen, label: "创作" },
-    { s: "design" as Screen, label: "设计" },
+
     { s: "profile" as Screen, label: "我的" },
   ];
   return (
@@ -396,53 +397,59 @@ function TrendsScreen({ go, initialScrollTop, onScrollPositionChange }: { go: (s
 }
 
 
-const CREATOR_PLATFORMS = [
-  { name: "微信公众号", mark: "微", url: "https://mp.weixin.qq.com/" },
-  { name: "百家号", mark: "百", url: "https://baijiahao.baidu.com/" },
-  { name: "知乎", mark: "知", url: "https://www.zhihu.com/creator" },
-  { name: "头条", mark: "头", url: "https://mp.toutiao.com/" },
-  { name: "微博", mark: "博", url: "https://weibo.com/" },
-  { name: "小红书", mark: "红", url: "https://creator.xiaohongshu.com/" },
-  { name: "读者", mark: "读", url: "https://www.duzhe.com/" },
+type CreationRoomType = "minimal";
+const CREATION_ROOMS: { type: CreationRoomType; name: string; sub: string }[] = [
+  { type: "minimal", name: "随笔", sub: "" },
 ];
 
-function CreateScreen({ go, openCreation, openNovel }: { go: (s: Screen) => void; openCreation: (type: string) => void; openNovel: (id: string) => void }) {
-  const [recentNovel] = useState(() => [...loadNovels()].sort((a, b) => b.updatedAt - a.updatedAt)[0] || null);
-  const hasDraft = Boolean(recentNovel);
-  const creativeItems = [
-    ...CREATOR_PLATFORMS.map((item) => ({ ...item, action: () => window.open(item.url, "_blank", "noopener,noreferrer") })),
-    { name: "小说", mark: "说", action: () => go("works") },
-    { name: "短剧", mark: "剧", action: () => openCreation("短剧") },
-  ];
-  return <div className="create-page flex-1 flex flex-col overflow-hidden">
-    <header className="create-header">
-      <h1>创作</h1>
-      <p>把正在进行的创作，放在最前面</p>
-    </header>
+function CreateScreen({ go }: { go: (s: Screen) => void }) {
+  const [stage, setStage] = useState<"closed" | "open" | "room">("closed");
+  const [selectedRoom, setSelectedRoom] = useState<CreationRoomType>("minimal");
 
-    <main className="create-content flex-1 overflow-y-auto scrollbar-hide">
-      <section className="create-recent">
-        <div className="create-section-label">{hasDraft ? "继续创作" : "你的作品"}</div>
-        {hasDraft ? <button onClick={() => openNovel(recentNovel.id)} className="create-draft text-left">
-          <strong>《{recentNovel.title.trim() || "未命名作品"}》</strong>
-          <span>当前作品 · 已写 {totalWords(recentNovel).toLocaleString("zh-CN")} 字</span>
-          <small>继续写&nbsp; →</small>
-        </button> : <button onClick={() => go("works")} className="create-empty">开始你的第一部作品&nbsp; →</button>}
-      </section>
+  // 点击房间后直接进入创作页面
+  if (stage === "room") {
+    return <CreationMinimalRoom onBack={() => setStage("open")} />;
+  }
 
-      <section className="create-start">
-        <div className="create-section-label">开始创作</div>
-        <div className="create-entry-grid">
-          {creativeItems.map((item) => <button key={item.name} onClick={item.action} className="create-entry">
-            <span>{item.name}</span>
-          </button>)}
+  return (
+    <div className="create-page flex-1 flex flex-col overflow-hidden">
+      <main className="create-portal flex-1 flex items-center justify-center">
+        <div className="create-door-stage">
+          <div
+            className={`create-door ${stage === "open" ? "is-open" : ""}`}
+            onClick={() => { if (stage === "closed") setStage("open"); }}
+          >
+            <div className="create-door-leaf create-door-leaf--left" />
+            <div className="create-door-leaf create-door-leaf--right" />
+          </div>
+
+          <div className={`create-rooms ${stage === "open" ? "is-visible" : ""}`}>
+            {CREATION_ROOMS.map((room) => (
+              <button
+                key={room.type}
+                className="create-room-item"
+                onClick={() => {
+                  setSelectedRoom(room.type);
+                  setStage("room");
+                }}
+              >
+                <span className="create-room-name">{room.name}</span>
+                {room.sub ? <span className="create-room-sub">{room.sub}</span> : null}
+              </button>
+            ))}
+          </div>
+
+          {stage === "open" && (
+            <button className="create-rooms-back" onClick={() => setStage("closed")} aria-label="返回">
+              ←
+            </button>
+          )}
         </div>
-      </section>
-    </main>
-    <BottomNav screen="create" go={go} />
-  </div>;
+      </main>
+      <BottomNav screen="create" go={go} />
+    </div>
+  );
 }
-
 function NovelLibraryScreen({ go, openNovel }: { go: (s: Screen) => void; openNovel: (id: string) => void }) {
   const [novels, setNovels] = useState<Novel[]>(() => loadNovels());
   const [creating, setCreating] = useState(false);
@@ -650,6 +657,14 @@ function HomeScreen({ go, onSelectProduct, products }: {
             </div>
           </button>
         ))}
+        </div>
+
+        <div className="resources-section-label design-label">设计服务</div>
+        <div className="design-entry-grid">
+          <button onClick={() => selectProduct(DESIGN_SERVICES[0])} className="design-entry text-left"><span className="design-entry-number">01</span><strong>UI 设计</strong><small>界面 · 页面 · 产品</small></button>
+          <button onClick={() => selectProduct(DESIGN_SERVICES[1])} className="design-entry text-left"><span className="design-entry-number">02</span><strong>AI 工作台</strong><small>把工作方式做成工具</small></button>
+          <button onClick={() => selectProduct(DESIGN_SERVICES[2])} className="design-entry text-left"><span className="design-entry-number">03</span><strong>个人网站</strong><small>作品 · 品牌 · 内容</small></button>
+          <button onClick={() => selectProduct(DESIGN_SERVICES[3])} className="design-entry text-left"><span className="design-entry-number">04</span><strong>个人 APP</strong><small>从想法开始搭应用</small></button>
         </div>
       </div>
 
@@ -2544,7 +2559,7 @@ useEffect(() => {
         {screen === "splash" && <SplashScreen go={go} />}
         {screen === "home" && <TrendsScreen go={go} initialScrollTop={trendScrollTop} onScrollPositionChange={setTrendScrollTop} />}
         {screen === "resources" && <HomeScreen go={go} onSelectProduct={setSelectedProduct} products={products} />}
-        {screen === "create" && <CreateScreen go={go} openCreation={openCreation} openNovel={openNovel} />}
+        {screen === "create" && <CreateScreen go={go} />}
         {screen === "works" && <NovelLibraryScreen go={go} openNovel={openNovel} />}
         {screen === "writing" && <WritingScreen go={go} creationType={creationType} novelId={selectedNovelId} />}
         {screen === "design" && <DesignScreen go={go} onSelectProduct={setSelectedProduct} />}

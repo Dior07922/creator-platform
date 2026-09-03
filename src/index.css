@@ -1005,7 +1005,88 @@ body {
 .trend-original-unavailable { margin-top: 30px; color: #b2ada7; font-size: 10px; }
 
 /* Creation — current work first, destinations second */
-.create-page { color: #4a463f; background: #fbfaf7; }
+.create-page { position: relative; color: #4a463f; background: #fbfaf7; }
+.create-portal { padding: 0; }
+.create-door-stage { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; perspective: 600px; }
+.create-door { position: relative; width: 72px; height: 48px; cursor: pointer; z-index: 1; }
+.create-door.is-open { cursor: default; }
+.create-door-leaf { position: absolute; top: 0; width: 36px; height: 48px; border: 1px solid #3a352e; background: #f3ece0; box-shadow: inset 0 0 0 1px rgba(255,255,255,.3); transition: transform .42s cubic-bezier(.22,.61,.36,1), opacity .42s ease; }
+.create-door-leaf--left { left: 0; border-radius: 4px 2px 3px 4px; transform-origin: left center; }
+.create-door-leaf--right { right: 0; border-radius: 2px 4px 4px 3px; transform-origin: right center; }
+.create-door.is-open .create-door-leaf--left { transform: translateX(-30px) rotateY(-14deg); opacity: .5; }
+.create-door.is-open .create-door-leaf--right { transform: translateX(30px) rotateY(14deg); opacity: .5; }
+.create-rooms { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); display: flex; flex-direction: column; align-items: center; gap: 22px; opacity: 0; pointer-events: none; transition: opacity .4s ease; z-index: 0; }
+.create-rooms.is-visible { opacity: 1; pointer-events: auto; }
+.create-room-item { border: 0; background: transparent; cursor: pointer; padding: 8px 12px; transition: color .25s ease; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.create-room-name { color: #4a463f; font-family: "Songti SC", "STSong", "Noto Serif SC", serif; font-size: 22px; font-weight: 400; letter-spacing: .15em; white-space: nowrap; transition: color .25s ease; }
+.create-room-sub { color: #b4ada5; font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
+.create-room-item:hover .create-room-name { color: #947864; }
+.create-rooms-back { position: absolute; top: 18px; left: 20px; width: 28px; height: 28px; border: 0; background: transparent; color: #c4bdb5; font-size: 16px; cursor: pointer; z-index: 3; }
+.create-rooms-back:hover { color: #947864; }
+.creation-room { color: #4a463f; background: #fbfaf7; }
+.creation-room-header { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid rgba(74, 70, 63, .08); flex: none; }
+.creation-room-header button { border: 0; background: transparent; font-size: 18px; color: #9d968f; cursor: pointer; padding: 4px 8px; }
+.creation-room-header span { font-family: "Songti SC", "STSong", "Noto Serif SC", serif; font-size: 15px; letter-spacing: .08em; color: #4a463f; }
+.creation-room-shell { color: #c4bdb5; }
+.creation-room-shell-label { font-size: 12px; letter-spacing: .12em; color: #b4ada5; }
+
+/* CreationMinimalRoom — minimal room editor */
+.creation-minimal { color: #4a463f; background: #fbfaf7; }
+.cm-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(74,70,63,.1); flex: none; }
+.cm-header > button:first-child { border: 0; background: transparent; font-size: 18px; color: #9d968f; cursor: pointer; padding: 4px 8px; }
+.cm-header > span { font-family: "Songti SC","STSong","Noto Serif SC",serif; font-size: 14px; letter-spacing: .08em; color: #4a463f; }
+.cm-menu { display: flex; gap: 2px; margin-left: auto; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+.cm-menu::-webkit-scrollbar { display: none; }
+.cm-menu button { border: 0; background: transparent; font-size: 13px; color: #9d968f; cursor: pointer; padding: 6px 7px; border-radius: 4px; transition: background .2s, color .2s; white-space: nowrap; }
+.cm-menu button:hover { color: #4a463f; background: rgba(74,70,63,.06); }
+.cm-menu button.is-active { color: #4a463f; background: rgba(74,70,63,.12); }
+.cm-canvas-wrap { touch-action: none; cursor: default; }
+.cm-filters { position: absolute; width: 0; height: 0; pointer-events: none; }
+.cm-shape { position: absolute; cursor: move; touch-action: none; overflow: visible; transform-origin: center center; }
+.cm-shape-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.cm-text { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; border: 0; outline: 0; background: transparent; padding: 6% 8%; font-size: 15px; line-height: 1.7; color: #3a352e; overflow: hidden; }
+.cm-text::placeholder { color: #c4bdb5; }
+.cm-handle { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: rgba(251,250,247,.85); border: 1px solid #4a463f; opacity: .35; cursor: nwse-resize; touch-action: none; z-index: 2; transition: opacity .2s; }
+.cm-handle:hover { opacity: .75; }
+.cm-endpoint { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: rgba(251,250,247,.85); border: 1px solid #4a463f; opacity: .35; cursor: grab; touch-action: none; z-index: 3; transition: opacity .2s; }
+.cm-endpoint:hover { opacity: .75; }
+.cm-endpoint-ctrl { width: 8px; height: 8px; margin: -4px 0 0 -4px; border-style: dashed; }
+.cm-rotate-handle { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: rgba(251,250,247,.85); border: 1px solid #4a463f; opacity: .3; cursor: grab; touch-action: none; z-index: 4; transition: opacity .2s; }
+.cm-rotate-handle:hover { opacity: .65; }
+.cm-rotate-handle::before { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 12px; background: #4a463f; opacity: .4; transform: translateX(-50%); }
+.cm-panel { position: absolute; top: 56px; left: 16px; right: 16px; z-index: 10; background: #fbfaf7; border: 1px solid rgba(74,70,63,.14); border-radius: 8px; padding: 12px 14px; box-shadow: 0 6px 20px rgba(58,53,46,.1); display: flex; flex-direction: column; gap: 10px; }
+.cm-panel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cm-option { border: 0; background: transparent; font-size: 13px; color: #6b665f; cursor: pointer; padding: 8px 10px; border-radius: 6px; text-align: left; transition: background .2s, color .2s; }
+.cm-option:hover { background: rgba(74,70,63,.06); color: #4a463f; }
+.cm-option.is-active { background: rgba(74,70,63,.12); color: #3a352e; }
+.cm-option-layout { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.creation-thumb { display: block; }
+.cm-slider-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6b665f; }
+.cm-slider-label b { color: #3a352e; font-weight: 600; min-width: 36px; }
+.cm-slider-label input[type="range"] { flex: 1; accent-color: #4a463f; }
+.cm-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #6b665f; }
+.cm-row > span { min-width: 32px; }
+.cm-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.cm-chip { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid rgba(74,70,63,.2); cursor: pointer; padding: 0; transition: border-color .2s, transform .2s; }
+.cm-chip:hover { transform: scale(1.1); }
+.cm-chip.is-active { border-color: #3a352e; box-shadow: 0 0 0 2px rgba(58,53,46,.15); }
+.cm-chip-text { border: 1px solid rgba(74,70,63,.18); background: transparent; font-size: 12px; color: #6b665f; cursor: pointer; padding: 5px 10px; border-radius: 4px; transition: background .2s, color .2s; }
+.cm-chip-text:hover { background: rgba(74,70,63,.06); color: #4a463f; }
+.cm-chip-text.is-active { background: rgba(74,70,63,.12); color: #3a352e; border-color: rgba(74,70,63,.3); }
+.cm-font-option { display: flex; align-items: baseline; gap: 10px; font-size: 15px; }
+.cm-font-name { font-size: 12px; color: #9d968f; font-family: "PingFang SC","Helvetica Neue",system-ui,sans-serif; font-weight: 400; letter-spacing: normal; }
+.cm-panel-template { max-height: 62vh; overflow-y: auto; }
+.cm-template-cats { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.cm-template-cats button { border: 0; background: transparent; font-size: 12px; color: #9d968f; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: background .2s, color .2s; }
+.cm-template-cats button:hover { color: #4a463f; background: rgba(74,70,63,.06); }
+.cm-template-cats button.is-active { color: #4a463f; background: rgba(74,70,63,.12); }
+.cm-template-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cm-template-card { border: 0; background: transparent; cursor: pointer; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.cm-template-card:hover .cm-template-thumb { border-color: rgba(74,70,63,.3); }
+.cm-template-thumb { width: 100%; aspect-ratio: 3/4; border-radius: 4px; overflow: hidden; border: 1px solid rgba(74,70,63,.1); position: relative; transition: border-color .2s; }
+.cm-template-thumb-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cm-template-card span { font-size: 11px; color: #6b665f; text-align: center; }
+.cm-template-empty { text-align: center; padding: 28px 0; color: #b4ada5; font-size: 13px; }
 .create-header { padding: 42px 23px 28px; text-align: center; }
 .create-header h1 {
   margin: 0;
@@ -1109,3 +1190,82 @@ body {
 .shared-writing-paper textarea { min-height: 0; flex: 1; resize: none; padding: 23px; border: 0; outline: 0; color: #4b4741; background: transparent; font-family: "Songti SC", "STSong", "PingFang SC", serif; font-size: 15px; line-height: 2; }
 .shared-writing-paper footer { display: flex; min-height: 42px; align-items: center; justify-content: space-between; margin: 0 17px; border-top: 1px solid rgba(74,70,63,.07); color: #aaa39b; font-size: 8px; }
 .shared-writing-paper footer button { border: 0; color: #78806f; background: transparent; font-size: 9px; }
+/* ===== 随笔基础写作工具栏 ===== */
+
+.cm-writing-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 42px;
+  padding: 4px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid rgba(74,70,63,.08);
+  background: #fbfaf7;
+  scrollbar-width: none;
+}
+
+.cm-writing-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.cm-writing-toolbar button {
+  flex: none;
+  min-width: 31px;
+  height: 31px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #615b55;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cm-writing-toolbar button:hover {
+  background: rgba(74,70,63,.07);
+}
+
+.cm-toolbar-divider {
+  flex: none;
+  width: 1px;
+  height: 19px;
+  margin: 0 4px;
+  background: rgba(74,70,63,.12);
+}
+
+.cm-text h2 {
+  margin: 0.8em 0 0.45em;
+  font-size: 1.55em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.cm-text p {
+  margin: 0 0 0.7em;
+}
+
+.cm-text ul,
+.cm-text ol {
+  margin: 0.5em 0;
+  padding-left: 1.7em;
+}
+/* ===== 强制修复：随笔入口点击层 ===== */
+
+.create-door.is-open,
+.create-door.is-open * {
+  pointer-events: none !important;
+}
+
+.create-rooms.is-visible {
+  pointer-events: auto !important;
+  z-index: 100 !important;
+}
+
+.create-rooms.is-visible .create-room-item {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 101 !important;
+  cursor: pointer !important;
+}
