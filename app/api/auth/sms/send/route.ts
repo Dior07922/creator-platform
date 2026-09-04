@@ -7,9 +7,12 @@ export async function POST(request: Request) {
     const phone = String((await request.json()).phone || "").trim();
     if (!validPhone(phone)) return NextResponse.json({ message: "请输入正确的手机号" }, { status: 400 });
 
-    stage = "database";
-    await ensureAuthTables();
+    stage = "database-connection";
     const sql = db();
+    await sql`SELECT 1`;
+
+    stage = "database-schema";
+    await ensureAuthTables();
 
     stage = "security";
     const ipHash = hashValue(clientIp(request));
