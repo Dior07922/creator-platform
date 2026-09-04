@@ -1,5 +1,22 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { NovelCharacterSoulTemplate } from "./NovelCharacterSoulTemplate";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  NovelCharacterSoulTemplate,
+} from "./NovelCharacterSoulTemplate";
+
+import {
+  NovelStoryOutlineTemplate,
+} from "./NovelStoryOutlineTemplate";
+
+import {
+  DailyRecordTemplate,
+} from "./DailyRecordTemplate";
 type Bg = "white" | "lightGray" | "darkGray" | "blackWhite" | "contrast";
 type FontId = "thinSong" | "modernSong" | "handwrite" | "brush" | "minimalHei" | "retro";
 type BStyle = "fineArt" | "softInk" | "handDraw" | "crayon";
@@ -1299,11 +1316,13 @@ type CloudFolder = {
 
  const [view, setView] =
   useState<
-    "choose-storage" |
-    "local-templates" |
-    "cloud-home" |
-    "novel-character-soul" |
-    "editor"
+    | "choose-storage"
+    | "local-templates"
+    | "cloud-home"
+    | "novel-character-soul"
+    | "novel-story-outline"
+    | "daily-record-template"
+    | "editor"
   >("choose-storage");
 
   const [docs, setDocs] =
@@ -1338,7 +1357,10 @@ type CloudFolder = {
     desc: string;
     content?: string;
     vip: boolean;
-    kind?: "novel-character-soul";
+    kind?:
+      | "novel-character-soul"
+      | "novel-story-outline"
+      | "daily-record-template";
   } | null>(null);
   const [cloudFolders, setCloudFolders] =
   useState<CloudFolder[]>([]);
@@ -2315,6 +2337,21 @@ const cloudVipTemplates = [
     name: "小说人物灵魂模板",
     desc: "基础人物卡与 8 个灵魂问题",
     category: "novel",
+    kind: "novel-character-soul" as const,
+  },
+  {
+    id: "novel-story-outline",
+    name: "小说模板 · 故事大纲",
+    desc: "人物核心资料与 100 字故事大纲",
+    category: "novel",
+    kind: "novel-story-outline" as const,
+  },
+  {
+    id: "daily-record-template",
+    name: "今日记录模板",
+    desc: "图片与左右、下方自由记录区",
+    category: "daily",
+    kind: "daily-record-template" as const,
   },
   {
     id: "novel",
@@ -2961,100 +2998,184 @@ setView("editor");
       cloudTemplateCategory === "hot" ||
       item.category === cloudTemplateCategory
   )
-  .map((item) => (
-        <div
-          key={item.id}
-          role={item.id === "novel-character-soul" ? undefined : "button"}
-          tabIndex={item.id === "novel-character-soul" ? undefined : 0}
-          onClick={() => {
-            if (item.id === "novel-character-soul") return;
+  .map((item) => {
+    const kind =
+      "kind" in item
+        ? item.kind
+        : undefined;
+
+    const hasInteractiveTemplate =
+      Boolean(kind);
+
+    return (
+      <div
+        key={item.id}
+        role={
+          hasInteractiveTemplate
+            ? undefined
+            : "button"
+        }
+        tabIndex={
+          hasInteractiveTemplate
+            ? undefined
+            : 0
+        }
+        onClick={() => {
+          if (hasInteractiveTemplate) {
+            return;
+          }
+
+          setMembershipPlan(null);
+          setShowMembership(true);
+        }}
+        onKeyDown={(event) => {
+          if (hasInteractiveTemplate) {
+            return;
+          }
+
+          if (
+            event.key === "Enter" ||
+            event.key === " "
+          ) {
+            event.preventDefault();
+
             setMembershipPlan(null);
             setShowMembership(true);
-          }}
-          onKeyDown={(event) => {
-            if (item.id === "novel-character-soul") return;
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              setMembershipPlan(null);
-              setShowMembership(true);
-            }
-          }}
+          }
+        }}
+        style={{
+          position: "relative",
+          minHeight: 126,
+          padding: 14,
+          border:
+            "1px solid rgba(128,107,92,.15)",
+          borderRadius: 9,
+          background: "#fffdfa",
+          color: "#514b45",
+          textAlign: "left",
+          cursor:
+            hasInteractiveTemplate
+              ? "default"
+              : "pointer",
+        }}
+      >
+        <span
           style={{
-            position: "relative",
-            minHeight: 126,
-            padding: 14,
-            border:
-              "1px solid rgba(128,107,92,.15)",
-            borderRadius: 9,
-            background: "#fffdfa",
-            color: "#514b45",
-            textAlign: "left",
-            cursor: item.id === "novel-character-soul" ? "default" : "pointer",
+            position: "absolute",
+            top: 9,
+            right: 9,
+            padding: "2px 6px",
+            borderRadius: 10,
+            background: "#5f554d",
+            color: "#fff",
+            fontSize: 8,
           }}
         >
-          <span
-            style={{
-              position: "absolute",
-              top: 9,
-              right: 9,
-              padding: "2px 6px",
-              borderRadius: 10,
-              background: "#5f554d",
-              color: "#fff",
-              fontSize: 8,
-            }}
-          >
-            VIP
-          </span>
+          VIP
+        </span>
 
-          <div
-            style={{
-              width: 32,
-              height: 40,
-              display: "grid",
-              placeItems: "center",
-              marginBottom: 13,
-              border:
-                "1px solid rgba(128,107,92,.14)",
-              borderRadius: 4,
-              background: "#fff",
-              color: "#9b806e",
-              fontFamily:
-                '"Songti SC","STSong",serif',
-              fontSize: 11,
-            }}
-          >
-            文
-          </div>
-
-          <div
-            style={{
-              fontFamily:
-                '"Songti SC","STSong",serif',
-              fontSize: 14,
-            }}
-          >
-            {item.name}
-          </div>
-
-          <div
-            style={{
-              marginTop: 5,
-              color: "#aaa39b",
-              fontSize: 9,
-              lineHeight: 1.5,
-            }}
-          >
-            {item.desc}
-          </div>
-          {item.id === "novel-character-soul" && (
-            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <button type="button" onClick={(event) => { event.stopPropagation(); setCloudPreview({ name: item.name, desc: item.desc, vip: true, kind: "novel-character-soul" }); }} style={{ flex: 1, height: 30, border: "1px solid rgba(128,107,92,.18)", borderRadius: 5, background: "#fff", color: "#766e67", fontSize: 10, cursor: "pointer" }}>预览</button>
-              <button type="button" onClick={(event) => { event.stopPropagation(); setMembershipPlan(null); setShowMembership(true); }} style={{ flex: 1, height: 30, border: 0, borderRadius: 5, background: "#5f5a54", color: "#fff", fontSize: 10, cursor: "pointer" }}>VIP · 使用</button>
-            </div>
-          )}
+        <div
+          style={{
+            width: 32,
+            height: 40,
+            display: "grid",
+            placeItems: "center",
+            marginBottom: 13,
+            border:
+              "1px solid rgba(128,107,92,.14)",
+            borderRadius: 4,
+            background: "#fff",
+            color: "#9b806e",
+            fontFamily:
+              '"Songti SC","STSong",serif',
+            fontSize: 11,
+          }}
+        >
+          文
         </div>
-      ))}
+
+        <div
+          style={{
+            fontFamily:
+              '"Songti SC","STSong",serif',
+            fontSize: 14,
+          }}
+        >
+          {item.name}
+        </div>
+
+        <div
+          style={{
+            marginTop: 5,
+            color: "#aaa39b",
+            fontSize: 9,
+            lineHeight: 1.5,
+          }}
+        >
+          {item.desc}
+        </div>
+
+        {hasInteractiveTemplate && kind && (
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              marginTop: 14,
+            }}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+
+                setCloudPreview({
+                  name: item.name,
+                  desc: item.desc,
+                  vip: true,
+                  kind,
+                });
+              }}
+              style={{
+                flex: 1,
+                height: 30,
+                border:
+                  "1px solid rgba(128,107,92,.18)",
+                borderRadius: 5,
+                background: "#fff",
+                color: "#766e67",
+                fontSize: 10,
+                cursor: "pointer",
+              }}
+            >
+              预览
+            </button>
+
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+
+                setMembershipPlan(null);
+                setShowMembership(true);
+              }}
+              style={{
+                flex: 1,
+                height: 30,
+                border: 0,
+                borderRadius: 5,
+                background: "#5f5a54",
+                color: "#fff",
+                fontSize: 10,
+                cursor: "pointer",
+              }}
+            >
+              VIP · 使用
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  })}
     </div>
 
     <div
@@ -3795,8 +3916,14 @@ setView("editor");
         }}
       >
         {cloudPreview.kind === "novel-character-soul" ? (
-          <NovelCharacterSoulTemplate preview />
-        ) : (cloudPreview.content || "这是模板的预览区域。")}
+  <NovelCharacterSoulTemplate preview />
+) : cloudPreview.kind === "novel-story-outline" ? (
+  <NovelStoryOutlineTemplate preview />
+) : cloudPreview.kind === "daily-record-template" ? (
+  <DailyRecordTemplate preview />
+) : (
+  cloudPreview.content || "这是模板的预览区域。"
+)}
       </div>
     </main>
 
@@ -3891,17 +4018,183 @@ setView("editor");
     );
   }
   if (view === "novel-character-soul") {
-    return (
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "#fbfaf7" }}>
-        <header style={{ height: 60, flexShrink: 0, display: "flex", alignItems: "center", gap: 9, padding: "0 15px", borderBottom: "1px solid rgba(74,70,63,.08)" }}>
-          <button type="button" aria-label="返回云端模板" onClick={() => setView("cloud-home")} style={{ width: 34, height: 34, border: 0, background: "transparent", color: "#8f8880", fontSize: 19, cursor: "pointer" }}>←</button>
-          <strong style={{ fontFamily: '"Songti SC","STSong",serif', fontSize: 17, fontWeight: 400 }}>小说人物灵魂模板</strong>
-          <span style={{ marginLeft: "auto", padding: "3px 7px", borderRadius: 10, background: "#5f554d", color: "#fff", fontSize: 8 }}>VIP</span>
-        </header>
-        <main style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "24px 18px 42px" }}><NovelCharacterSoulTemplate /></main>
-      </div>
-    );
-  }
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f5f1eb",
+      }}
+    >
+      <header
+        style={{
+          height: 56,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "0 18px",
+          borderBottom: "1px solid rgba(128,107,92,.12)",
+          background: "#fffdfa",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setView("cloud-home")}
+          style={{
+            border: 0,
+            background: "transparent",
+            fontSize: 20,
+            cursor: "pointer",
+          }}
+        >
+          ←
+        </button>
 
- 
+        <strong
+          style={{
+            fontFamily: '"Songti SC","STSong",serif',
+          }}
+        >
+          小说人物灵魂模板
+        </strong>
+
+        <span
+          style={{
+            padding: "2px 7px",
+            borderRadius: 10,
+            background: "#5f554d",
+            color: "#fff",
+            fontSize: 9,
+          }}
+        >
+          VIP
+        </span>
+      </header>
+
+      <main style={{ padding: 20 }}>
+        <NovelCharacterSoulTemplate />
+      </main>
+    </div>
+  );
+}
+
+if (view === "novel-story-outline") {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f5f1eb",
+      }}
+    >
+      <header
+        style={{
+          height: 56,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "0 18px",
+          borderBottom: "1px solid rgba(128,107,92,.12)",
+          background: "#fffdfa",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setView("cloud-home")}
+          style={{
+            border: 0,
+            background: "transparent",
+            fontSize: 20,
+            cursor: "pointer",
+          }}
+        >
+          ←
+        </button>
+
+        <strong
+          style={{
+            fontFamily: '"Songti SC","STSong",serif',
+          }}
+        >
+          小说模板 · 故事大纲
+        </strong>
+
+        <span
+          style={{
+            padding: "2px 7px",
+            borderRadius: 10,
+            background: "#5f554d",
+            color: "#fff",
+            fontSize: 9,
+          }}
+        >
+          VIP
+        </span>
+      </header>
+
+      <main style={{ padding: 20 }}>
+        <NovelStoryOutlineTemplate />
+      </main>
+    </div>
+  );
+}
+
+if (view === "daily-record-template") {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f5f1eb",
+      }}
+    >
+      <header
+        style={{
+          height: 56,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "0 18px",
+          borderBottom: "1px solid rgba(128,107,92,.12)",
+          background: "#fffdfa",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setView("cloud-home")}
+          style={{
+            border: 0,
+            background: "transparent",
+            fontSize: 20,
+            cursor: "pointer",
+          }}
+        >
+          ←
+        </button>
+
+        <strong
+          style={{
+            fontFamily: '"Songti SC","STSong",serif',
+          }}
+        >
+          今日记录模板
+        </strong>
+
+        <span
+          style={{
+            padding: "2px 7px",
+            borderRadius: 10,
+            background: "#5f554d",
+            color: "#fff",
+            fontSize: 9,
+          }}
+        >
+          VIP
+        </span>
+      </header>
+
+      <main style={{ padding: 20 }}>
+        <DailyRecordTemplate />
+      </main>
+    </div>
+    );
+}
+
 }
