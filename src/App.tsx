@@ -24,6 +24,7 @@ type Screen =
   | "welcome" | "login" | "profile-setup" | "splash" | "home" | "resources" | "create" | "design" | "design-brief" | "works" | "writing" | "product" | "checkout" | "paying" | "success"
   | "cart" | "orders" | "order-detail" | "library" | "profile" | "about"
   | "support" | "help" | "settings" | "creator-register" | "wallet" | "membership"
+  | "personal-profile" | "payment-settings" | "message-settings" | "privacy-settings" | "membership-settings" | "account-security"
   | "merchant-login" | "merchant-dashboard"
   | "admin-login" | "admin-dashboard" | "admin-products" | "admin-inventory" | "admin-orders" | "admin-merchants";
 
@@ -161,12 +162,10 @@ function BadgePill({ text }: { text: string }) {
 
 function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) {
   const tabs = [
-    { s: "home" as Screen, label: "首页" },
-    { s: "resources" as Screen, label: "资源" },
-    { s: "create" as Screen, label: "创作" },
-
-    { s: "profile" as Screen, label: "我的" },
-  ];
+  { s: "home" as Screen, label: "首页" },
+  { s: "create" as Screen, label: "创作" },
+  { s: "profile" as Screen, label: "我的" },
+];
   return (
     <div className="editorial-bottom-nav flex min-h-[58px] items-stretch px-2">
       {tabs.map((t) => (
@@ -928,8 +927,22 @@ function CheckoutScreen({ product, go, onOrderCreated }: { product: Product; go:
 
       const order = await response.json() as CreatedOrder;
       onOrderCreated(order);
-      go("paying");
-    } catch {
+      if (method !== "alipay") {
+        setOrderError("微信支付尚未接入，本次没有发起扣款。");
+        return;
+      }
+
+      const paymentResponse = await fetch("/api/payments/alipay/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      const payment = await paymentResponse.json();
+      if (!paymentResponse.ok || !payment.paymentUrl) {
+        throw new Error(payment.message || "支付宝收银台创建失败");
+      }
+      window.location.assign(payment.paymentUrl);
+    } catch (error) {
       // V7 disabled: fake local order fallback
       // const localOrder: CreatedOrder = {
       //   id: `ORDER-${Date.now()}`,
@@ -949,7 +962,7 @@ function CheckoutScreen({ product, go, onOrderCreated }: { product: Product; go:
       // onOrderCreated(localOrder);
       // setOrderError("订单已保存；支付能力审核中，暂未扣款。可在订单详情申请帮助。");
       // setTimeout(() => go("order-detail"), 900);
-      setOrderError("订单创建失败，请重试");
+      setOrderError(error instanceof Error ? error.message : "订单创建失败，请重试");
     } finally {
       setIsCreating(false);
     }
@@ -986,14 +999,14 @@ function CheckoutScreen({ product, go, onOrderCreated }: { product: Product; go:
 
         <div className="checkout-section payment-section">
           <div className="checkout-label">选择支付方式</div>
-          {[{ id: "alipay", label: "支付宝", mark: "支" }, { id: "wechat", label: "微信支付", mark: "微" }].map((m) => (
-            <label key={m.id} className={`payment-option ${method === m.id ? "is-selected" : ""}`}>
+          {[{ id: "alipay", label: "支付宝", mark: "支", disabled: false }, { id: "wechat", label: "微信支付（暂未接入）", mark: "微", disabled: true }].map((m) => (
+            <label key={m.id} className={`payment-option ${method === m.id ? "is-selected" : ""} ${m.disabled ? "opacity-50" : ""}`}>
               <span className="payment-mark">{m.mark}</span>
               <span>{m.label}</span>
               <div className="payment-radio">
                 {method === m.id && <i />}
               </div>
-              <input type="radio" name="pay" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="hidden" />
+              <input type="radio" name="pay" value={m.id} checked={method === m.id} disabled={m.disabled} onChange={() => setMethod(m.id)} className="hidden" />
             </label>
           ))}
         </div>
@@ -1019,31 +1032,65 @@ function CheckoutScreen({ product, go, onOrderCreated }: { product: Product; go:
 
 // ─── Screen 05: Payment Processing ───────────────────────────────────────────
 
-function PayingScreen({ product, go, order, onCodeAssigned }: { product: Product; go: (s: Screen) => void; order: CreatedOrder; onCodeAssigned: (code: string) => void }) {
+function PayingScreen({ product, go, order, onPaymentConfirmed, onCodeAssigned }: { product: Product; go: (s: Screen) => void; order: CreatedOrder; onPaymentConfirmed: (order: CreatedOrder) => void; onCodeAssigned: (code: string) => void }) {
   const [deliveryError, setDeliveryError] = useState("");
+  const [statusCopy, setStatusCopy] = useState("正在向支付宝确认支付结果");
 
   useEffect(() => {
-    const t = setTimeout(async () => {
-      if (product.badge === "需预约") {
-        go("success");
-        return;
-      }
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    async function confirmPayment() {
       try {
-        const response = await fetch("/api/codes", {
+        const response = await fetch(`/api/payments/alipay/status?orderId=${encodeURIComponent(order.id)}`, { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || "暂时无法确认支付结果");
+        if (stopped) return;
+
+        if (result.status === "Closed") {
+          setDeliveryError("支付宝交易已关闭，本次不会交付内容。");
+          return;
+        }
+        if (result.status !== "Paid") {
+          setStatusCopy("尚未收到支付成功通知，正在继续确认");
+          timer = setTimeout(confirmPayment, 2500);
+          return;
+        }
+
+        const paidOrder = result.order as CreatedOrder;
+        onPaymentConfirmed(paidOrder);
+        if (product.badge === "需预约") {
+          go("success");
+          return;
+        }
+        if (paidOrder.deliveredCode) {
+          onCodeAssigned(paidOrder.deliveredCode);
+          go("success");
+          return;
+        }
+
+        setStatusCopy("支付已确认，正在安全交付内容");
+        const deliveryResponse = await fetch("/api/codes", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "assign", productId: order.productId, orderId: order.id }),
         });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || "兑换码发放失败");
-        onCodeAssigned(result.code);
+        const delivery = await deliveryResponse.json();
+        if (!deliveryResponse.ok) throw new Error(delivery.message || "兑换码发放失败");
+        if (stopped) return;
+        onCodeAssigned(delivery.code);
         go("success");
       } catch (error) {
-        setDeliveryError(error instanceof Error ? error.message : "兑换码发放失败");
+        if (!stopped) setDeliveryError(error instanceof Error ? error.message : "暂时无法确认支付结果");
       }
-    }, 1500);
-    return () => clearTimeout(t);
-  }, [go, onCodeAssigned, order.id, product.id]);
+    }
+
+    void confirmPayment();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [order.id, order.productId, product.badge]);
 
   return (
     <div className="payment-status-page flex-1 flex flex-col">
@@ -1053,7 +1100,7 @@ function PayingScreen({ product, go, order, onCodeAssigned }: { product: Product
         <div className="payment-status-title">{deliveryError ? "本次没有完成交付" : "正在确认支付结果"}</div>
         <div className="payment-status-amount">{product.price}</div>
         <div className="payment-status-copy">
-          {deliveryError ? "订单已被安全保留，请返回订单查看处理状态或联系帮助。" : "确认完成后，内容会自动放入你的账户。请暂时不要关闭页面。"}
+          {deliveryError ? "订单已被安全保留，请返回订单查看处理状态或联系帮助。" : `${statusCopy}。确认完成后，内容会自动放入你的账户。`}
         </div>
         {deliveryError && <button onClick={() => go("order-detail")} className="status-recovery-button">查看订单状态</button>}
       </div>
@@ -1479,18 +1526,24 @@ function LegacyProfileScreen({ go }: { go: (s: Screen) => void }) {
   );
 }
 
+type PersonalProfile = { name: string; bio: string; gender: string; birthday: string; wish: string };
+const DEFAULT_PERSONAL_PROFILE: PersonalProfile = { name: "好技友", bio: "", gender: "", birthday: "", wish: "" };
+
+function loadPersonalProfile(): PersonalProfile {
+  if (typeof window === "undefined") return DEFAULT_PERSONAL_PROFILE;
+  try { return { ...DEFAULT_PERSONAL_PROFILE, ...JSON.parse(localStorage.getItem("ranjingPersonalProfile") || "{}") }; }
+  catch { return DEFAULT_PERSONAL_PROFILE; }
+}
+
 function ProfileScreen({ go }: { go: (s: Screen) => void }) {
-  const [profile, setProfile] = useState({ name: "好技友", bio: "", gender: "", ip: "", industry: "" });
-  const [isEditing, setIsEditing] = useState(false);
+  const [profile] = useState<PersonalProfile>(loadPersonalProfile);
   const accountItems: { label: string; screen: Screen }[] = [
-    { label: "我的订单", screen: "orders" },
-    { label: "我的钱包", screen: "wallet" },
-    { label: "订阅会员", screen: "membership" },
-  ];
-  const supportItems: { label: string; screen: Screen }[] = [
-    { label: "帮助中心", screen: "help" },
-    { label: "投诉建议", screen: "support" },
-    { label: "系统设置", screen: "settings" },
+    { label: "个人资料", screen: "personal-profile" },
+    { label: "支付方式", screen: "payment-settings" },
+    { label: "消息通知", screen: "message-settings" },
+    { label: "隐私设置", screen: "privacy-settings" },
+    { label: "会员设置", screen: "membership-settings" },
+    { label: "账号与安全", screen: "account-security" },
   ];
 
   const renderDirectory = (items: { label: string; screen: Screen }[]) => (
@@ -1523,20 +1576,9 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
           <div className="profile-copy">
             <div className="profile-name">{profile.name}</div>
             <div className="profile-bio">{profile.bio || "还没有简介"}</div>
-            <button onClick={() => setIsEditing((current) => !current)} className="profile-edit">编辑资料&nbsp; →</button>
+            <button onClick={() => go("personal-profile")} className="profile-edit">编辑资料&nbsp; →</button>
           </div>
         </section>
-
-        {isEditing && (
-          <div className="profile-editor">
-            <label>昵称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
-            <label>简介<textarea value={profile.bio} onChange={(event) => setProfile({ ...profile, bio: event.target.value })} /></label>
-            <div className="profile-editor-actions">
-              <button onClick={() => setIsEditing(false)} className="profile-save">保存资料</button>
-              <button onClick={() => go("admin-login")} className="profile-admin">管理频道</button>
-            </div>
-          </div>
-        )}
 
         <button onClick={() => go("creator-register")} className="profile-featured-entry">
           <span className="profile-featured-copy">
@@ -1547,12 +1589,69 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
         </button>
 
         {renderDirectory(accountItems)}
-        {renderDirectory(supportItems)}
       </div>
 
       <BottomNav screen="profile" go={go} />
     </div>
   );
+}
+
+function AccountPageHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
+  return <header className="account-page-header"><button type="button" onClick={() => go("profile")} aria-label="返回我的">‹</button><h1>{title}</h1><span /></header>;
+}
+
+function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
+  const [profile, setProfile] = useState<PersonalProfile>(loadPersonalProfile);
+  const [saved, setSaved] = useState(false);
+  function save() {
+    localStorage.setItem("ranjingPersonalProfile", JSON.stringify(profile));
+    setSaved(true);
+  }
+  return <div className="account-page"><AccountPageHeader title="编辑资料" go={go} /><main className="personal-profile-form">
+    <div className="personal-profile-avatar"><img src={splashCover.src} alt="用户头像" /><span>头像</span></div>
+    <label>昵称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
+    <label>简介<textarea value={profile.bio} onChange={(event) => setProfile({ ...profile, bio: event.target.value })} /></label>
+    <label>性别<select value={profile.gender} onChange={(event) => setProfile({ ...profile, gender: event.target.value })}><option value="">不透露</option><option>女</option><option>男</option><option>其他</option></select></label>
+    <label>生日<input type="date" value={profile.birthday} onChange={(event) => setProfile({ ...profile, birthday: event.target.value })} /></label>
+    <label>写给自己的祝愿<textarea value={profile.wish} onChange={(event) => setProfile({ ...profile, wish: event.target.value })} /></label>
+    <button type="button" className="account-primary-action" onClick={save}>{saved ? "已保存" : "保存资料"}</button>
+  </main></div>;
+}
+
+function PaymentSettingsScreen({ go }: { go: (s: Screen) => void }) {
+  const methods = ["支付宝", "微信付款", "银行卡", "其他支付方式"];
+  const [bindings, setBindings] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem("ranjingPaymentBindings") || "{}"); } catch { return {}; }
+  });
+  function toggle(method: string) {
+    const next = { ...bindings, [method]: !bindings[method] };
+    setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next));
+  }
+  return <div className="account-page"><AccountPageHeader title="支付设置" go={go} /><main className="account-list account-list-spaced">{methods.map((method) => <button type="button" key={method} onClick={() => toggle(method)}><span>{method}</span><small>{bindings[method] ? "已绑定" : "未绑定"}</small><b>›</b></button>)}</main></div>;
+}
+
+type SettingItem = { label: string; kind?: "toggle" | "action"; value?: string };
+
+function PreferenceSettingsScreen({ title, items, storageKey, go }: { title: string; items: SettingItem[]; storageKey: string; go: (s: Screen) => void }) {
+  const [values, setValues] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch { return {}; }
+  });
+  const [notice, setNotice] = useState("");
+  function activate(item: SettingItem) {
+    if (item.kind === "action") { setNotice(`${item.label}已打开`); return; }
+    const next = { ...values, [item.label]: values[item.label] === undefined ? false : !values[item.label] };
+    setValues(next); localStorage.setItem(storageKey, JSON.stringify(next));
+  }
+  return <div className="account-page"><AccountPageHeader title={title} go={go} /><main className="account-list account-list-spaced">{items.map((item) => {
+    const enabled = values[item.label] === undefined ? true : values[item.label];
+    return <button type="button" key={item.label} onClick={() => activate(item)}><span>{item.label}</span>{item.value && <small>{item.value}</small>}{item.kind === "action" ? <b>›</b> : <i className={enabled ? "is-on" : ""}><em /></i>}</button>;
+  })}{notice && <p className="account-notice">{notice}</p>}</main></div>;
+}
+
+function AccountSecurityScreen({ go }: { go: (s: Screen) => void }) {
+  const [notice, setNotice] = useState("");
+  const items = [{ label: "手机号", value: "未绑定" }, { label: "修改登录密码" }, { label: "授权管理" }, { label: "实名认证", value: "未认证" }, { label: "注销苒境账号", danger: true }];
+  return <div className="account-page"><AccountPageHeader title="账号设置" go={go} /><main className="account-list account-list-spaced">{items.map((item) => <button type="button" className={item.danger ? "is-danger" : ""} key={item.label} onClick={() => setNotice(`${item.label}功能已打开`)}><span>{item.label}</span>{item.value && <small>{item.value}</small>}<b>›</b></button>)}{notice && <p className="account-notice">{notice}</p>}</main></div>;
 }
 
 function SimpleHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
@@ -2407,6 +2506,12 @@ useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   if (params.get("authPreview") === "login") { setScreen("login"); setAuthReady(true); return; }
   if (params.get("authPreview") === "profile") { setScreen("profile-setup"); setAuthReady(true); return; }
+  const alipayReturnOrderId = params.get("payment") === "alipay" ? params.get("orderId") : null;
+  if (alipayReturnOrderId) {
+    setAuthReady(true);
+    void resumeAlipayReturn(alipayReturnOrderId);
+    return;
+  }
   fetch("/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user)setScreen("home");else setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome")).finally(()=>setAuthReady(true));
   const requestedCreation = params.get("creation");
   const requestedNovelId = params.get("novel");
@@ -2448,6 +2553,9 @@ useEffect(() => {
   const handleCodeAssigned = useCallback((code: string) => {
     setCreatedOrder((current) => current ? { ...current, status: "Paid", deliveredCode: code, paidAt: new Date().toISOString() } : current);
   }, []);
+  const handlePaymentConfirmed = useCallback((order: CreatedOrder) => {
+    setCreatedOrder(order);
+  }, []);
 
   // V7-1B: 统一订单读取入口
   async function loadOrderById(orderId: string): Promise<CreatedOrder | null> {
@@ -2472,6 +2580,28 @@ useEffect(() => {
       // 网络异常：不清 ID，不伪造订单
       return null;
     }
+  }
+
+  async function resumeAlipayReturn(orderId: string) {
+    const [order, productsResponse] = await Promise.all([
+      loadOrderById(orderId),
+      fetch("/api/products"),
+    ]);
+    if (!order || !productsResponse.ok) {
+      setScreen("orders");
+      return;
+    }
+    const latestProducts = await productsResponse.json() as Product[];
+    setProducts(latestProducts);
+    const matchedProduct = latestProducts.find((product) => product.id === order.productId)
+      ?? DESIGN_SERVICES.find((product) => product.id === order.productId)
+      ?? null;
+    if (!matchedProduct) {
+      setScreen("orders");
+      return;
+    }
+    setSelectedProduct(matchedProduct);
+    setScreen("paying");
   }
 
   // V7-1B: 创建订单成功后的统一处理
@@ -2574,12 +2704,18 @@ useEffect(() => {
         {screen === "product" && selectedProduct && <ProductScreen product={selectedProduct} go={go} />}
         {screen === "cart" && selectedProduct && <CheckoutScreen product={selectedProduct} go={go} onOrderCreated={handleOrderCreated} />}
         {screen === "checkout" && selectedProduct && <CheckoutScreen product={selectedProduct} go={go} onOrderCreated={handleOrderCreated} />}
-        {screen === "paying" && selectedProduct && createdOrder && <PayingScreen product={selectedProduct} go={go} order={createdOrder} onCodeAssigned={handleCodeAssigned} />}
+        {screen === "paying" && selectedProduct && createdOrder && <PayingScreen product={selectedProduct} go={go} order={createdOrder} onPaymentConfirmed={handlePaymentConfirmed} onCodeAssigned={handleCodeAssigned} />}
         {screen === "success" && createdOrder && <SuccessScreen go={go} order={createdOrder} />}
         {screen === "orders" && <OrdersScreen go={go} currentOrder={createdOrder} onContinuePay={continuePay} />}
         {screen === "order-detail" && <OrderDetailScreen go={go} order={createdOrder} />}
         {screen === "library" && <OrdersScreen go={go} currentOrder={createdOrder} onContinuePay={continuePay} />}
         {screen === "profile" && <ProfileScreen go={go} />}
+        {screen === "personal-profile" && <PersonalProfileScreen go={go} />}
+        {screen === "payment-settings" && <PaymentSettingsScreen go={go} />}
+        {screen === "message-settings" && <PreferenceSettingsScreen title="消息设置" storageKey="ranjingMessageSettings" go={go} items={[{label:"通知消息"},{label:"上新消息"},{label:"系统消息"},{label:"团队信息"}]} />}
+        {screen === "privacy-settings" && <PreferenceSettingsScreen title="隐私权限" storageKey="ranjingPrivacySettings" go={go} items={[{label:"我有疑问",kind:"action"},{label:"系统权限管理",kind:"action"},{label:"允许采集云端"},{label:"团队信息"}]} />}
+        {screen === "membership-settings" && <PreferenceSettingsScreen title="会员设置" storageKey="ranjingMembershipSettings" go={go} items={[{label:"续费提醒"},{label:"订阅消息"},{label:"设置偏好",kind:"action"},{label:"团队默认模板",kind:"action"}]} />}
+        {screen === "account-security" && <AccountSecurityScreen go={go} />}
         {screen === "about" && <ProfileScreen go={go} />}
         {screen === "support" && <SupportScreen go={go} />}
         {screen === "help" && <HelpScreen go={go} />}

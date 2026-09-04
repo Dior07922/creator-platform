@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { NovelCharacterSoulTemplate } from "./NovelCharacterSoulTemplate";
 type Bg = "white" | "lightGray" | "darkGray" | "blackWhite" | "contrast";
 type FontId = "thinSong" | "modernSong" | "handwrite" | "brush" | "minimalHei" | "retro";
 type BStyle = "fineArt" | "softInk" | "handDraw" | "crayon";
@@ -44,18 +45,7 @@ const PRESET_LINES: Record<string, LineSeg[]> = {
 
 function clonePreset(preset: string): LineSeg[] { return (PRESET_LINES[preset] || PRESET_LINES.inverted).map((l) => ({ ...l })); }
 
-const TEMPLATES: Template[] = [
-  { id: "t1", name: "纯白留白", category: "留白", background: "white", layoutPreset: "inverted", lines: clonePreset("inverted"), borderStyle: "softInk", borderWidth: 1.5, borderOpacity: 0.7, borderColor: "ink", font: "thinSong", writingMode: "normal", wordLimit: null },
-  { id: "t2", name: "斜线空间", category: "留白", background: "white", layoutPreset: "triangle", lines: clonePreset("triangle"), borderStyle: "fineArt", borderWidth: 1, borderOpacity: 0.6, borderColor: "ink", font: "thinSong", writingMode: "normal", wordLimit: null },
-  { id: "t3", name: "中央纸张", category: "留白", background: "white", layoutPreset: "a4", lines: clonePreset("a4"), borderStyle: "softInk", borderWidth: 1.5, borderOpacity: 0.5, borderColor: "charcoal", font: "modernSong", writingMode: "normal", wordLimit: null },
-  { id: "t4", name: "窗口留白", category: "留白", background: "lightGray", layoutPreset: "window", lines: clonePreset("window"), borderStyle: "fineArt", borderWidth: 0.8, borderOpacity: 0.5, borderColor: "ink", font: "minimalHei", writingMode: "normal", wordLimit: null },
-  { id: "t5", name: "题目+摘要+正文", category: "学术", background: "white", layoutPreset: "a4", lines: clonePreset("a4"), borderStyle: "softInk", borderWidth: 1, borderOpacity: 0.4, borderColor: "charcoal", font: "modernSong", writingMode: "titleAbstract", wordLimit: null },
-  { id: "t6", name: "正文+灵感块", category: "创意", background: "white", layoutPreset: "pins", lines: clonePreset("pins"), borderStyle: "handDraw", borderWidth: 1.2, borderOpacity: 0.6, borderColor: "brown", font: "handwrite", writingMode: "normal", wordLimit: null },
-  { id: "t7", name: "300字短文", category: "限字", background: "white", layoutPreset: "vee", lines: clonePreset("vee"), borderStyle: "softInk", borderWidth: 1.5, borderOpacity: 0.65, borderColor: "ink", font: "thinSong", writingMode: "normal", wordLimit: 300 },
-  { id: "t8", name: "800字文章", category: "限字", background: "lightGray", layoutPreset: "beam", lines: clonePreset("beam"), borderStyle: "softInk", borderWidth: 1, borderOpacity: 0.5, borderColor: "charcoal", font: "modernSong", writingMode: "normal", wordLimit: 800 },
-];
 
-const TEMPLATE_CATS = ["全部", "留白", "学术", "创意", "限字", "我的模板"] as const;
 
 const DEFAULT_STATE: State = {
   templateId: null, background: "white", layoutPreset: "inverted", lines: clonePreset("inverted"),
@@ -1312,6 +1302,7 @@ type CloudFolder = {
     "choose-storage" |
     "local-templates" |
     "cloud-home" |
+    "novel-character-soul" |
     "editor"
   >("choose-storage");
 
@@ -1347,6 +1338,7 @@ type CloudFolder = {
     desc: string;
     content?: string;
     vip: boolean;
+    kind?: "novel-character-soul";
   } | null>(null);
   const [cloudFolders, setCloudFolders] =
   useState<CloudFolder[]>([]);
@@ -2319,6 +2311,12 @@ const cloudFreeTemplates = [
 
 const cloudVipTemplates = [
   {
+    id: "novel-character-soul",
+    name: "小说人物灵魂模板",
+    desc: "基础人物卡与 8 个灵魂问题",
+    category: "novel",
+  },
+  {
     id: "novel",
     name: "小说创作",
     desc: "人物、大纲、章节管理",
@@ -2964,12 +2962,22 @@ setView("editor");
       item.category === cloudTemplateCategory
   )
   .map((item) => (
-        <button
+        <div
           key={item.id}
-          type="button"
+          role={item.id === "novel-character-soul" ? undefined : "button"}
+          tabIndex={item.id === "novel-character-soul" ? undefined : 0}
           onClick={() => {
+            if (item.id === "novel-character-soul") return;
             setMembershipPlan(null);
             setShowMembership(true);
+          }}
+          onKeyDown={(event) => {
+            if (item.id === "novel-character-soul") return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setMembershipPlan(null);
+              setShowMembership(true);
+            }
           }}
           style={{
             position: "relative",
@@ -2981,7 +2989,7 @@ setView("editor");
             background: "#fffdfa",
             color: "#514b45",
             textAlign: "left",
-            cursor: "pointer",
+            cursor: item.id === "novel-character-soul" ? "default" : "pointer",
           }}
         >
           <span
@@ -3039,7 +3047,13 @@ setView("editor");
           >
             {item.desc}
           </div>
-        </button>
+          {item.id === "novel-character-soul" && (
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button type="button" onClick={(event) => { event.stopPropagation(); setCloudPreview({ name: item.name, desc: item.desc, vip: true, kind: "novel-character-soul" }); }} style={{ flex: 1, height: 30, border: "1px solid rgba(128,107,92,.18)", borderRadius: 5, background: "#fff", color: "#766e67", fontSize: 10, cursor: "pointer" }}>预览</button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); setMembershipPlan(null); setShowMembership(true); }} style={{ flex: 1, height: 30, border: 0, borderRadius: 5, background: "#5f5a54", color: "#fff", fontSize: 10, cursor: "pointer" }}>VIP · 使用</button>
+            </div>
+          )}
+        </div>
       ))}
     </div>
 
@@ -3780,8 +3794,9 @@ setView("editor");
           whiteSpace: "pre-wrap",
         }}
       >
-        {cloudPreview.content ||
-          "这是模板的预览区域。"}
+        {cloudPreview.kind === "novel-character-soul" ? (
+          <NovelCharacterSoulTemplate preview />
+        ) : (cloudPreview.content || "这是模板的预览区域。")}
       </div>
     </main>
 
@@ -3820,9 +3835,9 @@ setView("editor");
       <button
         onClick={() => {
           if (cloudPreview.vip) {
-            alert(
-              "此模板为 VIP 模板，请先升级会员。"
-            );
+            setCloudPreview(null);
+            setMembershipPlan(null);
+            setShowMembership(true);
             return;
           }
 
@@ -3873,6 +3888,18 @@ setView("editor");
       <CreationMinimalEditor
         onBack={backFromEditor}
       />
+    );
+  }
+  if (view === "novel-character-soul") {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "#fbfaf7" }}>
+        <header style={{ height: 60, flexShrink: 0, display: "flex", alignItems: "center", gap: 9, padding: "0 15px", borderBottom: "1px solid rgba(74,70,63,.08)" }}>
+          <button type="button" aria-label="返回云端模板" onClick={() => setView("cloud-home")} style={{ width: 34, height: 34, border: 0, background: "transparent", color: "#8f8880", fontSize: 19, cursor: "pointer" }}>←</button>
+          <strong style={{ fontFamily: '"Songti SC","STSong",serif', fontSize: 17, fontWeight: 400 }}>小说人物灵魂模板</strong>
+          <span style={{ marginLeft: "auto", padding: "3px 7px", borderRadius: 10, background: "#5f554d", color: "#fff", fontSize: 8 }}>VIP</span>
+        </header>
+        <main style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "24px 18px 42px" }}><NovelCharacterSoulTemplate /></main>
+      </div>
     );
   }
 
