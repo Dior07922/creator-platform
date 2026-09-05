@@ -486,13 +486,12 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
   return (
     <div className="profile-page flex-1 flex flex-col overflow-hidden">
       <div className="profile-scroll flex-1 overflow-y-auto scrollbar-hide">
-        <div className="profile-top-line" />
         <section className="profile-identity">
           <div className="profile-avatar">
             {avatarUrl ? (
               <img src={avatarUrl} alt="用户头像" className="absolute inset-0 w-full h-full object-cover" />
             ) : (
-              <img src={splashCover.src} alt="用户原创手绘头像" className="absolute max-w-none" style={{ width: "162px", height: "286px", left: "-45px", top: "-104px" }} />
+              <img src={splashCover.src} alt="用户原创手绘头像" className="absolute inset-0 w-full h-full object-cover" />
             )}
           </div>
           <div className="profile-copy">
