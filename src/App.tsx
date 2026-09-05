@@ -2289,7 +2289,8 @@ export default function App() {
   const [dark, setDark] = useState(false);
 const [products, setProducts] = useState<Product[]>([]);
 
-useEffect(() => {
+  const splashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   if (params.get("authPreview") === "login") { setScreen("login"); setAuthReady(true); return; }
   if (params.get("authPreview") === "profile") { setScreen("profile-setup"); setAuthReady(true); return; }
@@ -2299,7 +2300,8 @@ useEffect(() => {
     void resumeAlipayReturn(alipayReturnOrderId);
     return;
   }
-  fetch("/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);if(!screenFromUrlRef.current)setScreen("home");}else if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).finally(()=>setAuthReady(true));
+  const doAuthCheck = () => { fetch("/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);if(!screenFromUrlRef.current)setScreen("home");}else if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).finally(()=>setAuthReady(true)); };
+  splashTimerRef.current = setTimeout(doAuthCheck, 1800);
   const requestedCreation = params.get("creation");
   const requestedNovelId = params.get("novel");
   if (requestedCreation) {
@@ -2326,6 +2328,7 @@ useEffect(() => {
   // if (storedOrder) {
   //   try { setCreatedOrder(JSON.parse(storedOrder) as CreatedOrder); } catch { localStorage.removeItem("latestOrder"); }
   // }
+  return () => { if (splashTimerRef.current) clearTimeout(splashTimerRef.current); };
 }, []);
 
 useEffect(() => {
