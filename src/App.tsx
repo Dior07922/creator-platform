@@ -2274,7 +2274,7 @@ function HandbookVisualScreen({ screen, go }: { screen: Screen; go: (s: Screen) 
 // ─── Root App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("welcome");
+  const [screen, setScreen] = useState<Screen>("splash");
   const [authReady,setAuthReady]=useState(false);
   const [user, setUser] = useState<{ id: string; phone: string; nickname: string; avatar: string; defaultDeliveryEmail?: string } | null>(null);
   const screenFromUrlRef = useRef<boolean>(false);
