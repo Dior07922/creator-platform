@@ -143,16 +143,11 @@ function GirlIllustration({ size = 120 }: { size?: number }) {
 // ─── Screen 01: Splash ────────────────────────────────────────────────────────
 
 function SplashScreen({ go }: { go: (s: Screen) => void }) {
-  useEffect(() => {
-    const timer = setTimeout(() => go("home"), 1800);
-    return () => clearTimeout(timer);
-  }, [go]);
-
   return (
     <button
       type="button"
       onClick={() => go("home")}
-      aria-label="进入技能商城"
+      aria-label="进入首页"
       className="flex-1 w-full overflow-hidden bg-[#F8F3EB]"
     >
       <img
