@@ -486,7 +486,6 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
   return (
     <div className="profile-page flex-1 flex flex-col overflow-hidden">
       <div className="profile-scroll flex-1 overflow-y-auto scrollbar-hide">
-        <div className="profile-top-line" />
         <section className="profile-identity">
           <div className="profile-avatar">
             {avatarUrl ? (
