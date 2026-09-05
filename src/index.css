@@ -868,7 +868,7 @@ body {
 .profile-top-line {
   height: 1px;
   background: rgba(74, 70, 63, .07);
-  margin: 0 0 0;
+  margin: 24px 0 0;
 }
 
 .profile-identity {
