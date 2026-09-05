@@ -1414,19 +1414,64 @@ function AccountPageHeader({ title, go }: { title: string; go: (s: Screen) => vo
 function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
   const [profile, setProfile] = useState<PersonalProfile>(loadPersonalProfile);
   const [saved, setSaved] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>(() => {
+    try { return localStorage.getItem("ranjingUserAvatar") || ""; } catch { return ""; }
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  function handleAvatarPick(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      setAvatarUrl(url);
+      try { localStorage.setItem("ranjingUserAvatar", url); } catch { /* noop */ }
+    };
+    reader.readAsDataURL(file);
+  }
   function save() {
     localStorage.setItem("ranjingPersonalProfile", JSON.stringify(profile));
     setSaved(true);
   }
-  return <div className="account-page"><AccountPageHeader title="编辑资料" go={go} /><main className="personal-profile-form">
-    <div className="personal-profile-avatar"><img src={splashCover.src} alt="用户头像" /><span>头像</span></div>
-    <label>昵称<input value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} /></label>
-    <label>简介<textarea value={profile.bio} onChange={(event) => setProfile({ ...profile, bio: event.target.value })} /></label>
-    <label>性别<select value={profile.gender} onChange={(event) => setProfile({ ...profile, gender: event.target.value })}><option value="">不透露</option><option>女</option><option>男</option><option>其他</option></select></label>
-    <label>生日<input type="date" value={profile.birthday} onChange={(event) => setProfile({ ...profile, birthday: event.target.value })} /></label>
-    <label>写给自己的祝愿<textarea value={profile.wish} onChange={(event) => setProfile({ ...profile, wish: event.target.value })} /></label>
-    <button type="button" className="account-primary-action" onClick={save}>{saved ? "已保存" : "保存资料"}</button>
-  </main></div>;
+  return (
+    <div className="account-page">
+      <AccountPageHeader title="编辑资料" go={go} />
+      <main className="personal-profile-form">
+        <div className="pp-avatar-block">
+          <button type="button" className="pp-avatar-btn" onClick={() => fileInputRef.current && fileInputRef.current.click()} aria-label="更换头像">
+            <img src={avatarUrl || splashCover.src} alt="用户头像" />
+          </button>
+          <span className="pp-avatar-label">头像</span>
+          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
+        </div>
+        <div className="pp-field-list">
+          <div className="pp-field-row">
+            <span className="pp-field-label">昵称</span>
+            <input className="pp-field-input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
+          </div>
+          <div className="pp-field-row">
+            <span className="pp-field-label">简介</span>
+            <input className="pp-field-input" value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} />
+          </div>
+          <div className="pp-field-row">
+            <span className="pp-field-label">性别</span>
+            <select className="pp-field-input" value={profile.gender} onChange={(e) => setProfile({ ...profile, gender: e.target.value })}>
+              <option value="">不透露</option><option>女</option><option>男</option><option>其他</option>
+            </select>
+          </div>
+          <div className="pp-field-row">
+            <span className="pp-field-label">生日</span>
+            <input type="date" className="pp-field-input" value={profile.birthday} onChange={(e) => setProfile({ ...profile, birthday: e.target.value })} />
+          </div>
+        </div>
+        <div className="pp-wish-block">
+          <span className="pp-field-label">写给自己的祝愿</span>
+          <textarea className="pp-wish-textarea" value={profile.wish} onChange={(e) => setProfile({ ...profile, wish: e.target.value })} />
+        </div>
+        <button type="button" className="account-primary-action" onClick={save}>{saved ? "已保存" : "保存资料"}</button>
+      </main>
+    </div>
+  );
 }
 
 function PaymentSettingsScreen({ go }: { go: (s: Screen) => void }) {

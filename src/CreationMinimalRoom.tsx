@@ -2654,37 +2654,7 @@ const cloudVipTemplates = [
           </button>
         ))}
       </div>
-    ) : (
-      <div
-  style={{
-    minHeight: 310,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  }}
->
-  <button
-    onClick={() => {
-      setCloudFolderError("");
-      setNewFolderName("");
-      setShowCreateFolder(true);
-    }}
-    style={{
-      height: 42,
-      padding: "0 18px",
-      border: "1px solid rgba(128,107,92,.18)",
-      borderRadius: 10,
-      background: "#5f554d",
-      color: "#fff",
-      fontSize: 11,
-      fontWeight: 600,
-      cursor: "pointer",
-    }}
-  >
-    ＋ 新建文件夹
-  </button>
-</div>
-    )}
+    ) : null}
 
     {cloudFolderError && (
       <div
