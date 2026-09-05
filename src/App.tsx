@@ -457,7 +457,14 @@ function loadPersonalProfile(): PersonalProfile {
 }
 
 function ProfileScreen({ go }: { go: (s: Screen) => void }) {
-  const [profile] = useState<PersonalProfile>(loadPersonalProfile);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [profile, setProfile] = useState<PersonalProfile>(loadPersonalProfile);
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
+  useEffect(() => {
+    setProfile(loadPersonalProfile());
+    try { setAvatarUrl(localStorage.getItem("ranjingUserAvatar") || ""); } catch { setAvatarUrl(""); }
+  }, [refreshKey]);
+  useEffect(() => { function handleFocus() { setRefreshKey((k) => k + 1); } window.addEventListener("focus", handleFocus); return () => window.removeEventListener("focus", handleFocus); }, []);
   const accountItems: { label: string; screen: Screen }[] = [
     { label: "个人资料", screen: "personal-profile" },
     { label: "支付方式", screen: "payment-settings" },
@@ -466,39 +473,35 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
     { label: "会员设置", screen: "membership-settings" },
     { label: "账号与安全", screen: "account-security" },
   ];
-
   const renderDirectory = (items: { label: string; screen: Screen }[]) => (
     <div className="profile-directory">
       {items.map((item) => (
-        <button key={item.label} onClick={() => go(item.screen)} className="profile-directory-item">
+        <button key={item.label} onClick={() => { go(item.screen); setRefreshKey((k) => k + 1); }} className="profile-directory-item">
           <span>{item.label}</span>
           <span className="profile-directory-arrow">›</span>
         </button>
       ))}
     </div>
   );
-
   return (
     <div className="profile-page flex-1 flex flex-col overflow-hidden">
       <div className="profile-scroll flex-1 overflow-y-auto scrollbar-hide">
+        <div className="profile-top-line" />
         <section className="profile-identity">
           <div className="profile-avatar">
-            <img
-              src={splashCover.src}
-              alt="用户原创手绘头像"
-              className="absolute max-w-none"
-              style={{ width: "162px", height: "286px", left: "-45px", top: "-104px" }}
-            />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="用户头像" className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <img src={splashCover.src} alt="用户原创手绘头像" className="absolute max-w-none" style={{ width: "162px", height: "286px", left: "-45px", top: "-104px" }} />
+            )}
           </div>
           <div className="profile-copy">
             <div className="profile-name">{profile.name}</div>
             <div className="profile-bio">{profile.bio || "还没有简介"}</div>
           </div>
         </section>
-
         {renderDirectory(accountItems)}
       </div>
-
       <BottomNav screen="profile" go={go} />
     </div>
   );
@@ -602,9 +605,25 @@ function PreferenceSettingsScreen({ title, items, storageKey, go }: { title: str
 }
 
 function AccountSecurityScreen({ go }: { go: (s: Screen) => void }) {
+  const [phone, setPhone] = useState("");
   const [notice, setNotice] = useState("");
-  const items = [{ label: "手机号", value: "未绑定" }, { label: "修改登录密码" }, { label: "授权管理" }, { label: "实名认证", value: "未认证" }, { label: "注销苒境账号", danger: true }];
-  return <div className="account-page"><AccountPageHeader title="账号设置" go={go} /><main className="account-list account-list-spaced">{items.map((item) => <button type="button" className={item.danger ? "is-danger" : ""} key={item.label} onClick={() => setNotice(`${item.label}功能已打开`)}><span>{item.label}</span>{item.value && <small>{item.value}</small>}<b>›</b></button>)}{notice && <p className="account-notice">{notice}</p>}</main></div>;
+  const [confirmAction, setConfirmAction] = useState("");
+  useEffect(() => { fetch("/api/auth/me").then((r) => r.json()).then((d) => { if (d.user?.phone) setPhone(d.user.phone); }).catch(() => {}); }, []);
+  const displayPhone = phone ? phone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2") : "未绑定";
+  const items = [
+    { label: "手机号", value: displayPhone, action: "phone" },
+    { label: "修改昵称", action: "nickname" },
+    { label: "授权管理", action: "auth" },
+    { label: "实名认证", value: "未认证", action: "verify" },
+    { label: "注销苒境账号", danger: true, action: "delete" },
+  ];
+  function handleAction(action: string, label: string) {
+    if (action === "phone") { setNotice("当前登录手机号：" + (phone || "未获取")); return; }
+    if (action === "nickname") { go("personal-profile"); return; }
+    if (action === "delete") { setConfirmAction(label); return; }
+    setNotice(`${label}：功能开发中`);
+  }
+  return <div className="account-page"><AccountPageHeader title="账号设置" go={go} /><main className="account-list account-list-spaced">{items.map((item) => <button type="button" className={item.danger ? "is-danger" : ""} key={item.label} onClick={() => handleAction(item.action!, item.label)}><span>{item.label}</span>{item.value && <small>{item.value}</small>}<b>›</b></button>)}{notice && <p className="account-notice">{notice}</p>}{confirmAction && <div className="account-notice" style={{ background: "#fde8e8", color: "#c0392b" }}><div>确认{confirmAction}？此操作不可恢复。</div><div style={{ marginTop: 8, display: "flex", gap: 8 }}><button onClick={() => { localStorage.clear(); setConfirmAction(""); setNotice("已清除本地数据"); }} style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid #c0392b", background: "#c0392b", color: "#fff", fontSize: 12 }}>确认清除</button><button onClick={() => setConfirmAction("")} style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", fontSize: 12 }}>取消</button></div></div>}</main></div>;
 }
 
 function SimpleHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
@@ -635,9 +654,29 @@ function WalletScreen({ go }: { go: (s: Screen) => void }) {
 }
 
 function MembershipScreen({ go }: { go: (s: Screen) => void }) {
+  const [plan, setPlan] = useState<"monthly" | "yearly" | null>(null);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
   const [shared, setShared] = useState(false);
-  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="订阅会员" go={go} /><div className="p-4 flex flex-col gap-4"><div className="card-journal p-4"><div className="font-bold text-sm">会员充值</div><div className="mt-3 grid grid-cols-3 gap-2">{["月卡 ¥19","季卡 ¥49","年卡 ¥168"].map((item) => <button key={item} onClick={() => setMessage(`已选择${item}`)} className="rounded-xl border border-[var(--border)] px-2 py-3 text-xs font-bold">{item}</button>)}</div>{message && <div className="mt-3 text-xs text-[var(--pink)]">{message}，支付接入后可完成充值。</div>}</div><div className="card-journal p-4"><div className="font-bold text-sm">分享 APP 可返现</div><div className="mt-2 text-xs leading-5 text-[var(--text2)]">分享你的专属邀请信息。真实返现需要邀请关系、订单结算和防刷机制。</div><button onClick={async () => { try { await navigator.clipboard.writeText(window.location.href); setShared(true); } catch { setShared(true); } }} className="mt-3 h-10 w-full rounded-xl bg-[var(--pink)] text-sm font-bold text-white">{shared ? "分享信息已准备" : "分享 APP"}</button></div></div></div>;
+  const plans = [
+    { key: "monthly" as const, label: "月卡", price: "¥19.90/月" },
+    { key: "yearly" as const, label: "年卡", price: "¥168/年" },
+  ];
+  async function handlePay() {
+    if (!plan) return;
+    setLoading(true); setMessage("");
+    try {
+      const orderRes = await fetch("/api/membership/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
+      const orderData = await orderRes.json();
+      if (!orderRes.ok) { setMessage(orderData.message || "创建订单失败"); setLoading(false); return; }
+      const payRes = await fetch("/api/payments/alipay/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderData.order.id }) });
+      const payData = await payRes.json();
+      if (!payRes.ok) { setMessage(payData.message || "支付通道暂时不可用"); setLoading(false); return; }
+      if (payData.paymentUrl) { window.open(payData.paymentUrl, "_blank"); setMessage("已打开支付宝支付页面，完成后会员自动开通。"); }
+    } catch { setMessage("支付请求失败，请检查网络后重试"); }
+    setLoading(false);
+  }
+  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="订阅会员" go={go} /><div className="p-4 flex flex-col gap-4"><div className="card-journal p-4"><div className="font-bold text-sm">选择会员方案</div><div className="mt-3 flex flex-col gap-2">{plans.map((p) => <button key={p.key} onClick={() => { setPlan(p.key); setMessage(""); }} style={{ padding: "14px 16px", borderRadius: 10, border: plan === p.key ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: plan === p.key ? "#f3eee8" : "#fffdfa", textAlign: "left" }}><strong style={{ fontSize: 14, fontWeight: 500 }}>{p.label}</strong><div style={{ marginTop: 4, color: "#918981", fontSize: 11 }}>{p.price}</div></button>)}</div><button type="button" disabled={!plan || loading} onClick={handlePay} style={{ width: "100%", height: 42, marginTop: 12, border: 0, borderRadius: 8, background: "#5f554d", color: "#fff", fontSize: 13, cursor: plan ? "pointer" : "default", opacity: plan && !loading ? 1 : 0.5 }}>{loading ? "处理中…" : "立即开通"}</button>{message && <div style={{ marginTop: 10, padding: "10px 13px", borderRadius: 8, background: "#f1ece5", color: "#716a63", fontSize: 11, lineHeight: 1.7 }}>{message}</div>}</div><div className="card-journal p-4"><div className="font-bold text-sm">分享 APP 可返现</div><div className="mt-2 text-xs leading-5 text-[var(--text2)]">分享你的专属邀请链接，好友注册后双方获得奖励。</div><button onClick={async () => { try { await navigator.clipboard.writeText(window.location.href); setShared(true); } catch { setShared(true); } }} className="mt-3 h-10 w-full rounded-xl bg-[var(--pink)] text-sm font-bold text-white">{shared ? "链接已复制" : "分享 APP"}</button></div></div></div>;
 }
 
 function SettingsScreen({ go, brightness, setBrightness, dark, setDark }: { go: (s: Screen) => void; brightness: number; setBrightness: (value: number) => void; dark: boolean; setDark: (value: boolean) => void }) {
