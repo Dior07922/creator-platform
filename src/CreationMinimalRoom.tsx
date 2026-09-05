@@ -3732,11 +3732,38 @@ setView("editor");
               <button
                 type="button"
                 disabled={!membershipPlan}
-                onClick={() =>
-                  setMembershipMessage(
-                    "方案已选择。正式支付通道接入后可在这里完成开通。"
-                  )
-                }
+                onClick={async () => {
+                  if (!membershipPlan) return;
+                  setMembershipMessage("");
+                  try {
+                    const orderRes = await fetch("/api/membership/orders", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ plan: membershipPlan }),
+                    });
+                    const orderData = await orderRes.json();
+                    if (!orderRes.ok) {
+                      setMembershipMessage(orderData.message || "创建订单失败，请稍后再试");
+                      return;
+                    }
+                    const payRes = await fetch("/api/payments/alipay/create", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ orderId: orderData.order.id }),
+                    });
+                    const payData = await payRes.json();
+                    if (!payRes.ok) {
+                      setMembershipMessage(payData.message || "支付通道暂时不可用");
+                      return;
+                    }
+                    if (payData.paymentUrl) {
+                      window.open(payData.paymentUrl, "_blank");
+                      setMembershipMessage("已打开支付宝支付页面，完成支付后会员将自动开通。");
+                    }
+                  } catch {
+                    setMembershipMessage("支付请求失败，请检查网络后重试。");
+                  }
+                }}
                 style={{
                   width: "100%",
                   height: 42,
