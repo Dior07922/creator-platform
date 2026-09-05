@@ -2582,24 +2582,105 @@ useEffect(() => {
     }
   }
 
-  async function resumeAlipayReturn(orderId: string) {
-    const [order, productsResponse] = await Promise.all([
-      loadOrderById(orderId),
-      fetch("/api/products"),
-    ]);
-    if (!order || !productsResponse.ok) {
+   async function resumeAlipayReturn(orderId: string) {
+    const order = await loadOrderById(orderId);
+
+    if (!order) {
       setScreen("orders");
       return;
     }
-    const latestProducts = await productsResponse.json() as Product[];
+
+    const membershipOrder = order as CreatedOrder & {
+      orderKind?: string;
+      membershipPlan?: "monthly" | "yearly";
+    };
+
+    /*
+     * VIP 会员订单单独处理。
+     * 不进入普通商品支付页面。
+     */
+    if (
+      membershipOrder.orderKind === "membership" ||
+      order.id.startsWith("VIP-")
+    ) {
+      localStorage.setItem(
+        "ranjing.pending.membership.orderId",
+        order.id
+      );
+
+      try {
+        const response = await fetch(
+          `/api/payments/alipay/status?orderId=${encodeURIComponent(
+            order.id
+          )}`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        const result = await response.json();
+
+        if (
+          response.ok &&
+          result.status === "Paid"
+        ) {
+          localStorage.setItem(
+            "ranjing.membership.returnPaid",
+            "true"
+          );
+        }
+      } catch {
+        /*
+         * 查询失败也不乱跳普通订单。
+         * 进入创作区后再继续确认。
+         */
+      }
+
+      const cleanUrl = new URL(window.location.href);
+
+      cleanUrl.searchParams.delete("payment");
+      cleanUrl.searchParams.delete("orderId");
+
+      window.history.replaceState(
+        {},
+        "",
+        cleanUrl.pathname +
+          cleanUrl.search +
+          cleanUrl.hash
+      );
+
+      setScreen("create");
+      return;
+    }
+
+    /*
+     * 以下保持原来的普通商城订单逻辑。
+     */
+    const productsResponse = await fetch("/api/products");
+
+    if (!productsResponse.ok) {
+      setScreen("orders");
+      return;
+    }
+
+    const latestProducts = (await productsResponse.json()) as Product[];
+
     setProducts(latestProducts);
-    const matchedProduct = latestProducts.find((product) => product.id === order.productId)
-      ?? DESIGN_SERVICES.find((product) => product.id === order.productId)
-      ?? null;
+
+    const matchedProduct =
+      latestProducts.find(
+        (product) => product.id === order.productId
+      ) ??
+      DESIGN_SERVICES.find(
+        (product) => product.id === order.productId
+      ) ??
+      null;
+
     if (!matchedProduct) {
       setScreen("orders");
       return;
     }
+
     setSelectedProduct(matchedProduct);
     setScreen("paying");
   }
@@ -2728,5 +2809,4 @@ useEffect(() => {
         {screen === "admin-login" && <AdminLogin go={go} />}
       </div>
     </div>
-  );
-}
+ )}
