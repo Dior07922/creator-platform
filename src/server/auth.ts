@@ -73,13 +73,23 @@ export async function sendAliyunSms(phone: string, code: string) {
   const canonical = Object.keys(params).sort().map((key) => `${percent(key)}=${percent(params[key])}`).join("&");
   const stringToSign = `POST&%2F&${percent(canonical)}`;
   params.Signature = createHmac("sha1", `${accessKeySecret}&`).update(stringToSign).digest("base64");
-  const response = await fetch("https://dysmsapi.aliyuncs.com/", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: Object.keys(params).sort().map((key) => `${percent(key)}=${percent(params[key])}`).join("&"), cache: "no-store",
-  });
-  const result = await response.json() as { Code?: string; Message?: string; RequestId?: string };
-  if (!response.ok || result.Code !== "OK") throw new Error(`ALIYUN_SMS_FAILED:${result.Code || response.status}:${result.Message || "发送失败"}`);
-  return { requestId: result.RequestId || "" };
+  const body = Object.keys(params).sort().map((key) => `${percent(key)}=${percent(params[key])}`).join("&");
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch("https://dysmsapi.aliyuncs.com/", {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body, cache: "no-store",
+      });
+      const result = await response.json() as { Code?: string; Message?: string; RequestId?: string };
+      if (!response.ok || result.Code !== "OK") throw new Error(`ALIYUN_SMS_FAILED:${result.Code || response.status}:${result.Message || "发送失败"}`);
+      return { requestId: result.RequestId || "" };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw lastError!;
 }
 
 export function clientIp(request: Request) {
