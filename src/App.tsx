@@ -1,12 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import pageHome from "./assets/page-home.png";
-import pageProduct from "./assets/page-product.png";
-import pageCart from "./assets/page-cart.png";
-import pageCheckout from "./assets/page-checkout.png";
-import pageSuccess from "./assets/page-success.png";
-import pageOrders from "./assets/page-orders.png";
-import pageOrderDetail from "./assets/page-order-detail.png";
+
 import pageLibrary from "./assets/page-library.png";
 import CreationMinimalRoom from "./CreationMinimalRoom";
 import pageProfile from "./assets/page-profile.png";
@@ -26,47 +21,8 @@ type Screen =
   | "personal-profile" | "payment-settings" | "message-settings" | "privacy-settings" | "membership-settings" | "account-security"
   | "admin-login" | "admin-dashboard" | "admin-products" | "admin-inventory" | "admin-orders";
 
-type Product = { id: number; name: string; desc: string; price: string; badge: string; icon: string; color: string; stock?: number };
-type Order = { id: string; product: string; icon: string; qty: number; amount: string; status: string; time: string };
 type CreatedOrder = { id: string; productId: number; product: string; icon: string; quantity: number; amount: string; paymentMethod: string; status: string; createdAt: string; deliveryEmail: string; saveDeliveryEmail: boolean; emailDeliveryStatus: "NotConfigured" | "Pending" | "Sent" | "Failed"; deliveredCode?: string; paidAt?: string };
-type RedemptionCode = { code: string; productId: number; productName: string; status: "Available" | "Issued" | "Redeemed"; orderId?: string; createdAt: string; issuedAt?: string; redeemedAt?: string };
 type TrendItem = { id: number | string; source: string; sourceLabel: string; rank: number; title: string; url: string | null; metricValue: number | null; metricLabel: string | null; publishedAt: string | null; fetchedAt: string };
-
-const DESIGN_SERVICES: Product[] = [
-  { id: 1001, name: "UI 设计", desc: "根据产品定位定制页面结构、视觉风格和交互方案", price: "定制报价", badge: "设计服务", icon: "UI", color: "#FFFFFF" },
-  { id: 1002, name: "AI 个人工作台模式设计", desc: "梳理个人工作流程并设计专属 AI 工作台界面", price: "定制报价", badge: "工作台设计", icon: "AI", color: "#FFFFFF" },
-  { id: 1003, name: "个人网站", desc: "定制个人品牌、作品展示或业务介绍网站", price: "定制报价", badge: "网站设计", icon: "网", color: "#FFFFFF" },
-  { id: 1004, name: "个人 APP", desc: "从功能梳理、页面原型到移动端视觉设计", price: "定制报价", badge: "APP 设计", icon: "APP", color: "#FFFFFF" },
-];
-
-const STATUS_LABELS: Record<string, string> = {
-  Pending: "待处理",
-  Delivered: "已交付",
-  Completed: "已完成",
-  Refunded: "已退款",
-  Paid: "已支付",
-  Published: "已发布",
-  Available: "可用",
-  Sold: "已售出",
-  Reserved: "已预留",
-  Issued: "已发放",
-  Redeemed: "已兑换",
-  Unlimited: "不限量",
-  "Low Stock": "库存紧张",
-  Draft: "草稿",
-  Failed: "失败",
-};
-
-// ─── Data ─────────────────────────────────────────────────────────────────────
-
-
-
-// V7 legacy demo data - disabled from runtime
-const ORDERS: Order[] = [
-  { id: "202408271234", product: "高级会员", icon: "👑", qty: 1, amount: "¥10.00", status: "Delivered", time: "2024-08-27 12:34" },
-  { id: "202408271235", product: "Windows 11 专业版密钥", icon: "🔑", qty: 1, amount: "¥19.90", status: "Delivered", time: "2024-08-27 12:20" },
-  { id: "202408271236", product: "ChatGPT Plus 访问", icon: "🤖", qty: 1, amount: "¥20.00", status: "Pending", time: "2024-08-27 12:10" },
-];
 
 function BrandWord({ className = "" }: { className?: string }) {
   return <span className={`ran-brand-word ${className}`}>苒境</span>;
@@ -134,29 +90,6 @@ const REVENUE_DATA = [
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    Delivered: "bg-[var(--green-bg)] text-[var(--green)]",
-    Pending: "bg-[var(--cream)] text-[var(--warning)]",
-    Completed: "bg-[#EEF0EA] text-[var(--info)]",
-    Refunded: "bg-[var(--pink-soft)] text-[var(--text2)]",
-    Failed: "bg-[#F2E5E1] text-[var(--danger)]",
-  };
-  return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${map[status] || "bg-[var(--pink-soft)] text-[var(--text2)]"}`}>
-      {STATUS_LABELS[status] || status}
-    </span>
-  );
-}
-
-function BadgePill({ text }: { text: string }) {
-  const isLow = text === "库存紧张";
-  return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isLow ? "bg-[var(--cream)] text-[var(--warning)]" : "bg-[var(--pink-soft)] text-[var(--pink)]"}`}>
-      {text}
-    </span>
-  );
-}
 
 function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) {
   const tabs = [
@@ -558,189 +491,6 @@ function WritingScreen({ go, creationType, novelId }: { go: (s: Screen) => void;
   </div>;
 }
 
-function DesignScreen({ go, onSelectProduct }: { go: (s: Screen) => void; onSelectProduct: (product: Product) => void }) {
-  function openService(product: Product) {
-    onSelectProduct(product);
-    const url = new URL(window.location.href);
-    url.searchParams.set("product", String(product.id));
-    window.history.pushState({}, "", url);
-    go("product");
-  }
-  const entries = [
-    { product: DESIGN_SERVICES[0], number: "01", title: "UI 设计", desc: "界面 · 页面 · 产品" },
-    { product: DESIGN_SERVICES[1], number: "02", title: "AI 工作台", desc: "把自己的工作方式做成工具" },
-    { product: DESIGN_SERVICES[2], number: "03", title: "个人网站", desc: "作品 · 品牌 · 内容" },
-    { product: DESIGN_SERVICES[3], number: "04", title: "个人 APP", desc: "从想法开始搭一个应用" },
-  ];
-  return (
-    <div className="design-page flex-1 flex flex-col overflow-hidden">
-      <div className="design-header">
-        <div className="design-title">设计</div>
-        <div className="design-subtitle">把一个想法，慢慢变成看得见的东西</div>
-      </div>
-      <div className="design-content flex-1 overflow-y-auto scrollbar-hide">
-        <div className="design-question">今天，你想把什么做出来？</div>
-        <div className="design-entry-grid">
-          {entries.map((entry) => <button key={entry.number} onClick={() => openService(entry.product)} className="design-entry text-left">
-            <span className="design-entry-number">{entry.number}</span>
-            <strong>{entry.title}</strong>
-            <small>{entry.desc}</small>
-          </button>)}
-        </div>
-        <div className="design-signature">
-          <strong>审美 + 故事</strong>
-          <span>才是你的 IP</span>
-        </div>
-      </div>
-      <BottomNav screen="design" go={go} />
-    </div>
-  );
-}
-
-// ─── Screen 02: Home ─────────────────────────────────────────────────────────
-
-function HomeScreen({ go, onSelectProduct, products }: {
-  go: (s: Screen) => void;
-  onSelectProduct: (p: Product) => void;
-  products: Product[];
-}) {
-  function selectProduct(p: Product) {
-    onSelectProduct(p);
-    go("product");
-  }
-
-  const resourcePresentation: Record<number, { mark: string; line: string }> = {
-    1: { mark: "AI", line: "第一次用 AI，也能一步步做出来" },
-    2: { mark: "会", line: "把常用权益留在一个更省心的位置" },
-    3: { mark: "W", line: "需要激活时，少走一点弯路" },
-    4: { mark: "GPT", line: "更轻松地体验完整的 AI 对话能力" },
-    5: { mark: "1:1", line: "有人陪你把问题真正做完" },
-    6: { mark: "N", line: "把一整年的好内容慢慢看完" },
-    7: { mark: "网", line: "先把稳定这件小事认真解决" },
-  };
-  const featured = products[0];
-  const moreResources = products.slice(1);
-
-  return (
-    <div className="resources-page flex-1 flex flex-col overflow-hidden">
-      <div className="resources-header px-5 pt-[54px] pb-[30px] text-center">
-        <div className="resources-title">技能资源</div>
-        <div className="resources-subtitle">一些真正能派上用场的东西</div>
-      </div>
-
-      {/* Curated resources */}
-      <div className="resources-content flex-1 overflow-y-auto scrollbar-hide">
-        {featured && <>
-          <div className="resources-section-label">本周值得看看</div>
-          <button onClick={() => selectProduct(featured)} className="featured-resource text-left">
-            <div className="resource-mark featured-mark">{resourcePresentation[featured.id]?.mark || featured.icon}</div>
-            <div className="min-w-0 flex-1">
-              <div className="featured-resource-name">{featured.name}</div>
-              <div className="featured-resource-line">{resourcePresentation[featured.id]?.line || featured.desc}</div>
-              <div className="featured-resource-price">{featured.price}</div>
-            </div>
-          </button>
-        </>}
-
-        <div className="resources-section-label more-label">更多资源</div>
-        <div className="resources-grid grid grid-cols-2 content-start">
-        {moreResources.map((p) => (
-          <button key={p.id} onClick={() => selectProduct(p)}
-            className="resource-item text-left">
-            <div className="resource-mark">{resourcePresentation[p.id]?.mark || p.icon}</div>
-            <div className="resource-copy">
-              <div className="resource-name">{p.name}</div>
-              <div className="resource-desc line-clamp-2">{resourcePresentation[p.id]?.line || p.desc}</div>
-              <div className="resource-price">{p.price}</div>
-            </div>
-          </button>
-        ))}
-        </div>
-
-        <div className="resources-section-label design-label">设计服务</div>
-        <div className="design-entry-grid">
-          <button onClick={() => selectProduct(DESIGN_SERVICES[0])} className="design-entry text-left"><span className="design-entry-number">01</span><strong>UI 设计</strong><small>界面 · 页面 · 产品</small></button>
-          <button onClick={() => selectProduct(DESIGN_SERVICES[1])} className="design-entry text-left"><span className="design-entry-number">02</span><strong>AI 工作台</strong><small>把工作方式做成工具</small></button>
-          <button onClick={() => selectProduct(DESIGN_SERVICES[2])} className="design-entry text-left"><span className="design-entry-number">03</span><strong>个人网站</strong><small>作品 · 品牌 · 内容</small></button>
-          <button onClick={() => selectProduct(DESIGN_SERVICES[3])} className="design-entry text-left"><span className="design-entry-number">04</span><strong>个人 APP</strong><small>从想法开始搭应用</small></button>
-        </div>
-      </div>
-
-      {/* Bottom nav */}
-      <BottomNav screen="resources" go={go} />
-    </div>
-  );
-}
-
-// ─── Screen 03: Product Detail ────────────────────────────────────────────────
-
-const DESIGN_SERVICE_CONTENT: Record<number, {
-  tagline: string;
-  fit: string[];
-  steps: string[];
-  deliverables: string[];
-}> = {
-  1001: {
-    tagline: "让界面不只好看，也真正顺手好用",
-    fit: ["已有产品，但界面显得混乱或不统一", "正在做新页面，需要先把信息与操作理顺", "希望现有产品更专业、更有自己的气质"],
-    steps: ["理解产品与用户", "梳理页面结构", "建立视觉与交互方向", "完成关键页面设计"],
-    deliverables: ["页面结构与关键流程", "核心界面视觉稿", "交互说明与设计规范", "可继续开发的交付文件"],
-  },
-  1002: {
-    tagline: "把你每天重复的工作，做成自己的工具",
-    fit: ["工作里有很多重复步骤，想交给 AI", "工具很多，却没有一套真正适合自己的流程", "已经在用 AI，但结果总是不稳定"],
-    steps: ["拆解真实工作流程", "找到适合 AI 的环节", "设计工作台与操作方式", "搭建可运行版本"],
-    deliverables: ["个人工作流地图", "AI 功能与提示策略", "工作台界面方案", "可试用的工作台版本"],
-  },
-  1003: {
-    tagline: "让作品、品牌与内容拥有自己的地址",
-    fit: ["想认真展示自己的作品与经历", "需要一个比社交主页更完整的个人空间", "已经有内容，但不知道怎样组织成网站"],
-    steps: ["确定网站要讲的故事", "整理内容与访问路径", "完成页面与视觉设计", "搭建并准备上线"],
-    deliverables: ["网站内容结构", "核心页面设计", "响应式可运行网站", "上线与后续维护说明"],
-  },
-  1004: {
-    tagline: "把一个想法，做成真正可以使用的产品",
-    fit: ["有一个产品想法，但不知道怎么落地", "已经用 AI 搭了一半，却越来越乱", "想做自己的工具、小程序或 APP"],
-    steps: ["梳理想法", "确定核心功能", "页面与交互设计", "搭建可运行版本"],
-    deliverables: ["清晰的产品范围", "核心流程与页面设计", "可以实际体验的版本", "后续迭代与上线建议"],
-  },
-};
-
-function DesignServiceScreen({ product, go }: { product: Product; go: (s: Screen) => void }) {
-  const content = DESIGN_SERVICE_CONTENT[product.id];
-  return (
-    <div className="service-page flex-1 flex flex-col overflow-hidden">
-      <div className="purchase-header">
-        <button onClick={() => go("design")} className="purchase-back">←</button>
-        <span>定制设计</span>
-        <div className="w-9" />
-      </div>
-      <div className="service-scroll flex-1 overflow-y-auto scrollbar-hide">
-        <div className="service-intro">
-          <div className="service-index">{String(product.id - 1000).padStart(2, "0")}</div>
-          <h1>{product.name}</h1>
-          <p>{content.tagline}</p>
-        </div>
-        <section className="service-section">
-          <h2>适合你，如果你正在……</h2>
-          {content.fit.map((item) => <div key={item} className="service-fit-item">{item}</div>)}
-        </section>
-        <section className="service-section">
-          <h2>我们会一起完成</h2>
-          <div className="service-steps">{content.steps.map((item, index) => <div key={item}><span>{String(index + 1).padStart(2, "0")}</span><b>{item}</b></div>)}</div>
-        </section>
-        <section className="service-section">
-          <h2>你最终会拿到什么</h2>
-          {content.deliverables.map((item) => <div key={item} className="service-deliverable"><span>✓</span>{item}</div>)}
-        </section>
-      </div>
-      <div className="service-action">
-        <div><span>定制服务</span><strong>先确认需求，再提供报价</strong></div>
-        <button onClick={() => go("design-brief")}>聊聊你的想法 →</button>
-      </div>
-    </div>
-  );
-}
 
 function DesignBriefScreen({ product, go }: { product: Product; go: (s: Screen) => void }) {
   const [step, setStep] = useState(0);
@@ -2219,13 +1969,6 @@ type VisualHotspot = {
 const VISUAL_PAGES: Partial<Record<Screen, string>> = {
   splash: pageHome.src,
   home: pageHome.src,
-  product: pageProduct.src,
-  cart: pageCart.src,
-  checkout: pageCheckout.src,
-  paying: pageCheckout.src,
-  success: pageSuccess.src,
-  orders: pageOrders.src,
-  "order-detail": pageOrderDetail.src,
   library: pageLibrary.src,
   profile: pageProfile.src,
   about: pageAbout.src,
