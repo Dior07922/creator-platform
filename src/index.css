@@ -970,6 +970,186 @@ body {
   height: .5px;
 }
 
+/* ── Account sub-pages (个人资料 / 支付 / 消息 / 隐私 / 会员 / 安全) ── */
+
+.account-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  color: #4a463f;
+  background: #fbfaf7;
+}
+
+.account-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-bottom: 1px solid rgba(74, 70, 63, .065);
+}
+.account-page-header button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(74, 70, 63, .05);
+  color: #4a463f;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.account-page-header h1 {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: .03em;
+}
+
+.personal-profile-form {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.personal-profile-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #918b84;
+}
+.personal-profile-form input,
+.personal-profile-form textarea,
+.personal-profile-form select {
+  width: 100%;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 70, 63, .12);
+  background: #f5f2ec;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #4a463f;
+  outline: none;
+}
+.personal-profile-form textarea {
+  height: 60px;
+  resize: none;
+  padding: 10px 12px;
+}
+.personal-profile-form select {
+  appearance: none;
+}
+
+.personal-profile-avatar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.personal-profile-avatar img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.personal-profile-avatar span {
+  font-size: 11px;
+  font-weight: 600;
+  color: #918b84;
+}
+
+.account-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 22px;
+}
+.account-list-spaced {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 32px;
+}
+.account-list-spaced button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 400;
+  color: #4a463f;
+  cursor: pointer;
+  text-align: left;
+}
+.account-list-spaced button:hover {
+  background: rgba(74, 70, 63, .03);
+}
+.account-list-spaced button small {
+  font-size: 10px;
+  color: #aaa59e;
+}
+.account-list-spaced button b {
+  color: #cbc6c0;
+  font-size: 15px;
+  font-weight: 300;
+}
+.account-list-spaced button.is-danger {
+  color: #a35f55;
+}
+
+.account-list-spaced button i {
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: #ddd8d0;
+  display: flex;
+  align-items: center;
+  padding: 0 3px;
+  transition: background .2s;
+}
+.account-list-spaced button i em {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  display: block;
+  transition: transform .2s;
+}
+.account-list-spaced button i.is-on {
+  background: #7a9e7e;
+}
+.account-list-spaced button i.is-on em {
+  transform: translateX(14px);
+}
+
+.account-primary-action {
+  width: 100%;
+  height: 44px;
+  border-radius: 12px;
+  border: none;
+  background: #5f554d;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.account-notice {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: #7a9e7e;
+  text-align: center;
+}
+
 /* Hotspot detail — internal reading bridge */
 .trend-detail-page { color: #4a463f; background: #fbfaf7; }
 .trend-detail-header {

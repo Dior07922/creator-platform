@@ -11,7 +11,6 @@ import pageLibrary from "./assets/page-library.png";
 import CreationMinimalRoom from "./CreationMinimalRoom";
 import pageProfile from "./assets/page-profile.png";
 import pageAbout from "./assets/page-about.png";
-import skillCreatorMascot from "./assets/skill-creator-mascot.png";
 import splashCover from "./assets/splash-cover-original.png";
 import adminPeekingLine from "./assets/admin-peeking-line-transparent.png";
 import adminLoginTitleTangyuan from "./assets/admin-login-title-admin-channel.png";
@@ -23,10 +22,9 @@ import { Character, loadNovels, newCharacter, newNovel, Novel, saveNovels, total
 type Screen =
   | "welcome" | "login" | "profile-setup" | "splash" | "home" | "resources" | "create" | "design" | "design-brief" | "works" | "writing" | "product" | "checkout" | "paying" | "success"
   | "cart" | "orders" | "order-detail" | "library" | "profile" | "about"
-  | "support" | "help" | "settings" | "creator-register" | "wallet" | "membership"
+  | "support" | "help" | "settings" | "wallet" | "membership"
   | "personal-profile" | "payment-settings" | "message-settings" | "privacy-settings" | "membership-settings" | "account-security"
-  | "merchant-login" | "merchant-dashboard"
-  | "admin-login" | "admin-dashboard" | "admin-products" | "admin-inventory" | "admin-orders" | "admin-merchants";
+  | "admin-login" | "admin-dashboard" | "admin-products" | "admin-inventory" | "admin-orders";
 
 type Product = { id: number; name: string; desc: string; price: string; badge: string; icon: string; color: string; stock?: number };
 type Order = { id: string; product: string; icon: string; qty: number; amount: string; status: string; time: string };
@@ -220,10 +218,6 @@ function GirlIllustration({ size = 120 }: { size?: number }) {
       <text x="15" y="70" fontSize="7" fill="var(--pink)">✦</text>
     </svg>
   );
-}
-
-function SkillCreatorMascot({ size = 120 }: { size?: number }) {
-  return <img src={skillCreatorMascot.src} alt="手绘技能创作者" style={{ width: size, height: size, objectFit: "contain" }} />;
 }
 
 function PeekingLineIllustration() {
@@ -604,8 +598,6 @@ function DesignScreen({ go, onSelectProduct }: { go: (s: Screen) => void; onSele
 }
 
 // ─── Screen 02: Home ─────────────────────────────────────────────────────────
-
-const CATEGORIES = ["推荐", "正常类目", "小众", "奇怪"];
 
 function HomeScreen({ go, onSelectProduct, products }: {
   go: (s: Screen) => void;
@@ -1358,174 +1350,6 @@ function OrderDetailScreen({ go, order }: { go: (s: Screen) => void; order: Crea
     </div>
   );
 }
-
-// ─── Screen 09: Profile ───────────────────────────────────────────────────────
-
-function LegacyProfileScreen({ go }: { go: (s: Screen) => void }) {
-  const [profile, setProfile] = useState({
-    name: "好技友",
-    bio: "",
-    gender: "",
-    ip: "",
-    industry: "",
-  });
-  const [isEditing, setIsEditing] = useState(false);
-
-  return (
-    <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-[var(--bg2)] border-b border-[var(--border)]">
-        <span className="font-hand text-2xl text-[var(--text)]">我的</span>
-        <button onClick={() => go("admin-login")} className="text-xs font-bold text-[var(--pink)]">管理员通道</button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-5 flex flex-col gap-4">
-        {/* Header card */}
-        <div className="card-journal p-4 flex items-center gap-4">
-          <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[15px_11px_16px_10px] bg-[#F8F3EB]">
-            <img
-              src={splashCover.src}
-              alt="用户原创手绘头像"
-              className="absolute max-w-none"
-              style={{ width: "181px", height: "320px", left: "-51px", top: "-116px" }}
-            />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="text-[11px] font-bold text-[var(--muted)]">昵称</div>
-                <span className="font-bold text-[var(--text)] text-base">{profile.name}</span>
-              </div>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="shrink-0 text-xs font-bold text-[var(--pink)]">
-                编辑资料
-              </button>
-            </div>
-            <div className="mt-2 text-[11px] font-bold text-[var(--muted)]">简介</div>
-            <div className="text-xs leading-5 text-[var(--text2)]">
-              {profile.bio || "这个人很懒，还没有简介"}
-            </div>
-          </div>
-        </div>
-
-        {/* Edit profile form */}
-        {isEditing && (
-          <div className="bg-[var(--bg2)] rounded-2xl p-4 border border-[var(--border)] flex flex-col gap-3">
-            <div className="text-sm font-bold text-[var(--text)]">
-              编辑资料
-            </div>
-
-            <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--text2)]">
-              名字
-              <input
-                value={profile.name}
-                onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                className="mt-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--pink)]"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--text2)]">
-              简介
-              <textarea
-                value={profile.bio}
-                onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
-                rows={2}
-                className="mt-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--pink)] resize-none"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--text2)]">
-              性别
-              <select
-                value={profile.gender}
-                onChange={(e) => setProfile({ ...profile, gender: e.target.value })}
-                className="mt-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--pink)]">
-                <option value="">不透露</option>
-                <option value="男">男</option>
-                <option value="女">女</option>
-                <option value="其他">其他</option>
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--text2)]">
-              IP 属地
-              <input
-                value={profile.ip}
-                onChange={(e) => setProfile({ ...profile, ip: e.target.value })}
-                placeholder="例如：上海"
-                className="mt-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--pink)]"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--text2)]">
-              行业
-              <input
-                value={profile.industry}
-                onChange={(e) => setProfile({ ...profile, industry: e.target.value })}
-                placeholder="例如：设计 / 开发 / 运营"
-                className="mt-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--pink)]"
-              />
-            </label>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => setIsEditing(false)}
-                className="flex-1 rounded-xl py-2.5 text-sm font-semibold bg-[var(--pink-soft)] text-[var(--text)]">
-                取消
-              </button>
-              <button
-                onClick={() => setIsEditing(false)}
-                className="flex-1 rounded-xl py-2.5 text-sm font-bold bg-[var(--pink)] text-[var(--bg2)]">
-                保存
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Order shortcuts */}
-        <div className="bg-[var(--bg2)] rounded-2xl p-4 border border-[var(--border)]">
-          <div className="text-sm font-bold text-[var(--text)] mb-3">我的订单</div>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: "待处理", icon: "⏳", screen: "orders" as Screen },
-              { label: "已交付", icon: "📦", screen: "orders" as Screen },
-              { label: "全部订单", icon: "📋", screen: "orders" as Screen },
-            ].map((item) => (
-              <button key={item.label} onClick={() => go(item.screen)}
-                className="flex flex-col items-center gap-1.5 py-3 bg-[var(--bg)] rounded-xl hover:bg-[var(--pink-soft)] transition-colors">
-                <span className="text-2xl">{item.icon}</span>
-                <span className="text-xs font-semibold text-[var(--text2)]">{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Utilities */}
-        <div className="bg-[var(--bg2)] rounded-2xl border border-[var(--border)] overflow-hidden">
-          {[
-            { icon: "✦", label: "技能入驻", screen: "creator-register" as Screen },
-            { icon: "▣", label: "我的钱包", screen: "wallet" as Screen },
-            { icon: "❓", label: "帮助中心", screen: "help" as Screen },
-            { icon: "◇", label: "订阅会员", screen: "membership" as Screen },
-            { icon: "✎", label: "投诉建议", screen: "support" as Screen },
-            { icon: "⚙", label: "系统设置", screen: "settings" as Screen },
-          ].map((item, i, arr) => (
-            <button key={item.label}
-              onClick={() => go(item.screen)}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[var(--bg2)] transition-colors ${i < arr.length - 1 ? "border-b border-[var(--pink-soft)]" : ""}`}>
-              <span className="text-xl">{item.icon}</span>
-              <span className="flex-1 text-left text-sm font-semibold text-[var(--text)]">{item.label}</span>
-              <span className="text-[var(--muted)] text-sm">›</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <BottomNav screen="profile" go={go} />
-    </div>
-  );
-}
-
 type PersonalProfile = { name: string; bio: string; gender: string; birthday: string; wish: string };
 const DEFAULT_PERSONAL_PROFILE: PersonalProfile = { name: "好技友", bio: "", gender: "", birthday: "", wish: "" };
 
@@ -1560,10 +1384,6 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
   return (
     <div className="profile-page flex-1 flex flex-col overflow-hidden">
       <div className="profile-scroll flex-1 overflow-y-auto scrollbar-hide">
-        <header className="profile-header">
-          <h1>我的</h1>
-        </header>
-
         <section className="profile-identity">
           <div className="profile-avatar">
             <img
@@ -1576,17 +1396,8 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
           <div className="profile-copy">
             <div className="profile-name">{profile.name}</div>
             <div className="profile-bio">{profile.bio || "还没有简介"}</div>
-            <button onClick={() => go("personal-profile")} className="profile-edit">编辑资料&nbsp; →</button>
           </div>
         </section>
-
-        <button onClick={() => go("creator-register")} className="profile-featured-entry">
-          <span className="profile-featured-copy">
-            <strong>技能入驻</strong>
-            <small>把你的经验、能力与作品，变成可以出售的技能。</small>
-          </span>
-          <span className="profile-featured-arrow">→</span>
-        </button>
 
         {renderDirectory(accountItems)}
       </div>
@@ -1673,7 +1484,7 @@ function SupportScreen({ go }: { go: (s: Screen) => void }) {
 }
 
 function HelpScreen({ go }: { go: (s: Screen) => void }) {
-  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="帮助中心" go={go} /><div className="p-4 flex flex-col gap-3">{[["如何购买？","选择商品后确认订单，支付成功会自动发放兑换码。"],["兑换码在哪里？","支付成功页和订单详情页都可以查看。"],["如何成为创作者？","进入个人技能入驻通道，填写擅长技能并等待审核。"],["如何售卖自己的技能？","先提交技能入驻申请，审核通过后进入商家后台上传商品、定价并提交审核。"],["如何退款？","在订单详情或投诉建议中提交退款申请。"]].map(([q,a]) => <div key={q} className="card-journal p-4"><div className="font-bold text-sm">{q}</div><div className="text-xs text-[var(--text2)] mt-2">{a}</div></div>)}</div></div>;
+  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="帮助中心" go={go} /><div className="p-4 flex flex-col gap-3">{[["如何购买？","选择商品后确认订单，支付成功会自动发放兑换码。"],["兑换码在哪里？","支付成功页和订单详情页都可以查看。"],["如何退款？","在订单详情或投诉建议中提交退款申请。"]].map(([q,a]) => <div key={q} className="card-journal p-4"><div className="font-bold text-sm">{q}</div><div className="text-xs text-[var(--text2)] mt-2">{a}</div></div>)}</div></div>;
 }
 
 function WalletScreen({ go }: { go: (s: Screen) => void }) {
@@ -1695,33 +1506,11 @@ function SettingsScreen({ go, brightness, setBrightness, dark, setDark }: { go: 
   return <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden"><SimpleHeader title="设置" go={go} /><div className="p-4 overflow-y-auto flex flex-col gap-4">
     <div className="card-journal p-4"><div className="font-bold text-sm">显示设置</div><label className="mt-3 flex justify-between text-sm">深色模式<input type="checkbox" checked={dark} onChange={(e) => setDark(e.target.checked)} /></label><label className="block mt-4 text-sm">APP 亮度：{brightness}%<input className="w-full mt-2" type="range" min="70" max="120" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} /></label><label className="block mt-4 text-sm">字体大小：{fontSize}%<input className="w-full mt-2" type="range" min="85" max="120" value={fontSize} onChange={(e) => updateFontSize(Number(e.target.value))} /></label></div>
     <div className="card-journal p-4"><div className="font-bold text-sm">交易隐私</div><label className="mt-3 flex items-start gap-3 text-sm"><input type="checkbox" checked={anonymous} onChange={(e) => updateAnonymous(e.target.checked)} /><span><span className="font-bold">匿名交易</span><span className="mt-1 block text-xs leading-5 text-[var(--text2)]">对外隐藏真实昵称和联系方式，仅订单双方及平台审核人员按权限查看必要信息。</span></span></label></div>
-    <div className="card-journal p-4"><div className="font-bold text-sm">切换商家账号</div><div className="mt-2 text-xs leading-5 text-[var(--text2)]">审核通过的创作者可以进入独立商家后台；尚未入驻请先提交技能申请。</div><div className="mt-3 grid grid-cols-2 gap-2"><button onClick={() => go("creator-register")} className="h-10 rounded-xl border border-[var(--pink)] text-[var(--pink)] font-bold text-sm">申请入驻</button><button onClick={() => go("merchant-login")} className="h-10 rounded-xl bg-[var(--pink)] text-white font-bold text-sm">商家登录</button></div></div>
   </div></div>;
 }
 
-function CreatorRegisterScreen({ go }: { go: (s: Screen) => void }) {
-  const [form, setForm] = useState({ name:"", contact:"", skill:"", description:"", category:CATEGORIES[0], portfolio:"", agreed:false });
-  const [message, setMessage] = useState("");
-  async function submit() { const response = await fetch("/api/creators", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(form) }); const result = await response.json(); setMessage(response.ok ? `提交成功，申请编号：${result.id}` : result.message); }
-  return <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden"><SimpleHeader title="个人技能入驻" go={go} /><div className="p-4 overflow-y-auto"><div className="card-journal p-4 flex flex-col gap-3"><div className="text-sm font-bold">告诉我们你会什么技能</div>{[["姓名或昵称","name","例如：小林"],["联系方式","contact","微信、邮箱或手机号"],["擅长技能","skill","例如：小说写作、绘画、剪辑"],["作品链接","portfolio","可选：作品集或主页地址"]].map(([label,key,placeholder]) => <label key={key} className="text-xs font-semibold text-[var(--text2)]">{label}<input value={String(form[key as keyof typeof form])} onChange={(e) => setForm({...form,[key]:e.target.value})} placeholder={placeholder} className="mt-1 w-full h-10 rounded-xl border border-[var(--border)] px-3 text-sm" /></label>)}<label className="text-xs font-semibold text-[var(--text2)]">技能说明<textarea value={form.description} onChange={(e) => setForm({...form,description:e.target.value})} className="mt-1 w-full h-24 rounded-xl border border-[var(--border)] p-3 text-sm" placeholder="说明你能教什么、适合谁、如何交付" /></label><label className="text-xs font-semibold text-[var(--text2)]">发布分类<select value={form.category} onChange={(e) => setForm({...form,category:e.target.value})} className="mt-1 w-full h-10 rounded-xl border border-[var(--border)] px-3 text-sm">{CATEGORIES.map((item)=><option key={item}>{item}</option>)}</select></label><label className="text-xs text-[var(--text2)] flex gap-2"><input type="checkbox" checked={form.agreed} onChange={(e)=>setForm({...form,agreed:e.target.checked})} />我承诺不发布色情、赌博、毒品、诈骗、侵权或其他违法内容，并接受平台审核。</label><button onClick={submit} className="h-11 rounded-xl bg-[var(--pink)] text-white font-bold text-sm">提交入驻申请</button>{message && <div className="text-sm text-[var(--text2)]">{message}</div>}</div></div></div>;
-}
 
-function MerchantLoginScreen({ go }: { go: (s: Screen) => void }) {
-  const [account, setAccount] = useState("");
-  const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  function login() {
-    if (!account || !password) { setMessage("请输入商家账号和密码"); return; }
-    setMessage("当前为界面预览，正式登录需等待商家账号审核与身份接口接入。");
-  }
-  return <div className="flex-1 flex flex-col bg-white overflow-hidden"><div className="flex-1 overflow-y-auto px-8 pt-16"><div className="text-center"><div className="font-admin-title text-3xl">商家登录</div><PeekingLineIllustration /></div><div className="mt-7"><label className="block text-xs font-bold text-[var(--text2)]">商家账号<input value={account} onChange={(event) => setAccount(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm" placeholder="请输入审核通过的账号" /></label><label className="mt-4 block text-xs font-bold text-[var(--text2)]">密码<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm" placeholder="请输入密码" /></label><button onClick={login} className="mt-6 h-11 w-full rounded-xl bg-[var(--pink)] text-sm font-bold text-white">登录</button>{message && <div className="mt-3 text-xs leading-5 text-[var(--text2)]">{message}</div>}<button onClick={() => go("merchant-dashboard")} className="mt-4 w-full text-xs font-bold text-[var(--pink)]">进入商家后台</button></div></div><BottomNav screen="profile" go={go} /></div>;
-}
 
-function MerchantDashboard({ go }: { go: (s: Screen) => void }) {
-  const [notice, setNotice] = useState("");
-  const actions = ["上传技能商品", "编辑商品与定价", "提交平台审核", "查看我的订单", "查看卡密库存", "及时补充卡密"];
-  return <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden"><div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg2)] px-4 py-4"><div><div className="font-hand text-2xl">商家后台</div><div className="text-[11px] text-[var(--text2)]">只显示当前商家自己的经营数据</div></div><button onClick={() => go("profile")} className="text-xs font-bold text-[var(--pink)]">退出</button></div><div className="flex-1 overflow-y-auto p-4"><div className="grid grid-cols-3 gap-2">{[["我的商品","0"],["我的订单","0"],["卡密库存","0"]].map(([label,value]) => <div key={label} className="card-journal p-3 text-center"><div className="text-xl font-extrabold text-[var(--pink)]">{value}</div><div className="mt-1 text-[10px] text-[var(--text2)]">{label}</div></div>)}</div><div className="mt-4 card-journal overflow-hidden">{actions.map((item,index) => <button key={item} onClick={() => setNotice(`“${item}”将在商家身份接口和数据隔离完成后接通。`)} className={`flex w-full items-center justify-between px-4 py-3.5 text-left text-sm font-bold ${index < actions.length - 1 ? "border-b border-[var(--border)]" : ""}`}><span>{item}</span><span className="text-[var(--muted)]">›</span></button>)}</div><div className="mt-4 card-journal p-4"><div className="font-bold text-sm">商家权益</div><div className="mt-2 text-xs leading-6 text-[var(--text2)]">审核通过后成为终身商家会员；可申请批量兑换码、管理自己的交付库存，并承接平台审核通过的网站或 APP 项目。</div></div>{notice && <div className="mt-4 rounded-xl bg-[var(--cream)] p-3 text-xs leading-5 text-[var(--text2)]">{notice}</div>}</div></div>;
-}
 
 // ─── Admin: Sidebar ───────────────────────────────────────────────────────────
 
@@ -1731,7 +1520,6 @@ const ADMIN_NAVS: { label: string; icon: string; screen: Screen }[] = [
   { label: "兑换码管理", icon: "🔑", screen: "admin-inventory" },
   { label: "订单管理", icon: "📋", screen: "admin-orders" },
   { label: "客户管理", icon: "👥", screen: "admin-dashboard" },
-  { label: "商家管理", icon: "◇", screen: "admin-merchants" },
   { label: "系统设置", icon: "⚙️", screen: "admin-dashboard" },
 ];
 
@@ -1793,9 +1581,6 @@ function AdminLogin({ go }: { go: (s: Screen) => void }) {
   );
 }
 
-function AdminMerchants() {
-  return <div className="flex-1 overflow-y-auto bg-[var(--bg)] p-8"><div className="text-2xl font-extrabold">商家管理</div><div className="mt-1 text-sm text-[var(--text2)]">审核入驻申请、控制商家状态和查看平台范围内的商家经营风险。</div><div className="mt-6 grid grid-cols-3 gap-4">{[["待审核申请","0"],["已通过商家","0"],["风险复核","0"]].map(([label,value]) => <div key={label} className="rounded-2xl border border-[var(--border)] bg-white p-5"><div className="text-xs text-[var(--text2)]">{label}</div><div className="mt-2 text-3xl font-extrabold text-[var(--pink)]">{value}</div></div>)}</div><div className="mt-5 rounded-2xl border border-[var(--border)] bg-white p-6"><div className="font-bold">安全接入说明</div><div className="mt-2 max-w-3xl text-sm leading-7 text-[var(--text2)]">这里不会直接读取并展示申请人的联系方式，因为当前项目还没有安全的管理员会话。下一步先建立管理员身份验证，再开放入驻申请列表、通过、拒绝和冻结操作，避免任何普通访问者调用接口看到商家隐私。</div></div></div>;
-}
 
 // ─── Admin: Revenue Chart (SVG) ───────────────────────────────────────────────
 
@@ -2491,6 +2276,8 @@ function HandbookVisualScreen({ screen, go }: { screen: Screen; go: (s: Screen) 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const [authReady,setAuthReady]=useState(false);
+  const [user, setUser] = useState<{ id: string; phone: string; nickname: string; avatar: string; defaultDeliveryEmail?: string } | null>(null);
+  const screenFromUrlRef = useRef<boolean>(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
@@ -2512,10 +2299,11 @@ useEffect(() => {
     void resumeAlipayReturn(alipayReturnOrderId);
     return;
   }
-  fetch("/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user)setScreen("home");else setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome")).finally(()=>setAuthReady(true));
+  fetch("/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);if(!screenFromUrlRef.current)setScreen("home");}else if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).finally(()=>setAuthReady(true));
   const requestedCreation = params.get("creation");
   const requestedNovelId = params.get("novel");
   if (requestedCreation) {
+    screenFromUrlRef.current = true;
     setCreationType(requestedCreation);
     setSelectedNovelId(requestedNovelId);
     setScreen(requestedCreation === "小说" && !requestedNovelId ? "works" : "writing");
@@ -2523,6 +2311,7 @@ useEffect(() => {
   const requestedId = Number(params.get("product"));
   const designService = DESIGN_SERVICES.find((item) => item.id === requestedId);
   if (designService) {
+    screenFromUrlRef.current = true;
     setSelectedProduct(designService);
     setScreen("product");
   }
@@ -2760,7 +2549,6 @@ useEffect(() => {
           {screen === "admin-products" && <AdminProducts products={products} onProductSaved={(product) => setProducts((current) => current.some((item) => item.id === product.id) ? current.map((item) => item.id === product.id ? product : item) : [...current, product])} onProductDeleted={(id) => setProducts((current) => current.filter((item) => item.id !== id))} />}
           {screen === "admin-inventory" && <AdminInventory products={products} />}
           {screen === "admin-orders" && <AdminOrders />}
-          {screen === "admin-merchants" && <AdminMerchants />}
         </div>
       </div>
     );
@@ -2803,9 +2591,6 @@ useEffect(() => {
         {screen === "wallet" && <WalletScreen go={go} />}
         {screen === "membership" && <MembershipScreen go={go} />}
         {screen === "settings" && <SettingsScreen go={go} brightness={brightness} setBrightness={setBrightness} dark={dark} setDark={setDark} />}
-        {screen === "creator-register" && <CreatorRegisterScreen go={go} />}
-        {screen === "merchant-login" && <MerchantLoginScreen go={go} />}
-        {screen === "merchant-dashboard" && <MerchantDashboard go={go} />}
         {screen === "admin-login" && <AdminLogin go={go} />}
       </div>
     </div>
