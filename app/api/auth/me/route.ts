@@ -8,7 +8,7 @@ export async function GET() {
     if (!token) return NextResponse.json({ user: null, message: "未登录" }, { status: 401 });
 
     await ensureAuthTables();
-    const rows = await db`
+    const rows = await db()`
       SELECT u.id, u.phone, u.nickname, u.avatar, u.default_delivery_email AS "defaultDeliveryEmail"
       FROM user_sessions s
       JOIN users u ON u.id = s.user_id
@@ -39,7 +39,7 @@ export async function PATCH(request: Request) {
     const nickname = String(body.nickname || "").trim().slice(0, 20);
     const avatar = String(body.avatar || "").slice(0, 500000);
 
-    const rows = await db`
+    const rows = await db()`
       UPDATE users
       SET nickname = ${nickname}, avatar = ${avatar}, updated_at = NOW()
       WHERE id = (
