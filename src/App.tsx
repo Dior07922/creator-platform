@@ -512,7 +512,7 @@ function AccountPageHeader({ title, go }: { title: string; go: (s: Screen) => vo
 
 function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
   const [profile, setProfile] = useState<PersonalProfile>(loadPersonalProfile);
-  const [saved, setSaved] = useState(false);
+  const [showSaved, setShowSaved] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
     try { return localStorage.getItem("ranjingUserAvatar") || ""; } catch { return ""; }
   });
@@ -530,7 +530,8 @@ function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
   }
   function save() {
     localStorage.setItem("ranjingPersonalProfile", JSON.stringify(profile));
-    setSaved(true);
+    setShowSaved(true);
+    setTimeout(() => setShowSaved(false), 2000);
   }
   return (
     <div className="account-page">
@@ -544,45 +545,50 @@ function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
         </div>
         <div className="pp-field-list">
-          <div className="pp-field-row">
-            <span className="pp-field-label">昵称</span>
-            <input className="pp-field-input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
-          </div>
-          <div className="pp-field-row">
-            <span className="pp-field-label">简介</span>
-            <input className="pp-field-input" value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} />
-          </div>
-          <div className="pp-field-row">
-            <span className="pp-field-label">性别</span>
-            <select className="pp-field-input" value={profile.gender} onChange={(e) => setProfile({ ...profile, gender: e.target.value })}>
-              <option value="">不透露</option><option>女</option><option>男</option><option>其他</option>
-            </select>
-          </div>
-          <div className="pp-field-row">
-            <span className="pp-field-label">生日</span>
-            <input type="date" className="pp-field-input" value={profile.birthday} onChange={(e) => setProfile({ ...profile, birthday: e.target.value })} />
-          </div>
+          <div className="pp-field-row"><span className="pp-field-label">昵称</span><input className="pp-field-input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
+          <div className="pp-field-row"><span className="pp-field-label">简介</span><input className="pp-field-input" value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} /></div>
+          <div className="pp-field-row"><span className="pp-field-label">性别</span><select className="pp-field-input" value={profile.gender} onChange={(e) => setProfile({ ...profile, gender: e.target.value })}><option value="">不透露</option><option>女</option><option>男</option><option>其他</option></select></div>
+          <div className="pp-field-row"><span className="pp-field-label">生日</span><input type="date" className="pp-field-input" value={profile.birthday} onChange={(e) => setProfile({ ...profile, birthday: e.target.value })} /></div>
         </div>
-        <div className="pp-wish-block">
-          <span className="pp-field-label">写给自己的祝愿</span>
-          <textarea className="pp-wish-textarea" value={profile.wish} onChange={(e) => setProfile({ ...profile, wish: e.target.value })} />
-        </div>
-        <button type="button" className="account-primary-action" onClick={save}>{saved ? "已保存" : "保存资料"}</button>
+        <div className="pp-wish-block"><span className="pp-field-label">写给自己的祝愿</span><textarea className="pp-wish-textarea" value={profile.wish} onChange={(e) => setProfile({ ...profile, wish: e.target.value })} /></div>
+        <button type="button" className="account-primary-action" onClick={save}>保存资料</button>
       </main>
+      {showSaved && <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, background: "rgba(0,0,0,.25)" }}><div style={{ background: "#fff", borderRadius: 14, padding: "32px 40px", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,.12)" }}><div style={{ fontSize: 36, marginBottom: 12 }}>✅</div><div style={{ fontSize: 16, fontWeight: 600, color: "#333" }}>保存成功</div><div style={{ fontSize: 12, color: "#999", marginTop: 6 }}>个人资料已更新</div></div></div>}
     </div>
   );
 }
 
 function PaymentSettingsScreen({ go }: { go: (s: Screen) => void }) {
-  const methods = ["支付宝", "微信付款", "银行卡", "其他支付方式"];
   const [bindings, setBindings] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem("ranjingPaymentBindings") || "{}"); } catch { return {}; }
   });
+  const [bankForm, setBankForm] = useState(false);
+  const [bankCard, setBankCard] = useState("");
+  const [bankName, setBankName] = useState("");
+  function bind(method: string) {
+    if (method === "支付宝") { window.open("https://auth.alipay.com/login/index.htm", "_blank"); return; }
+    if (method === "微信付款") { window.open("https://login.weixin.qq.com/", "_blank"); return; }
+    if (method === "银行卡") { setBankForm(true); return; }
+    setNotice(method);
+  }
+  function saveBank() {
+    if (!bankCard.trim() || !bankName.trim()) return;
+    const next = { ...bindings, "银行卡": true };
+    setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next));
+    setBankForm(false); setBankCard(""); setBankName("");
+  }
   function toggle(method: string) {
     const next = { ...bindings, [method]: !bindings[method] };
     setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next));
   }
-  return <div className="account-page"><AccountPageHeader title="支付设置" go={go} /><main className="account-list account-list-spaced">{methods.map((method) => <button type="button" key={method} onClick={() => toggle(method)}><span>{method}</span><small>{bindings[method] ? "已绑定" : "未绑定"}</small><b>›</b></button>)}</main></div>;
+  const [notice, setNotice] = useState("");
+  const otherMethods = ["信用卡", "花呗", "HK支付宝"];
+  return <div className="account-page"><AccountPageHeader title="支付设置" go={go} /><main className="account-list account-list-spaced">
+    {["支付宝", "微信付款", "银行卡"].map((method) => <button type="button" key={method} onClick={() => bind(method)}><span>{method}</span><small>{bindings[method] ? "已绑定" : "未绑定"}</small><b>›</b></button>)}
+    {otherMethods.map((method) => <button type="button" key={method} onClick={() => toggle(method)}><span>{method}</span><small>{bindings[method] ? "已绑定" : "未绑定"}</small><i className={bindings[method] ? "is-on" : ""}><em /></i></button>)}
+    {bankForm && <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, background: "rgba(0,0,0,.25)" }}><div style={{ background: "#fff", borderRadius: 14, padding: "24px 20px", width: 280, boxShadow: "0 8px 32px rgba(0,0,0,.12)" }}><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>绑定银行卡</div><input placeholder="持卡人姓名" value={bankName} onChange={(e) => setBankName(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13, marginBottom: 10, boxSizing: "border-box" }} /><input placeholder="银行卡号" value={bankCard} onChange={(e) => setBankCard(e.target.value.replace(/\D/g, ""))} maxLength={19} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13, marginBottom: 16, boxSizing: "border-box" }} /><div style={{ display: "flex", gap: 10 }}><button onClick={() => setBankForm(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13 }}>取消</button><button onClick={saveBank} style={{ flex: 1, padding: 10, borderRadius: 8, border: 0, background: "#5f554d", color: "#fff", fontSize: 13 }}>确认绑定</button></div></div></div>}
+    {notice && <p className="account-notice">{notice} 绑定状态已更新</p>}
+  </main></div>;
 }
 
 type SettingItem = { label: string; kind?: "toggle" | "action"; value?: string };
@@ -623,6 +629,65 @@ function AccountSecurityScreen({ go }: { go: (s: Screen) => void }) {
     setNotice(`${label}：功能开发中`);
   }
   return <div className="account-page"><AccountPageHeader title="账号设置" go={go} /><main className="account-list account-list-spaced">{items.map((item) => <button type="button" className={item.danger ? "is-danger" : ""} key={item.label} onClick={() => handleAction(item.action!, item.label)}><span>{item.label}</span>{item.value && <small>{item.value}</small>}<b>›</b></button>)}{notice && <p className="account-notice">{notice}</p>}{confirmAction && <div className="account-notice" style={{ background: "#fde8e8", color: "#c0392b" }}><div>确认{confirmAction}？此操作不可恢复。</div><div style={{ marginTop: 8, display: "flex", gap: 8 }}><button onClick={() => { localStorage.clear(); setConfirmAction(""); setNotice("已清除本地数据"); }} style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid #c0392b", background: "#c0392b", color: "#fff", fontSize: 12 }}>确认清除</button><button onClick={() => setConfirmAction("")} style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", fontSize: 12 }}>取消</button></div></div>}</main></div>;
+}
+
+function MessageSettingsScreen({ go }: { go: (s: Screen) => void }) {
+  const [values, setValues] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem("ranjingMessageSettings") || "{}"); } catch { return {}; }
+  });
+  const [soundMode, setSoundMode] = useState(() => localStorage.getItem("ranjingSoundMode") || "响铃");
+  function toggle(key: string) { const next = { ...values, [key]: !values[key] }; setValues(next); localStorage.setItem("ranjingMessageSettings", JSON.stringify(next)); }
+  function setSound(mode: string) { setSoundMode(mode); localStorage.setItem("ranjingSoundMode", mode); }
+  const notifyItems = [{ key: "通知消息", desc: "接收来自平台的最新消息" }, { key: "上新消息", desc: "新模板上线时通知你" }, { key: "系统升级", desc: "系统维护和升级通知" }];
+  return <div className="account-page"><AccountPageHeader title="消息通知" go={go} /><main className="account-list account-list-spaced">
+    <div style={{ padding: "12px 3px 6px", fontSize: 11, color: "#918981" }}>通知设置</div>
+    {notifyItems.map((item) => { const on = values[item.key] !== false; return <div key={item.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 3px", borderBottom: "1px solid rgba(74,70,63,.055)" }}><div><div style={{ fontSize: 14, color: "#57524c" }}>{item.key}</div><div style={{ fontSize: 11, color: "#aaa59e", marginTop: 2 }}>{item.desc}</div></div><button onClick={() => toggle(item.key)} style={{ width: 44, height: 24, borderRadius: 12, border: 0, background: on ? "#7c6f64" : "#d5d0cb", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left .2s" }} /></button></div>; })}
+    <div style={{ padding: "18px 3px 6px", fontSize: 11, color: "#918981" }}>系统消息声音</div>
+    <div style={{ display: "flex", gap: 8, padding: "8px 3px" }}>
+      {["响铃", "震动", "静音"].map((mode) => <button key={mode} onClick={() => setSound(mode)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: soundMode === mode ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: soundMode === mode ? "#f3eee8" : "#fffdfa", fontSize: 13, color: "#57524c", cursor: "pointer" }}>{mode}</button>)}
+    </div>
+  </main></div>;
+}
+
+function PrivacySettingsScreen({ go }: { go: (s: Screen) => void }) {
+  const [values, setValues] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem("ranjingPrivacySettings") || "{}"); } catch { return {}; }
+  });
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState("");
+  function toggle(key: string) { if (key === "允许采集云端" && !values[key]) { setShowPrivacy("cloud"); return; } const next = { ...values, [key]: !values[key] }; setValues(next); localStorage.setItem("ranjingPrivacySettings", JSON.stringify(next)); }
+  function submitFeedback() { if (!feedback.trim()) return; const tickets = JSON.parse(localStorage.getItem("supportTickets") || "[]"); tickets.push({ id: "FB-" + Date.now(), content: feedback.trim(), createdAt: new Date().toISOString() }); localStorage.setItem("supportTickets", JSON.stringify(tickets)); setFeedbackSent(true); setFeedback(""); setTimeout(() => { setShowFeedback(false); setFeedbackSent(false); }, 2000); }
+  return <div className="account-page"><AccountPageHeader title="隐私设置" go={go} /><main className="account-list account-list-spaced">
+    <button type="button" onClick={() => setShowFeedback(true)}><span>我有疑问</span><b>›</b></button>
+    <button type="button" onClick={() => setShowPrivacy("permission")}><span>系统权限管理</span><b>›</b></button>
+    {(["允许采集云端"] as const).map((key) => { const on = values[key] === true; return <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 3px", borderBottom: "1px solid rgba(74,70,63,.055)" }}><span style={{ fontSize: 14, color: "#57524c" }}>{key}</span><button onClick={() => toggle(key)} style={{ width: 44, height: 24, borderRadius: 12, border: 0, background: on ? "#7c6f64" : "#d5d0cb", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left .2s" }} /></button></div>; })}
+    <button type="button" onClick={() => {}}><span>团队信息</span><b>›</b></button>
+    {showFeedback && <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, background: "rgba(0,0,0,.25)" }}><div style={{ background: "#fff", borderRadius: 14, padding: "24px 20px", width: 300, boxShadow: "0 8px 32px rgba(0,0,0,.12)" }}><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>意见反馈</div><div style={{ fontSize: 12, color: "#999", marginBottom: 12 }}>如果你有什么想说的请在这里进行记录发送</div><textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="请输入你的反馈..." style={{ width: "100%", height: 100, padding: 12, borderRadius: 8, border: "1px solid #ddd", fontSize: 13, resize: "none", boxSizing: "border-box" }} />{feedbackSent && <div style={{ color: "#27ae60", fontSize: 13, marginTop: 8 }}>✓ 已发送，我们会尽快回复</div>}<div style={{ display: "flex", gap: 10, marginTop: 14 }}><button onClick={() => setShowFeedback(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13 }}>取消</button><button onClick={submitFeedback} disabled={!feedback.trim()} style={{ flex: 1, padding: 10, borderRadius: 8, border: 0, background: "#5f554d", color: "#fff", fontSize: 13, opacity: feedback.trim() ? 1 : 0.5 }}>发送</button></div></div></div>}
+    {showPrivacy && <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, background: "rgba(0,0,0,.25)" }}><div style={{ background: "#fff", borderRadius: 14, padding: "24px 20px", width: 300, maxHeight: "80%", overflow: "auto", boxShadow: "0 8px 32px rgba(0,0,0,.12)" }}><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{showPrivacy === "cloud" ? "云端数据采集说明" : "系统权限管理"}</div><div style={{ fontSize: 12, color: "#666", lineHeight: 1.8 }}>
+      {showPrivacy === "cloud" ? (<><p>苒境在提供云端备份服务时，可能需要采集以下信息：</p><ul style={{ paddingLeft: 18, margin: "8px 0" }}><li>你的创作文本内容</li><li>文件结构与元数据</li><li>设备基本信息（用于同步）</li></ul><p style={{ color: "#c0392b", fontWeight: 500 }}>如果不同意采集，云端将无法备份你的文件，文件丢失后很难找回。</p><p>我们承诺：所有数据仅用于云端备份，不会用于其他用途，不会向第三方披露。</p></>) : (<><p>苒境可能需要以下系统权限：</p><ul style={{ paddingLeft: 18, margin: "8px 0" }}><li>屏幕方向控制（横屏/竖屏）</li><li>云端数据存储权限</li><li>通知推送权限</li></ul><p>你可以在这里管理这些权限的开关。关闭某些权限可能影响部分功能的使用。</p></>)}
+    </div><div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={() => setShowPrivacy("")} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13 }}>不同意</button><button onClick={() => { if (showPrivacy === "cloud") { const next = { ...values, "允许采集云端": true }; setValues(next); localStorage.setItem("ranjingPrivacySettings", JSON.stringify(next)); } setShowPrivacy(""); }} style={{ flex: 1, padding: 10, borderRadius: 8, border: 0, background: "#5f554d", color: "#fff", fontSize: 13 }}>同意</button></div></div></div>}
+  </main></div>;
+}
+
+function MembershipSettingsScreen({ go }: { go: (s: Screen) => void }) {
+  const [values, setValues] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem("ranjingMembershipSettings") || "{}"); } catch { return {}; }
+  });
+  const [prefType, setPrefType] = useState(() => localStorage.getItem("ranjingTemplatePref") || "");
+  function toggle(key: string) { const next = { ...values, [key]: !values[key] }; setValues(next); localStorage.setItem("ranjingMembershipSettings", JSON.stringify(next)); }
+  function setPref(type: string) { setPrefType(type); localStorage.setItem("ranjingTemplatePref", type); }
+  const prefTypes = [{ key: "可爱", icon: "🎀" }, { key: "搞怪", icon: "🤪" }, { key: "工作", icon: "💼" }, { key: "设计", icon: "🎨" }];
+  return <div className="account-page"><AccountPageHeader title="会员设置" go={go} /><main className="account-list account-list-spaced">
+    {(["续费提醒", "订阅消息"] as const).map((key) => { const on = values[key] !== false; return <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 3px", borderBottom: "1px solid rgba(74,70,63,.055)" }}><span style={{ fontSize: 14, color: "#57524c" }}>{key}</span><button onClick={() => toggle(key)} style={{ width: 44, height: 24, borderRadius: 12, border: 0, background: on ? "#7c6f64" : "#d5d0cb", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left .2s" }} /></button></div>; })}
+    <div style={{ padding: "18px 3px 6px", fontSize: 11, color: "#918981" }}>设置偏好 · 推荐模板类型</div>
+    <div style={{ display: "flex", gap: 8, padding: "8px 3px" }}>
+      {prefTypes.map((t) => <button key={t.key} onClick={() => setPref(t.key)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: prefType === t.key ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: prefType === t.key ? "#f3eee8" : "#fffdfa", textAlign: "center", cursor: "pointer" }}><div style={{ fontSize: 20 }}>{t.icon}</div><div style={{ fontSize: 11, marginTop: 4, color: "#57524c" }}>{t.key}</div></button>)}
+    </div>
+    <div style={{ padding: "18px 3px 6px", fontSize: 11, color: "#918981" }}>团队默认模板（仅团队长可见）</div>
+    <button type="button" onClick={() => go("membership")}><span>团队模板设置</span><b>›</b></button>
+  </main></div>;
 }
 
 function SimpleHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
