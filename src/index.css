@@ -944,7 +944,6 @@ body {
 
 .profile-directory {
   margin-top: 17px;
-  border-top: 1px solid rgba(74, 70, 63, .065);
 }
 .profile-directory + .profile-directory { margin-top: 22px; }
 .profile-directory-item {
