@@ -120,12 +120,6 @@ body {
   letter-spacing: 0;
 }
 
-.font-admin-title {
-  font-family: var(--font-hand);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
 .border-handdrawn {
   border: 1px solid var(--border);
   border-radius: 13px 10px 14px 11px;
