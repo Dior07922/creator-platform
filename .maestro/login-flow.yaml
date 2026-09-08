@@ -1,0 +1,11 @@
+appId: com.ranjing.app
+---
+- launchApp
+- assertVisible: "手机号"
+- tapOn: "请输入手机号"
+- inputText: "19166272717"
+- tapOn: "获取验证码"
+- extendedWaitUntil:
+    visible: "发送中"
+    timeout: 5000
+- takeScreenshot: main_screen

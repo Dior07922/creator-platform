@@ -1,11 +1,11 @@
-name: CI Build APK
+name: CI Build APK And Test
 
 on:
   push:
     branches: [ main ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: self-hosted
     env:
       JAVA_HOME: C:\Users\10427\jdk-21.0.2
@@ -19,6 +19,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build web (static export)
+        shell: powershell
         run: |
           $env:NEXT_PUBLIC_EXPORT = "true"
           Move-Item -Path app\api -Destination api_backup -Force
@@ -27,9 +28,18 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
       - name: Build Android APK
+        shell: powershell
         run: |
           cd android
           .\gradlew.bat assembleDebug
+      - name: Install APK to device
+        shell: powershell
+        run: |
+          adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+      - name: Run Maestro tests
+        shell: powershell
+        run: |
+          & "C:\maestro\maestro\bin\maestro.bat" test .maestro/login-flow.yaml
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
