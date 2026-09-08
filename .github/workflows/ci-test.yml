@@ -1,0 +1,17 @@
+name: CI Smoke Test
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  runner-check:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify environment
+        run: |
+          echo "Runner is working"
+          node -v
+          git --version
+          adb version
