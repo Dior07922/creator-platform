@@ -1,18 +1,37 @@
-name: CI Smoke Test
+name: CI Build APK
 
 on:
   push:
     branches: [ main ]
 
 jobs:
-  runner-check:
+  build:
     runs-on: self-hosted
+    env:
+      JAVA_HOME: C:\Users\10427\jdk-21.0.2
+      ANDROID_HOME: C:\Users\10427\.android
     steps:
       - uses: actions/checkout@v4
-      - name: Verify environment
-        shell: powershell
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm ci
+      - name: Build web (static export)
         run: |
-          Write-Host "Runner is working"
-          & "C:\Program Files\nodejs\node.exe" -v
-          & "C:\Program Files\Git\bin\git.exe" --version
-          & "C:\Users\10427\.android\platform-tools\adb.exe" version
+          $env:NEXT_PUBLIC_EXPORT = "true"
+          Move-Item -Path app\api -Destination api_backup -Force
+          npm run build
+          Move-Item -Path api_backup -Destination app\api -Force
+      - name: Sync Capacitor
+        run: npx cap sync android
+      - name: Build Android APK
+        run: |
+          cd android
+          .\gradlew.bat assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
