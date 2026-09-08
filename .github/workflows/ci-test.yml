@@ -12,6 +12,6 @@ jobs:
       - name: Verify environment
         run: |
           echo "Runner is working"
-          node -v
-          git --version
-          adb version
+          "C:\Program Files\nodejs\node.exe" -v
+          "C:\Program Files\Git\bin\git.exe" --version
+          "C:\Users\10427\.android\platform-tools\adb.exe" version
