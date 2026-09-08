@@ -10,8 +10,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify environment
+        shell: powershell
         run: |
-          echo "Runner is working"
-          "C:\Program Files\nodejs\node.exe" -v
-          "C:\Program Files\Git\bin\git.exe" --version
-          "C:\Users\10427\.android\platform-tools\adb.exe" version
+          Write-Host "Runner is working"
+          & "C:\Program Files\nodejs\node.exe" -v
+          & "C:\Program Files\Git\bin\git.exe" --version
+          & "C:\Users\10427\.android\platform-tools\adb.exe" version
