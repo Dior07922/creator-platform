@@ -1,5 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { CapacitorHttp } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
 import CreationMinimalRoom from "./CreationMinimalRoom";
 import splashCover from "./assets/splash-cover-original.png";
 import ranjingWelcomeInk from "./assets/ranjing-welcome-ink-v1.png";
@@ -41,16 +43,59 @@ function LoginScreen({ onVerified }: { onVerified: (isNew: boolean) => void }) {
     if (!phone) { setMessage("请输入手机号"); return; }
     if (!phoneValid) { setMessage("请输入正确的手机号"); return; }
     setStatus("sending"); setMessage("");
-    try { const response=await fetch("https://helloranjing.com/api/auth/sms/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone})}); const result=await response.json(); if(!response.ok){setMessage(result.message||"验证码暂时无法发送，请稍后再试");return;} setCountdown(Number(result.retryAfter)||60); }
-    catch { setMessage("验证码暂时无法发送，请稍后再试"); } finally { setStatus("idle"); }
+   try {
+  const response = await CapacitorHttp.post({
+    url: "https://helloranjing.com/api/auth/sms/send",
+    headers: { "Content-Type": "application/json" },
+    data: { phone },
+  });
+
+  const result = response.data;
+
+  if (response.status < 200 || response.status >= 300) {
+    setMessage(result?.message || "验证码暂时无法发送，请稍后再试");
+    return;
   }
 
-  async function enter() {
-    if (!canEnter) return;
-    setStatus("verifying"); setMessage("");
-    try { const response=await fetch("https://helloranjing.com/api/auth/sms/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,code})}); const result=await response.json(); if(!response.ok){setMessage(result.message||"登录服务暂时不可用，请稍后再试");return;} onVerified(Boolean(result.isNew)); }
-    catch { setMessage("登录服务暂时不可用，请稍后再试"); } finally { setStatus("idle"); }
+  setCountdown(Number(result?.retryAfter) || 60);
+}
+catch {
+  setMessage("验证码暂时无法发送，请稍后再试");
+}
+finally {
+  setStatus("idle");
+}
+}
+
+async function enter() {
+  if (!canEnter) return;
+
+  setStatus("verifying");
+  setMessage("");
+
+  try {
+    const response = await CapacitorHttp.post({
+      url: "https://helloranjing.com/api/auth/sms/verify",
+      headers: { "Content-Type": "application/json" },
+      data: { phone, code },
+    });
+
+    const result = response.data;
+
+    if (response.status < 200 || response.status >= 300) {
+      setMessage(result?.message || "登录服务暂时不可用，请稍后再试");
+      return;
+    }
+
+    onVerified(Boolean(result?.isNew));
   }
+  catch {
+    setMessage("登录服务暂时不可用，请稍后再试");
+  }
+  finally {
+    setStatus("idle");
+  }
+}
 
   return <div className="ran-auth-page">
     <main className="ran-auth-main">
@@ -81,19 +126,33 @@ function ProfileSetupScreen({ go }: { go: (screen: Screen) => void }) {
 
 function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) {
   const tabs = [
-  { s: "home" as Screen, label: "首页" },
-  { s: "create" as Screen, label: "创作" },
-  { s: "profile" as Screen, label: "我的" },
-];
+    { s: "home" as Screen, label: "首页" },
+    { s: "create" as Screen, label: "创作" },
+    { s: "profile" as Screen, label: "我的" },
+  ];
+
   return (
-    <div className="editorial-bottom-nav flex min-h-[58px] items-stretch px-2">
-      {tabs.map((t) => (
-        <button key={t.s} onClick={() => go(t.s)}
-          className={`editorial-nav-item flex flex-1 items-center justify-center py-3 ${screen === t.s ? "is-active" : ""}`}>
-          <span>{t.label}</span>
-        </button>
-      ))}
-    </div>
+    <nav
+      className="editorial-bottom-nav fixed left-0 right-0 bottom-0 z-[200] bg-[var(--bg2)] border-t border-[var(--border)]"
+      style={{
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
+    >
+      <div className="flex min-h-[58px] items-stretch px-2">
+        {tabs.map((t) => (
+          <button
+            key={t.s}
+            type="button"
+            onClick={() => go(t.s)}
+            className={`editorial-nav-item flex flex-1 items-center justify-center py-3 ${
+              screen === t.s ? "is-active" : ""
+            }`}
+          >
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+    </nav>
   );
 }
 
@@ -180,23 +239,41 @@ function TrendsScreen({ go, initialScrollTop, onScrollPositionChange }: { go: (s
     const isFirst = isFirstSourceRef.current;
     if (isFirst) isFirstSourceRef.current = false;
     setLiveStatus(`正在更新${source === "全部" ? "全网" : source}热点…`);
-    fetch(`https://helloranjing.com/api/hotspots?source=${encodeURIComponent(source)}`)
-      .then(async (response) => {
-        const result = await response.json();
-        if (!response.ok || !Array.isArray(result.items) || result.items.length === 0) throw new Error(result.message || "暂无实时热点");
-        setItems(result.items as TrendItem[]);
-        setLiveStatus(`${source === "全部" ? "全网" : source}已更新 ${result.items.length} 条实时热点`);
-        if (!isFirst) {
-          requestAnimationFrame(() => {
-            if (feedRef.current) feedRef.current.scrollTop = 0;
-          });
-        }
-      })
-      .catch((error) => {
-        setItems([]);
-        setLiveStatus(error instanceof Error ? error.message : `${source}实时接口暂不可用`);
+    CapacitorHttp.get({
+  url: `https://helloranjing.com/api/hotspots?source=${encodeURIComponent(source)}`,
+})
+  .then((response) => {
+    const result = response.data;
+
+    if (
+      response.status < 200 ||
+      response.status >= 300 ||
+      !Array.isArray(result?.items) ||
+      result.items.length === 0
+    ) {
+      throw new Error(result?.message || "暂无实时热点");
+    }
+
+    setItems(result.items as TrendItem[]);
+    setLiveStatus(
+      `${source === "全部" ? "全网" : source}已更新 ${result.items.length} 条实时热点`
+    );
+
+    if (!isFirst) {
+      requestAnimationFrame(() => {
+        if (feedRef.current) feedRef.current.scrollTop = 0;
       });
-  }, [source]);
+    }
+  })
+  .catch((error) => {
+    setItems([]);
+    setLiveStatus(
+      error instanceof Error
+        ? error.message
+        : `${source}实时接口暂不可用`
+    );
+  });
+}, [source]);
   return (
     <div className="trends-home flex-1 flex flex-col overflow-hidden">
       <div className="trends-masthead px-5 pt-[54px] pb-[30px] text-center">
@@ -258,11 +335,11 @@ function TrendsScreen({ go, initialScrollTop, onScrollPositionChange }: { go: (s
           return (
           <button
             key={item.id}
-            onClick={() => {
-              if (!item.url) return;
-              onScrollPositionChange(feedRef.current?.scrollTop ?? 0);
-              window.open(item.url, "_blank", "noopener,noreferrer");
-            }}
+           onClick={async () => {
+  if (!item.url) return;
+  onScrollPositionChange(feedRef.current?.scrollTop || 0);
+  await Browser.open({ url: item.url });
+}}
             disabled={!item.url}
             className={`trend-row w-full text-left ${!item.url ? "is-disabled" : ""}`}
           >
@@ -691,7 +768,37 @@ function MembershipSettingsScreen({ go }: { go: (s: Screen) => void }) {
 }
 
 function SimpleHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
-  return <div className="flex items-center px-4 py-3 bg-[var(--bg2)] border-b border-[var(--border)]"><button onClick={() => go("profile")} className="w-9 h-9 rounded-full bg-[var(--bg)]">←</button><div className="flex-1 text-center font-bold text-[var(--text)]">{title}</div><div className="w-9" /></div>;
+  return (
+    <div
+      className="sticky top-0 z-[200] flex items-center px-3 bg-[var(--bg2)] border-b border-[var(--border)]"
+      style={{
+        minHeight: "calc(56px + env(safe-area-inset-top))",
+        paddingTop: "env(safe-area-inset-top)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => go("profile")}
+        className="flex items-center justify-center rounded-full bg-[var(--bg)]"
+        style={{
+          width: 44,
+          height: 44,
+          minWidth: 44,
+          fontSize: 22,
+          lineHeight: 1,
+        }}
+        aria-label="返回"
+      >
+        ←
+      </button>
+
+      <div className="flex-1 text-center font-bold text-[var(--text)]">
+        {title}
+      </div>
+
+      <div style={{ width: 44, minWidth: 44 }} />
+    </div>
+  );
 }
 
 function SupportScreen({ go }: { go: (s: Screen) => void }) {
@@ -727,19 +834,48 @@ function MembershipScreen({ go }: { go: (s: Screen) => void }) {
     { key: "yearly" as const, label: "年卡", price: "¥168/年" },
   ];
   async function handlePay() {
-    if (!plan) return;
-    setLoading(true); setMessage("");
-    try {
-      const orderRes = await fetch("https://helloranjing.com/api/membership/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
-      const orderData = await orderRes.json();
-      if (!orderRes.ok) { setMessage(orderData.message || "创建订单失败"); setLoading(false); return; }
-      const payRes = await fetch("https://helloranjing.com/api/payments/alipay/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderData.order.id }) });
-      const payData = await payRes.json();
-      if (!payRes.ok) { setMessage(payData.message || "支付通道暂时不可用"); setLoading(false); return; }
-      if (payData.paymentUrl) { window.open(payData.paymentUrl, "_blank"); setMessage("已打开支付宝支付页面，完成后会员自动开通。"); }
-    } catch { setMessage("支付请求失败，请检查网络后重试"); }
+  if (!plan) return;
+
+  setLoading(true);
+  setMessage("");
+
+  try {
+    const orderRes = await CapacitorHttp.post({
+      url: "https://helloranjing.com/api/membership/orders",
+      headers: { "Content-Type": "application/json" },
+      data: { plan },
+    });
+
+    const orderData = orderRes.data;
+
+    if (orderRes.status < 200 || orderRes.status >= 300) {
+      setMessage(orderData?.message || "创建订单失败");
+      return;
+    }
+
+    const payRes = await CapacitorHttp.post({
+      url: "https://helloranjing.com/api/payments/alipay/create",
+      headers: { "Content-Type": "application/json" },
+      data: { orderId: orderData.order.id },
+    });
+
+    const payData = payRes.data;
+
+    if (payRes.status < 200 || payRes.status >= 300) {
+      setMessage(payData?.message || "支付通道暂时不可用");
+      return;
+    }
+
+    if (payData.paymentUrl) {
+      window.open(payData.paymentUrl, "_blank");
+      setMessage("支付订单已创建");
+    }
+  } catch {
+    setMessage("支付请求失败，请检查网络后重试");
+  } finally {
     setLoading(false);
   }
+}
   return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="订阅会员" go={go} /><div className="p-4 flex flex-col gap-4"><div className="card-journal p-4"><div className="font-bold text-sm">选择会员方案</div><div className="mt-3 flex flex-col gap-2">{plans.map((p) => <button key={p.key} onClick={() => { setPlan(p.key); setMessage(""); }} style={{ padding: "14px 16px", borderRadius: 10, border: plan === p.key ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: plan === p.key ? "#f3eee8" : "#fffdfa", textAlign: "left" }}><strong style={{ fontSize: 14, fontWeight: 500 }}>{p.label}</strong><div style={{ marginTop: 4, color: "#918981", fontSize: 11 }}>{p.price}</div></button>)}</div><button type="button" disabled={!plan || loading} onClick={handlePay} style={{ width: "100%", height: 42, marginTop: 12, border: 0, borderRadius: 8, background: "#5f554d", color: "#fff", fontSize: 13, cursor: plan ? "pointer" : "default", opacity: plan && !loading ? 1 : 0.5 }}>{loading ? "处理中…" : "立即开通"}</button>{message && <div style={{ marginTop: 10, padding: "10px 13px", borderRadius: 8, background: "#f1ece5", color: "#716a63", fontSize: 11, lineHeight: 1.7 }}>{message}</div>}</div><div className="card-journal p-4"><div className="font-bold text-sm">分享 APP 可返现</div><div className="mt-2 text-xs leading-5 text-[var(--text2)]">分享你的专属邀请链接，好友注册后双方获得奖励。</div><button onClick={async () => { try { await navigator.clipboard.writeText(window.location.href); setShared(true); } catch { setShared(true); } }} className="mt-3 h-10 w-full rounded-xl bg-[var(--pink)] text-sm font-bold text-white">{shared ? "链接已复制" : "分享 APP"}</button></div></div></div>;
 }
 

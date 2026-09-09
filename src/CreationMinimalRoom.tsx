@@ -5,7 +5,10 @@ import {
   useRef,
   useState,
 } from "react";
-
+import {
+  Capacitor,
+  CapacitorHttp,
+} from "@capacitor/core";
 import {
   NovelCharacterSoulTemplate,
 } from "./NovelCharacterSoulTemplate";
@@ -142,7 +145,13 @@ function TemplateThumb({ template }: { template: Template }) {
   return (<div className="cm-template-thumb" style={bgStyle(template.background)}><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="cm-template-thumb-svg">{template.lines.map((l) => l.kind === "arc" && l.cx !== undefined && l.cy !== undefined ? <path key={l.id} d={`M ${l.x1*100} ${l.y1*100} Q ${l.cx*100} ${l.cy*100} ${l.x2*100} ${l.y2*100}`} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" vectorEffect="non-scaling-stroke" opacity={template.borderOpacity} /> : <line key={l.id} x1={l.x1*100} y1={l.y1*100} x2={l.x2*100} y2={l.y2*100} stroke={stroke} strokeWidth={1.5} strokeLinecap="round" vectorEffect="non-scaling-stroke" opacity={template.borderOpacity} />)}</svg></div>);
 }
 
-function CreationMinimalEditor({ onBack }: { onBack: () => void }) {
+function CreationMinimalEditor({
+  onBack,
+  onSave,
+}: {
+  onBack: () => void;
+  onSave?: (savedState: State) => void | Promise<void>;
+}) {
   const [state, setState] = useState<State>(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -177,7 +186,22 @@ function CreationMinimalEditor({ onBack }: { onBack: () => void }) {
     w: 0,
     h: 0,
   });
+const [pageSize, setPageSize] =
+  useState<"free" | "A4" | "A5" | "A6">("free");
+  const [pages, setPages] =
+  useState<State[]>([DEFAULT_STATE]);
 
+const [currentPageIndex, setCurrentPageIndex] =
+  useState(0);
+
+const [copiedPage, setCopiedPage] =
+  useState<State | null>(null);
+  const [pageFlow, setPageFlow] =
+  useState<"vertical" | "horizontal" | "book">("vertical");
+  const [saveConfirmOpen, setSaveConfirmOpen] =
+  useState(false);
+  const [saveSuccessOpen, setSaveSuccessOpen] =
+  useState(false);
   const dragRef = useRef<DragState | null>(null);
 const editorRef = useRef<HTMLDivElement>(null);
 const [editorMenu, setEditorMenu] =
@@ -187,6 +211,8 @@ const [editorMenu, setEditorMenu] =
     | "align"
     | "list"
     | "color"
+    | "connect"
+    | "templateSet"
     | "more"
     | null
   >(null);
@@ -573,8 +599,316 @@ useLayoutEffect(() => {
     setActivePanel(null);
   };
 
- 
+ const switchPage = (nextIndex: number) => {
+  if (
+    nextIndex < 0 ||
+    nextIndex >= pages.length ||
+    nextIndex === currentPageIndex
+  ) {
+    return;
+  }
 
+  const currentState: State = {
+    ...state,
+    content:
+      editorRef.current?.innerHTML ?? state.content,
+    lines: state.lines.map((line) => ({
+      ...line,
+    })),
+    updatedAt: Date.now(),
+  };
+
+  const nextPages = [...pages];
+  nextPages[currentPageIndex] = currentState;
+
+  const targetPage = nextPages[nextIndex];
+
+  setPages(nextPages);
+  setCurrentPageIndex(nextIndex);
+
+  patch({
+    ...targetPage,
+    lines: targetPage.lines.map((line) => ({
+      ...line,
+    })),
+  });
+
+  window.setTimeout(() => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML =
+        targetPage.content || "";
+    }
+  }, 0);
+};
+const animatedSwitchPage = (nextIndex: number) => {
+  if (
+    nextIndex < 0 ||
+    nextIndex >= pages.length ||
+    nextIndex === currentPageIndex
+  ) {
+    return;
+  }
+
+  const canvas = canvasRef.current;
+
+  if (!canvas) {
+    switchPage(nextIndex);
+    return;
+  }
+
+  const forward =
+    nextIndex > currentPageIndex;
+
+  const outFrames =
+    pageFlow === "vertical"
+      ? [
+          {
+            transform: "translateY(0)",
+            opacity: 1,
+          },
+          {
+            transform: forward
+              ? "translateY(-36px)"
+              : "translateY(36px)",
+            opacity: 0,
+          },
+        ]
+      : pageFlow === "horizontal"
+      ? [
+          {
+            transform: "translateX(0)",
+            opacity: 1,
+          },
+          {
+            transform: forward
+              ? "translateX(-50px)"
+              : "translateX(50px)",
+            opacity: 0,
+          },
+        ]
+      : [
+          {
+            transform:
+              "perspective(1200px) rotateY(0deg)",
+            opacity: 1,
+          },
+          {
+            transform: forward
+              ? "perspective(1200px) rotateY(-18deg)"
+              : "perspective(1200px) rotateY(18deg)",
+            opacity: 0,
+          },
+        ];
+
+  const animation = canvas.animate(
+    outFrames,
+    {
+      duration: 180,
+      easing: "ease-in",
+    }
+  );
+
+  animation.onfinish = () => {
+    switchPage(nextIndex);
+
+    const inFrames =
+      pageFlow === "vertical"
+        ? [
+            {
+              transform: forward
+                ? "translateY(36px)"
+                : "translateY(-36px)",
+              opacity: 0,
+            },
+            {
+              transform: "translateY(0)",
+              opacity: 1,
+            },
+          ]
+        : pageFlow === "horizontal"
+        ? [
+            {
+              transform: forward
+                ? "translateX(50px)"
+                : "translateX(-50px)",
+              opacity: 0,
+            },
+            {
+              transform: "translateX(0)",
+              opacity: 1,
+            },
+          ]
+        : [
+            {
+              transform: forward
+                ? "perspective(1200px) rotateY(18deg)"
+                : "perspective(1200px) rotateY(-18deg)",
+              opacity: 0,
+            },
+            {
+              transform:
+                "perspective(1200px) rotateY(0deg)",
+              opacity: 1,
+            },
+          ];
+
+    canvas.animate(inFrames, {
+      duration: 220,
+      easing: "ease-out",
+    });
+  };
+};
+const addBlankPage = () => {
+  const currentState: State = {
+    ...state,
+    content:
+      editorRef.current?.innerHTML ?? state.content,
+    lines: state.lines.map((line) => ({
+      ...line,
+    })),
+    updatedAt: Date.now(),
+  };
+
+  const blankPage: State = {
+    ...state,
+    content: "",
+    lines: [],
+    updatedAt: Date.now(),
+  };
+
+  setPages((current) => {
+    const next = [...current];
+
+    next[currentPageIndex] = currentState;
+    next.push(blankPage);
+
+    setCurrentPageIndex(next.length - 1);
+
+    return next;
+  });
+
+  patch(blankPage);
+
+  window.setTimeout(() => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = "";
+      editorRef.current.focus();
+    }
+  }, 0);
+};
+const prepareCurrentSave = () => {
+  const currentState: State = {
+    ...state,
+    content:
+      editorRef.current?.innerHTML ?? state.content,
+    lines: state.lines.map((line) => ({
+      ...line,
+    })),
+    updatedAt: Date.now(),
+  };
+
+  setPages((current) => {
+    const next = [...current];
+    next[currentPageIndex] = currentState;
+    return next;
+  });
+
+  setState(currentState);
+
+  return currentState;
+};
+const downloadCurrentFile = () => {
+  const currentState: State = {
+    ...state,
+    content:
+      editorRef.current?.innerHTML ?? state.content,
+    lines: state.lines.map((line) => ({
+      ...line,
+    })),
+    updatedAt: Date.now(),
+  };
+
+  const allPages = [...pages];
+
+  allPages[currentPageIndex] =
+    currentState;
+
+  const pageHtml = allPages
+    .map(
+      (page, index) => `
+        <section
+          style="
+            box-sizing:border-box;
+            max-width:794px;
+            min-height:1123px;
+            margin:0 auto 24px;
+            padding:40px;
+            background:#fff;
+            page-break-after:always;
+          "
+        >
+          <div style="font-size:12px;color:#999;margin-bottom:18px;">
+            第${index + 1}页
+          </div>
+
+          <div>
+            ${page.content || ""}
+          </div>
+        </section>
+      `
+    )
+    .join("");
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0"
+        />
+        <title>苒境文档</title>
+      </head>
+
+      <body
+        style="
+          margin:0;
+          padding:24px;
+          background:#f5f3ef;
+          color:#3a352e;
+          font-family:Arial,'Microsoft YaHei',sans-serif;
+        "
+      >
+        ${pageHtml}
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob(
+    [html],
+    {
+      type: "text/html;charset=utf-8",
+    }
+  );
+
+  const url =
+    URL.createObjectURL(blob);
+
+  const link =
+    document.createElement("a");
+
+  link.href = url;
+  link.download =
+    `苒境文档-${Date.now()}.html`;
+
+  document.body.appendChild(link);
+
+  link.click();
+  link.remove();
+
+  URL.revokeObjectURL(url);
+};
   return (
     <div className="creation-minimal flex-1 flex flex-col overflow-hidden">
 
@@ -723,7 +1057,57 @@ useLayoutEffect(() => {
   >
     颜色
   </button>
+<button
+  className={editorMenu === "connect" ? "is-active" : ""}
+  onMouseDown={(e) => {
+    e.preventDefault();
 
+    const toolbar = e.currentTarget.parentElement;
+    if (toolbar) {
+      setEditorMenuLeft(
+        Math.max(
+          10,
+          Math.min(
+            e.currentTarget.offsetLeft - toolbar.scrollLeft,
+            toolbar.clientWidth - 190
+          )
+        )
+      );
+    }
+
+    setEditorMenu((current) =>
+      current === "connect" ? null : "connect"
+    );
+  }}
+>
+  点连
+</button>
+
+<button
+  className={editorMenu === "templateSet" ? "is-active" : ""}
+  onMouseDown={(e) => {
+    e.preventDefault();
+
+    const toolbar = e.currentTarget.parentElement;
+    if (toolbar) {
+      setEditorMenuLeft(
+        Math.max(
+          10,
+          Math.min(
+            e.currentTarget.offsetLeft - toolbar.scrollLeft,
+            toolbar.clientWidth - 190
+          )
+        )
+      );
+    }
+
+    setEditorMenu((current) =>
+      current === "templateSet" ? null : "templateSet"
+    );
+  }}
+>
+  模板
+</button>
   <button
     className={editorMenu === "more" ? "is-active" : ""}
     onMouseDown={(e) => {
@@ -949,7 +1333,190 @@ useLayoutEffect(() => {
           </button>
         </>
       )}
+{editorMenu === "connect" && (
+  <>
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageFlow("book");
+  }}
+>
+  书本翻页交连
+</button>
 
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageSize("A4");
+  }}
+>
+  A4 空白模板
+</button>
+<button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageSize("A5");
+  }}
+>
+  A5 空白模板
+</button>
+
+  <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageSize("A6");
+  }}
+>
+  A6 空白模板
+</button>  
+
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+
+    const currentPage: State = {
+      ...state,
+      content:
+        editorRef.current?.innerHTML ?? state.content,
+      lines: state.lines.map((line) => ({
+        ...line,
+      })),
+      updatedAt: Date.now(),
+    };
+
+    setCopiedPage(currentPage);
+  }}
+>
+  复制模板
+</button>
+
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+
+    if (!copiedPage) return;
+
+    const newPage: State = {
+      ...copiedPage,
+      lines: copiedPage.lines.map((line) => ({
+        ...line,
+      })),
+      updatedAt: Date.now(),
+    };
+
+    setPages((current) => {
+      const next = [...current, newPage];
+      setCurrentPageIndex(next.length - 1);
+      return next;
+    });
+
+    patch(newPage);
+
+    window.setTimeout(() => {
+      if (editorRef.current) {
+        editorRef.current.innerHTML =
+          newPage.content || "";
+      }
+    }, 0);
+  }}
+>
+  粘贴模板
+</button>
+<button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    addBlankPage();
+  }}
+>
+  继续创建
+</button>
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageFlow("vertical");
+  }}
+>
+  上下滑动
+</button>
+
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageFlow("horizontal");
+  }}
+>
+  左右滑动
+</button>
+
+    <button
+  onMouseDown={(e) => {
+    e.preventDefault();
+    setPageFlow("book");
+  }}
+>
+  书本翻页
+</button>
+  </>
+)}
+{editorMenu === "templateSet" && (
+  <>
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      书本套模
+    </button>
+
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      PPT套模
+    </button>
+
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      上传模板 🔒升级会员
+    </button>
+
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      转换PDF 🔒升级会员
+    </button>
+
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      分享链接 🔒升级会员
+    </button>
+
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      转换源代码 🔒升级会员
+    </button>
+
+    <button
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
+    >
+      点位板连接 🔒升级会员
+    </button>
+  </>
+)}
       {editorMenu === "more" && (
         <>
           <button
@@ -990,9 +1557,29 @@ useLayoutEffect(() => {
       <div
         className="cm-canvas-wrap flex-1 relative overflow-hidden"
         ref={canvasRef}
-        style={bgStyle(
-          state.background
-        )}
+        style={{
+  ...bgStyle(state.background),
+
+  ...(pageSize === "free"
+    ? {}
+    : {
+        width:
+          pageSize === "A4"
+            ? "min(92vw, 794px)"
+            : pageSize === "A5"
+            ? "min(88vw, 560px)"
+            : "min(82vw, 397px)",
+
+        aspectRatio: "210 / 297",
+
+        flex: "none",
+
+        margin: "24px auto",
+
+        boxShadow:
+          "0 8px 28px rgba(0,0,0,0.08)",
+      }),
+}}
         onPointerDown={
           onCanvasPointerDown
         }
@@ -1176,7 +1763,190 @@ useLayoutEffect(() => {
         </div>
 
       </div>
+      <div
+  style={{
+    display: "flex",
 
+    flexDirection:
+      pageFlow === "vertical"
+        ? "column"
+        : "row",
+
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+
+    padding:
+      pageFlow === "vertical"
+        ? "10px 8px"
+        : "10px 12px 14px",
+
+    flexWrap:
+      pageFlow === "horizontal"
+        ? "nowrap"
+        : "wrap",
+
+    overflowX:
+      pageFlow === "horizontal"
+        ? "auto"
+        : "visible",
+
+    overflowY:
+      pageFlow === "vertical"
+        ? "auto"
+        : "visible",
+  }}
+>
+        {pages.map((_, index) => (
+          <button
+            key={index}
+            onClick={() => animatedSwitchPage(index)}
+            style={{
+              minWidth: 58,
+              height: 30,
+              padding: "0 12px",
+              borderRadius: 8,
+              border:
+                index === currentPageIndex
+                  ? "1px solid #3a352e"
+                  : "1px solid rgba(58,53,46,0.18)",
+              background:
+                index === currentPageIndex
+                  ? "#3a352e"
+                  : "rgba(255,255,255,0.72)",
+              color:
+                index === currentPageIndex
+                  ? "#ffffff"
+                  : "#3a352e",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            第{index + 1}页
+          </button>
+        ))}
+      </div>
+      <div
+  style={{
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    padding: "8px 16px 16px",
+  }}
+>
+  <button
+    type="button"
+    onClick={() => setSaveConfirmOpen(true)}
+    style={{
+      height: 36,
+      padding: "0 20px",
+      borderRadius: 10,
+      border: "1px solid rgba(58,53,46,0.18)",
+      background: "#3a352e",
+      color: "#fff",
+      fontSize: 14,
+      cursor: "pointer",
+    }}
+  >
+    保存
+  </button>
+</div>
+{saveConfirmOpen && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      zIndex: 9999,
+      background: "rgba(0,0,0,0.28)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    }}
+    onClick={() => setSaveConfirmOpen(false)}
+  >
+    <div
+      style={{
+        width: "min(88vw, 340px)",
+        background: "#fff",
+        borderRadius: 16,
+        padding: "24px 20px 18px",
+        boxShadow: "0 18px 50px rgba(0,0,0,0.18)",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        style={{
+          fontSize: 18,
+          fontWeight: 600,
+          color: "#3a352e",
+          textAlign: "center",
+          marginBottom: 22,
+        }}
+      >
+        立即保存？
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setSaveConfirmOpen(false)}
+          style={{
+            flex: 1,
+            height: 40,
+            borderRadius: 10,
+            border: "1px solid rgba(58,53,46,0.18)",
+            background: "#fff",
+            color: "#3a352e",
+            fontSize: 14,
+          }}
+        >
+          取消
+        </button>
+
+        <button
+  type="button"
+  onClick={async () => {
+    if (!onSave) return;
+
+    try {
+      const savedState =
+        prepareCurrentSave();
+
+      await onSave(savedState);
+
+      setSaveConfirmOpen(false);
+      setSaveSuccessOpen(true);
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "保存失败"
+      );
+    }
+  }}
+  style={{
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    border: 0,
+    background: "#3a352e",
+    color: "#fff",
+    fontSize: 14,
+    cursor: "pointer",
+  }}
+>
+  确认保存
+</button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
@@ -1330,7 +2100,11 @@ type CloudFolder = {
 
   const [selectedId, setSelectedId] =
     useState<string | null>(null);
+const [editorStorage, setEditorStorage] =
+  useState<"local" | "cloud" | null>(null);
 
+const [cloudDocumentId, setCloudDocumentId] =
+  useState<string | null>(null);
   const [cloudSection, setCloudSection] =
   useState<
     "recent" |
@@ -1556,7 +2330,164 @@ useEffect(() => {
       .toString(36)
       .slice(2, 8)}`;
   };
+const saveFromEditor = async (
+  savedState: State
+) => {
+  const now = Date.now();
 
+  const title =
+    getTitle(savedState.content) ||
+    "未命名随笔";
+
+  /* =========================
+     本地真实保存
+  ========================= */
+  if (editorStorage === "local") {
+    const id =
+      selectedId || makeId();
+
+    const existing =
+      docs.find(
+        (item) => item.id === id
+      );
+
+    const savedDoc: NoteDoc = existing
+      ? {
+          ...existing,
+          title,
+          updatedAt: now,
+          openedAt: now,
+          state: savedState,
+        }
+      : {
+          id,
+          title,
+          createdAt: now,
+          updatedAt: now,
+          openedAt: now,
+          state: savedState,
+        };
+
+    const nextDocs = existing
+      ? docs.map((item) =>
+          item.id === id
+            ? savedDoc
+            : item
+        )
+      : [savedDoc, ...docs];
+
+    saveDocs(nextDocs);
+    setSelectedId(id);
+
+    return;
+  }
+
+  /* =========================
+     云端真实保存
+  ========================= */
+  if (editorStorage === "cloud") {
+    const isUpdate =
+      Boolean(cloudDocumentId);
+
+    const path = isUpdate
+      ? `/api/cloud/documents?id=${encodeURIComponent(
+          cloudDocumentId!
+        )}`
+      : "/api/cloud/documents";
+
+    const payload = {
+      title,
+      content: savedState.content,
+      state: savedState,
+      folderId:
+        openedCloudFolder?.id ?? null,
+    };
+
+    let data: any;
+
+    /* 安卓真机 */
+    if (Capacitor.isNativePlatform()) {
+      const response =
+        await CapacitorHttp.request({
+          method: isUpdate
+            ? "PATCH"
+            : "POST",
+
+          url:
+            "https://helloranjing.com" +
+            path,
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          data: payload,
+        });
+
+      data =
+        typeof response.data === "string"
+          ? JSON.parse(response.data)
+          : response.data;
+
+      if (
+        response.status < 200 ||
+        response.status >= 300
+      ) {
+        throw new Error(
+          data?.message ||
+            "云端保存失败"
+        );
+      }
+    }
+
+    /* 电脑网页开发环境 */
+    else {
+      const response = await fetch(
+        path,
+        {
+          method: isUpdate
+            ? "PATCH"
+            : "POST",
+
+          credentials: "include",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify(
+            payload
+          ),
+        }
+      );
+
+      data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            "云端保存失败"
+        );
+      }
+    }
+
+    /* 第一次创建成功后记住云端ID */
+    if (data?.document?.id) {
+      setCloudDocumentId(
+        data.document.id
+      );
+    }
+
+    return;
+  }
+
+  throw new Error(
+    "还没有选择保存位置"
+  );
+};
  const createLocalDoc = (
   template?: Template | null,
   starterContent = ""
@@ -1630,7 +2561,9 @@ const openCloudTemplate = (
   }
 
   setSelectedId(null);
-  setView("editor");
+setEditorStorage("cloud");
+setCloudDocumentId(null);
+setView("editor");
 };
   const newDoc: NoteDoc = {
     id,
@@ -1658,8 +2591,10 @@ const openCloudTemplate = (
   }
 
   setSelectedId(id);
+setEditorStorage("local");
+setCloudDocumentId(null);
 
-  setView("editor");
+setView("editor");
 };
 
 const createNew = () => {
@@ -1689,7 +2624,9 @@ const createNew = () => {
     }
 
     setSelectedId(doc.id);
-    setView("editor");
+setEditorStorage("local");
+setCloudDocumentId(null);
+setView("editor");
   };
 
   /*
@@ -2903,6 +3840,8 @@ try {
 }
 
 setSelectedId(null);
+setEditorStorage("cloud");
+setCloudDocumentId(null);
 setView("editor");
     }}
     style={{
@@ -3294,7 +4233,9 @@ setView("editor");
   }
 
   setSelectedId(null);
-  setView("editor");
+setEditorStorage("cloud");
+setCloudDocumentId(null);
+setView("editor");
 }}
           style={{
             height: 48,
@@ -3587,8 +4528,10 @@ setView("editor");
                   }
 
                   setOpenedCloudFolder(null);
-                  setSelectedId(null);
-                  setView("editor");
+setSelectedId(null);
+setEditorStorage("cloud");
+setCloudDocumentId(null);
+setView("editor");
                 }}
                 style={{
                   height: 40,
@@ -3736,28 +4679,38 @@ setView("editor");
                   if (!membershipPlan) return;
                   setMembershipMessage("");
                   try {
-                    const orderRes = await fetch("https://helloranjing.com/api/membership/orders", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ plan: membershipPlan }),
-                    });
-                    const orderData = await orderRes.json();
-                    if (!orderRes.ok) {
-                      setMembershipMessage(orderData.message || "创建订单失败，请稍后再试");
-                      return;
-                    }
-                    const payRes = await fetch("https://helloranjing.com/api/payments/alipay/create", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ orderId: orderData.order.id }),
-                    });
-                    const payData = await payRes.json();
-                    if (!payRes.ok) {
-                      setMembershipMessage(payData.message || "支付通道暂时不可用");
-                      return;
-                    }
-                    if (payData.paymentUrl) {
-                      window.open(payData.paymentUrl, "_blank");
+                    const orderRes = await CapacitorHttp.post({
+  url: "https://helloranjing.com/api/membership/orders",
+  headers: { "Content-Type": "application/json" },
+  data: { plan: membershipPlan },
+});
+
+const orderData = orderRes.data;
+
+if (orderRes.status < 200 || orderRes.status >= 300) {
+  setMembershipMessage(
+    orderData?.message || "创建订单失败，请稍后再试"
+  );
+  return;
+}
+
+const payRes = await CapacitorHttp.post({
+  url: "https://helloranjing.com/api/payments/alipay/create",
+  headers: { "Content-Type": "application/json" },
+  data: { orderId: orderData.order.id },
+});
+
+const payData = payRes.data;
+
+if (payRes.status < 200 || payRes.status >= 300) {
+  setMembershipMessage(
+    payData?.message || "支付通道暂时不可用"
+  );
+  return;
+}
+
+if (payData.paymentUrl) {
+  window.open(payData.paymentUrl, "_blank");
                       setMembershipMessage("已打开支付宝支付页面，完成支付后会员将自动开通。");
                     }
                   } catch {
@@ -3982,8 +4935,10 @@ setView("editor");
           );
 
           setCloudPreview(null);
-          setSelectedId(null);
-          setView("editor");
+setSelectedId(null);
+setEditorStorage("cloud");
+setCloudDocumentId(null);
+setView("editor");
         }}
         style={{
           flex: 1,
@@ -4010,8 +4965,9 @@ setView("editor");
    
     return (
       <CreationMinimalEditor
-        onBack={backFromEditor}
-      />
+  onBack={backFromEditor}
+  onSave={saveFromEditor}
+/>
     );
   }
   if (view === "novel-character-soul") {

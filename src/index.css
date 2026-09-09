@@ -1344,7 +1344,18 @@ body {
 
 /* CreationMinimalRoom — minimal room editor */
 .creation-minimal { color: #4a463f; background: #fbfaf7; }
-.cm-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(74,70,63,.1); flex: none; }
+.cm-header {
+  position: sticky;
+  top: 0;
+  z-index: 190;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(74,70,63,.1);
+  flex: none;
+  background: #fbfaf7;
+}
 .cm-header > button:first-child { border: 0; background: transparent; font-size: 18px; color: #9d968f; cursor: pointer; padding: 4px 8px; }
 .cm-header > span { font-family: "Songti SC","STSong","Noto Serif SC",serif; font-size: 14px; letter-spacing: .08em; color: #4a463f; }
 .cm-menu { display: flex; gap: 2px; margin-left: auto; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
@@ -1505,8 +1516,9 @@ body {
 /* ===== 编辑器一级菜单 ===== */
 
 .cm-writing-toolbar-shell {
-  position: relative;
-  z-index: 30;
+  position: sticky;
+  top: 52px;
+  z-index: 180;
   flex: none;
   width: 100%;
   background: #fbfaf7;
@@ -1723,4 +1735,7 @@ body {
   resize: vertical;
   font-family: inherit;
   line-height: 1.6;
+}
+body {
+  padding-bottom: calc(70px + env(safe-area-inset-bottom));
 }
