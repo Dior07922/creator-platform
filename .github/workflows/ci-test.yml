@@ -28,6 +28,7 @@ jobs:
         shell: powershell
         run: |
           $env:NEXT_PUBLIC_EXPORT = "true"
+          if (Test-Path "api_backup") { Remove-Item -Path "api_backup" -Recurse -Force }
           Move-Item -Path "app\api" -Destination "api_backup" -Force
           npm run build
           Move-Item -Path "api_backup" -Destination "app\api" -Force
