@@ -15,8 +15,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -30,9 +28,9 @@ jobs:
         shell: powershell
         run: |
           $env:NEXT_PUBLIC_EXPORT = "true"
-          $backupPath = Join-Path $env:TEMP "api_backup"
-          Move-Item -Path "app\api" -Destination $backupPath -Force
-          try { npm run build } finally { Move-Item -Path $backupPath -Destination "app\api" -Force }
+          Move-Item -Path "app\api" -Destination "api_backup" -Force
+          npm run build
+          Move-Item -Path "api_backup" -Destination "app\api" -Force
 
       - name: Sync Capacitor
         run: npx cap sync android
@@ -46,8 +44,10 @@ jobs:
       - name: Install APK to device
         shell: powershell
         run: |
-          $device = adb devices | Select-Object -Skip 1 | Where-Object { $_ -match "device$" }
-          if ($device) { adb install -r android\app\build\outputs\apk\debug\app-debug.apk }
+          $devices = adb devices
+          if ($devices -match "device$") {
+            adb install -r android\app\build\outputs\apk\debug\app-debug.apk
+          }
 
       - name: Run Maestro tests
         shell: powershell
