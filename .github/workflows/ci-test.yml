@@ -28,14 +28,8 @@ jobs:
         shell: powershell
         run: |
           $env:NEXT_PUBLIC_EXPORT = "true"
-          if (Test-Path "app\api") {
-            Move-Item -Path "app\api" -Destination "api_backup" -Force
-          }
+          if (Test-Path "app\api") { Remove-Item -Path "app\api" -Recurse -Force }
           npm run build
-          if (Test-Path "api_backup") {
-            Remove-Item -Path "app\api" -Recurse -Force -ErrorAction SilentlyContinue
-            Move-Item -Path "api_backup" -Destination "app\api" -Force
-          }
 
       - name: Sync Capacitor
         run: npx cap sync android
