@@ -1,66 +1,42 @@
-name: CI Build APK And Test
+name: CI Build APK Local
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build-and-test:
+  build-local:
     runs-on: self-hosted
-    timeout-minutes: 30
-
     env:
       JAVA_HOME: C:\Users\10427\jdk-21.0.2
       ANDROID_HOME: C:\Users\10427\.android
-
+      PROJECT_DIR: C:\Users\10427\Desktop\苒境_当前最新工程_20260905
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Build web (static export)
         shell: powershell
         run: |
+          cd $env:PROJECT_DIR
           $env:NEXT_PUBLIC_EXPORT = "true"
-          if (Test-Path "api_backup") { Remove-Item -Path "api_backup" -Recurse -Force }
-          Move-Item -Path "app\api" -Destination "api_backup" -Force
+          if (Test-Path app\api) { Move-Item -Path app\api -Destination api_backup -Force }
           npm run build
-          Move-Item -Path "api_backup" -Destination "app\api" -Force
-
+          if (Test-Path api_backup) { Move-Item -Path api_backup -Destination app\api -Force }
       - name: Sync Capacitor
-        run: npx cap sync android
-
+        shell: powershell
+        run: |
+          cd $env:PROJECT_DIR
+          npx cap sync android
       - name: Build Android APK
         shell: powershell
         run: |
-          cd android
+          cd $env:PROJECT_DIR\android
           .\gradlew.bat assembleDebug
-
       - name: Install APK to device
         shell: powershell
         run: |
-          $devices = adb devices
-          if ($devices -match "device$") {
-            adb install -r android\app\build\outputs\apk\debug\app-debug.apk
-          }
-
-      - name: Run Maestro tests
-        shell: powershell
-        continue-on-error: true
-        run: |
-          if (Test-Path "C:\maestro\maestro\bin\maestro.bat") {
-            & "C:\maestro\maestro\bin\maestro.bat" test .maestro/login-flow.yaml
-          }
-
+          adb install -r $env:PROJECT_DIR\android\app\build\outputs\apk\debug\app-debug.apk
       - name: Upload APK
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
