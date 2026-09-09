@@ -18,7 +18,7 @@ export function FeedbackDialog({ close }: { close: () => void }) {
   const [message, setMessage] = useState("");
   async function send() {
     setBusy(true); setMessage("");
-    try { await request("/api/feedback", { content }); setContent(""); setMessage("已发送并保存"); }
+    try { await request("https://helloranjing.com/api/feedback", { content }); setContent(""); setMessage("已发送并保存"); }
     catch (error) { setMessage((error as Error).message); }
     finally { setBusy(false); }
   }
@@ -30,16 +30,16 @@ export function AccountSettingsForm({ action, close, onPhone }: { action: string
   const [name,setName] = useState(""); const [identity,setIdentity] = useState("");
   const [masked,setMasked] = useState(""); const [busy,setBusy] = useState(false);
   const [message,setMessage] = useState(""); const [countdown,setCountdown] = useState(0);
-  useEffect(()=>{ if(action === "verify") request("/api/account/settings").then(d=>setMasked(d.identityMasked)).catch(e=>setMessage(e.message)); },[action]);
+  useEffect(()=>{ if(action === "verify") request("https://helloranjing.com/api/account/settings").then(d=>setMasked(d.identityMasked)).catch(e=>setMessage(e.message)); },[action]);
   useEffect(()=>{ if(!countdown) return; const timer=setTimeout(()=>setCountdown(countdown-1),1000); return()=>clearTimeout(timer); },[countdown]);
   async function run(sending = false) {
     setBusy(true); setMessage("");
     try {
       if(action === "phone") {
-        if(sending) { const data=await request("/api/auth/sms/send",{phone}); setCountdown(data.retryAfter || 60); setMessage("验证码已发送"); }
-        else { const data=await request("/api/auth/sms/verify",{phone,code,action:"bind-phone"}); onPhone(data.phone); setCode(""); setMessage("手机号已更新"); }
+        if(sending) { const data=await request("https://helloranjing.com/api/auth/sms/send",{phone}); setCountdown(data.retryAfter || 60); setMessage("验证码已发送"); }
+        else { const data=await request("https://helloranjing.com/api/auth/sms/verify",{phone,code,action:"bind-phone"}); onPhone(data.phone); setCode(""); setMessage("手机号已更新"); }
       } else {
-        const data=await request("/api/account/settings",{action:"identity",name,identity});
+        const data=await request("https://helloranjing.com/api/account/settings",{action:"identity",name,identity});
         setMasked(data.identityMasked); setName(""); setIdentity(""); setMessage(data.message);
       }
     } catch(error) {setMessage((error as Error).message);} finally {setBusy(false);}
@@ -57,7 +57,7 @@ export function AccountSettingsForm({ action, close, onPhone }: { action: string
 export function MembershipPreferences() {
   const [open,setOpen] = useState(false); const [type,setType] = useState(""); const [style,setStyle] = useState("");
   const [message,setMessage] = useState(""); const [busy,setBusy] = useState(false); const [loaded,setLoaded] = useState(false);
-  useEffect(()=>{if(!open)return; setLoaded(false); setMessage(""); request("/api/account/settings").then(d=>{setType(d.templateType);setStyle(d.templateStyle);setLoaded(true);}).catch(e=>setMessage(e.message));},[open]);
-  async function save() {setBusy(true);setMessage("");try{await request("/api/account/settings",{action:"preferences",templateType:type,templateStyle:style});setMessage("已保存");}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
+  useEffect(()=>{if(!open)return; setLoaded(false); setMessage(""); request("https://helloranjing.com/api/account/settings").then(d=>{setType(d.templateType);setStyle(d.templateStyle);setLoaded(true);}).catch(e=>setMessage(e.message));},[open]);
+  async function save() {setBusy(true);setMessage("");try{await request("https://helloranjing.com/api/account/settings",{action:"preferences",templateType:type,templateStyle:style});setMessage("已保存");}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}
   return <><button onClick={()=>setOpen(true)}><span>设置偏好</span><b>›</b></button>{open && <Dialog title="设置偏好" close={()=>setOpen(false)}><label>喜欢的模板类型<select value={type} onChange={e=>setType(e.target.value)}><option value="">请选择</option>{["日常记录","小说","工作","设计"].map(v=><option key={v}>{v}</option>)}</select></label><label>喜欢的模板风格<select value={style} onChange={e=>setStyle(e.target.value)}><option value="">请选择</option>{["简约","可爱","搞怪","清新"].map(v=><option key={v}>{v}</option>)}</select></label><button disabled={busy || !loaded || !type || !style} onClick={save}>保存</button><p role="status">{message}</p></Dialog>}</>;
 }

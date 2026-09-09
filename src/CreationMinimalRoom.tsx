@@ -1425,7 +1425,7 @@ const isMobile = cloudWidth < 680;
 
   try {
     const response = await fetch(
-      "/api/cloud/folders",
+      "https://helloranjing.com/api/cloud/folders",
       {
         method: "GET",
         cache: "no-store",
@@ -1471,7 +1471,7 @@ const createCloudFolder = async () => {
 
   try {
     const response = await fetch(
-      "/api/cloud/folders",
+      "https://helloranjing.com/api/cloud/folders",
       {
         method: "POST",
         headers: {
@@ -3736,7 +3736,7 @@ setView("editor");
                   if (!membershipPlan) return;
                   setMembershipMessage("");
                   try {
-                    const orderRes = await fetch("/api/membership/orders", {
+                    const orderRes = await fetch("https://helloranjing.com/api/membership/orders", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ plan: membershipPlan }),
@@ -3746,7 +3746,7 @@ setView("editor");
                       setMembershipMessage(orderData.message || "创建订单失败，请稍后再试");
                       return;
                     }
-                    const payRes = await fetch("/api/payments/alipay/create", {
+                    const payRes = await fetch("https://helloranjing.com/api/payments/alipay/create", {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ orderId: orderData.order.id }),

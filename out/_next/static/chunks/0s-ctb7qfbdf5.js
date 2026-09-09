@@ -1,0 +1,1 @@
+(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["object"==typeof document?document.currentScript:void 0,78398,i=>{i.q("/_next/static/media/ranjing-welcome-ink-v1.1ymmqcz_ibxpr.png")},65124,i=>{i.q("/_next/static/media/splash-cover-original.09paw7h3hdyud.png")}]);

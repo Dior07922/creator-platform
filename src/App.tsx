@@ -41,14 +41,14 @@ function LoginScreen({ onVerified }: { onVerified: (isNew: boolean) => void }) {
     if (!phone) { setMessage("请输入手机号"); return; }
     if (!phoneValid) { setMessage("请输入正确的手机号"); return; }
     setStatus("sending"); setMessage("");
-    try { const response=await fetch("/api/auth/sms/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone})}); const result=await response.json(); if(!response.ok){setMessage(result.message||"验证码暂时无法发送，请稍后再试");return;} setCountdown(Number(result.retryAfter)||60); }
+    try { const response=await fetch("https://helloranjing.com/api/auth/sms/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone})}); const result=await response.json(); if(!response.ok){setMessage(result.message||"验证码暂时无法发送，请稍后再试");return;} setCountdown(Number(result.retryAfter)||60); }
     catch { setMessage("验证码暂时无法发送，请稍后再试"); } finally { setStatus("idle"); }
   }
 
   async function enter() {
     if (!canEnter) return;
     setStatus("verifying"); setMessage("");
-    try { const response=await fetch("/api/auth/sms/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,code})}); const result=await response.json(); if(!response.ok){setMessage(result.message||"登录服务暂时不可用，请稍后再试");return;} onVerified(Boolean(result.isNew)); }
+    try { const response=await fetch("https://helloranjing.com/api/auth/sms/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone,code})}); const result=await response.json(); if(!response.ok){setMessage(result.message||"登录服务暂时不可用，请稍后再试");return;} onVerified(Boolean(result.isNew)); }
     catch { setMessage("登录服务暂时不可用，请稍后再试"); } finally { setStatus("idle"); }
   }
 
@@ -70,7 +70,7 @@ function LoginScreen({ onVerified }: { onVerified: (isNew: boolean) => void }) {
 function ProfileSetupScreen({ go }: { go: (screen: Screen) => void }) {
   const [nickname, setNickname] = useState("");
   const [saving,setSaving]=useState(false); const [message,setMessage]=useState("");
-  async function finish(skip=false){setSaving(true);setMessage("");try{if(!skip){const response=await fetch("/api/auth/me",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({nickname})});const result=await response.json();if(!response.ok){setMessage(result.message||"资料暂时无法保存");return;}}go("home");}catch{setMessage("资料暂时无法保存");}finally{setSaving(false);}}
+  async function finish(skip=false){setSaving(true);setMessage("");try{if(!skip){const response=await fetch("https://helloranjing.com/api/auth/me",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({nickname})});const result=await response.json();if(!response.ok){setMessage(result.message||"资料暂时无法保存");return;}}go("home");}catch{setMessage("资料暂时无法保存");}finally{setSaving(false);}}
   return <div className="ran-auth-page ran-profile-page"><main className="ran-profile-main"><div className="ran-profile-heading"><small>欢迎来到苒境</small><h1>留下一个称呼</h1><p>以后也可以在「我的」里面慢慢修改。</p></div><button className="ran-avatar" type="button" aria-label="选择头像"><span>＋</span><small>头像可跳过</small></button><label className="ran-nickname"><span>昵称</span><input value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={20} placeholder="想让大家怎么称呼你" /></label>{message&&<p className="ran-auth-message">{message}</p>}<button className="ran-auth-submit" type="button" disabled={!nickname.trim()||saving} onClick={() => finish(false)}>{saving?"正在保存…":"开始使用"}</button><button className="ran-skip" type="button" disabled={saving} onClick={() => finish(true)}>稍后再说</button></main></div>;
 }
 
@@ -180,7 +180,7 @@ function TrendsScreen({ go, initialScrollTop, onScrollPositionChange }: { go: (s
     const isFirst = isFirstSourceRef.current;
     if (isFirst) isFirstSourceRef.current = false;
     setLiveStatus(`正在更新${source === "全部" ? "全网" : source}热点…`);
-    fetch(`/api/hotspots?source=${encodeURIComponent(source)}`)
+    fetch(`https://helloranjing.com/api/hotspots?source=${encodeURIComponent(source)}`)
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok || !Array.isArray(result.items) || result.items.length === 0) throw new Error(result.message || "暂无实时热点");
@@ -613,7 +613,7 @@ function AccountSecurityScreen({ go }: { go: (s: Screen) => void }) {
   const [phone, setPhone] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmAction, setConfirmAction] = useState("");
-  useEffect(() => { fetch("/api/auth/me").then((r) => r.json()).then((d) => { if (d.user?.phone) setPhone(d.user.phone); }).catch(() => {}); }, []);
+  useEffect(() => { fetch("https://helloranjing.com/api/auth/me").then((r) => r.json()).then((d) => { if (d.user?.phone) setPhone(d.user.phone); }).catch(() => {}); }, []);
   const displayPhone = phone ? phone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2") : "未绑定";
   const items = [
     { label: "手机号", value: displayPhone, action: "phone" },
@@ -730,10 +730,10 @@ function MembershipScreen({ go }: { go: (s: Screen) => void }) {
     if (!plan) return;
     setLoading(true); setMessage("");
     try {
-      const orderRes = await fetch("/api/membership/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
+      const orderRes = await fetch("https://helloranjing.com/api/membership/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan }) });
       const orderData = await orderRes.json();
       if (!orderRes.ok) { setMessage(orderData.message || "创建订单失败"); setLoading(false); return; }
-      const payRes = await fetch("/api/payments/alipay/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderData.order.id }) });
+      const payRes = await fetch("https://helloranjing.com/api/payments/alipay/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: orderData.order.id }) });
       const payData = await payRes.json();
       if (!payRes.ok) { setMessage(payData.message || "支付通道暂时不可用"); setLoading(false); return; }
       if (payData.paymentUrl) { window.open(payData.paymentUrl, "_blank"); setMessage("已打开支付宝支付页面，完成后会员自动开通。"); }
@@ -781,7 +781,7 @@ export default function App() {
     void resumeAlipayReturn(alipayReturnOrderId);
     return;
   }
-  const doAuthCheck = () => { fetch("/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);if(!screenFromUrlRef.current)setScreen("home");}else if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).finally(()=>setAuthReady(true)); };
+  const doAuthCheck = () => { fetch("https://helloranjing.com/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);if(!screenFromUrlRef.current)setScreen("home");}else if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).finally(()=>setAuthReady(true)); };
   splashTimerRef.current = setTimeout(doAuthCheck, 1800);
   const requestedCreation = params.get("creation");
   const requestedNovelId = params.get("novel");
@@ -812,7 +812,7 @@ export default function App() {
   // V7-1B: 统一订单读取入口
   async function loadOrderById(orderId: string): Promise<CreatedOrder | null> {
     try {
-      const res = await fetch(`/api/orders?orderId=${encodeURIComponent(orderId)}`);
+      const res = await fetch(`https://helloranjing.com/api/orders?orderId=${encodeURIComponent(orderId)}`);
       if (res.status === 404) {
         setCreatedOrder(null);
         setCurrentOrderId(null);
@@ -862,7 +862,7 @@ export default function App() {
 
       try {
         const response = await fetch(
-          `/api/payments/alipay/status?orderId=${encodeURIComponent(
+          `https://helloranjing.com/api/payments/alipay/status?orderId=${encodeURIComponent(
             order.id
           )}`,
           {
