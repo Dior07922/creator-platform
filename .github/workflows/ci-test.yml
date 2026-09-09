@@ -11,32 +11,36 @@ jobs:
     env:
       JAVA_HOME: C:\Users\10427\jdk-21.0.2
       ANDROID_HOME: C:\Users\10427\.android
-      PROJECT_DIR: C:\Users\10427\Desktop\苒境_当前最新工程_20260905
     steps:
       - name: Build web (static export)
         shell: powershell
         run: |
-          cd $env:PROJECT_DIR
+          $project = "C:\Users\10427\Desktop\苒境_当前最新工程_20260905"
+          Set-Location $project
           $env:NEXT_PUBLIC_EXPORT = "true"
-          if (Test-Path app\api) { Move-Item -Path app\api -Destination api_backup -Force }
+          if (Test-Path "$project\api_backup") { Remove-Item -Recurse -Force "$project\api_backup" }
+          if (Test-Path "$project\app\api") { Move-Item -Path "$project\app\api" -Destination "$project\api_backup" -Force }
           npm run build
-          if (Test-Path api_backup) { Move-Item -Path api_backup -Destination app\api -Force }
+          if (Test-Path "$project\api_backup") { Move-Item -Path "$project\api_backup" -Destination "$project\app\api" -Force }
       - name: Sync Capacitor
         shell: powershell
         run: |
-          cd $env:PROJECT_DIR
+          $project = "C:\Users\10427\Desktop\苒境_当前最新工程_20260905"
+          Set-Location $project
           npx cap sync android
       - name: Build Android APK
         shell: powershell
         run: |
-          cd $env:PROJECT_DIR\android
+          $project = "C:\Users\10427\Desktop\苒境_当前最新工程_20260905"
+          Set-Location "$project\android"
           .\gradlew.bat assembleDebug
       - name: Install APK to device
         shell: powershell
         run: |
-          adb install -r $env:PROJECT_DIR\android\app\build\outputs\apk\debug\app-debug.apk
+          $project = "C:\Users\10427\Desktop\苒境_当前最新工程_20260905"
+          adb install -r "$project\android\app\build\outputs\apk\debug\app-debug.apk"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: ${{ env.PROJECT_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
+          path: C:\Users\10427\Desktop\苒境_当前最新工程_20260905\android\app\build\outputs\apk\debug\app-debug.apk
