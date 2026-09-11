@@ -133,12 +133,13 @@ function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) 
 
   return (
     <nav
-      className="editorial-bottom-nav fixed left-0 right-0 bottom-0 z-[200] bg-[var(--bg2)] border-t border-[var(--border)]"
+      className="editorial-bottom-nav absolute left-0 right-0 bottom-0 z-[1200] bg-[var(--bg2)] border-t border-[var(--border)]"
       style={{
+        height: 64, // 固定高度（px）— 根据你想要的高度调整
         paddingBottom: "env(safe-area-inset-bottom)",
       }}
     >
-      <div className="flex min-h-[58px] items-stretch px-2">
+      <div className="flex h-full items-stretch px-2">
         {tabs.map((t) => (
           <button
             key={t.s}

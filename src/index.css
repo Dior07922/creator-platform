@@ -806,12 +806,16 @@ body {
 }
 
 .editorial-bottom-nav {
-  position: relative;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 10;
   flex: none;
   background: rgba(251, 250, 247, .94);
   border-top: 1px solid rgba(74, 70, 63, .09);
   backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .editorial-nav-item {
@@ -1345,8 +1349,10 @@ body {
 /* CreationMinimalRoom — minimal room editor */
 .creation-minimal { color: #4a463f; background: #fbfaf7; }
 .cm-header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 190;
   display: flex;
   align-items: center;
@@ -1355,6 +1361,12 @@ body {
   border-bottom: 1px solid rgba(74,70,63,.1);
   flex: none;
   background: #fbfaf7;
+  padding-top: max(14px, env(safe-area-inset-top));
+}
+.cm-header-spacer {
+  height: 56px;
+  min-height: calc(56px + env(safe-area-inset-top));
+  flex: none;
 }
 .cm-header > button:first-child { border: 0; background: transparent; font-size: 18px; color: #9d968f; cursor: pointer; padding: 4px 8px; }
 .cm-header > span { font-family: "Songti SC","STSong","Noto Serif SC",serif; font-size: 14px; letter-spacing: .08em; color: #4a463f; }
@@ -1516,8 +1528,10 @@ body {
 /* ===== 编辑器一级菜单 ===== */
 
 .cm-writing-toolbar-shell {
-  position: sticky;
-  top: 52px;
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
   z-index: 180;
   flex: none;
   width: 100%;
@@ -1738,4 +1752,61 @@ body {
 }
 body {
   padding-bottom: calc(70px + env(safe-area-inset-bottom));
+}
+/* name=src/index.css (append) */
+
+/* 编辑器打开时锁定背景滚动（配合 JS 添加 .editor-open 到 .handbook-app） */
+.handbook-app.editor-open {
+  overflow: hidden !important;
+  touch-action: none !important;
+}
+
+/* 全屏透明 overlay：接收点击以关闭面板/菜单 */
+.panel-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1180;
+  background: rgba(0,0,0,0.001); /* 几乎透明但能接收点击 */
+}
+
+/* 弹出菜单与确认框的默认样式已在组件内行内设置；如果你希望统一样式可把这些移到这里 */
+
+/* 保存按钮视觉（透明背景、文字清晰、低视觉优先级） */
+.save-button {
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.06);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s ease, box-shadow .12s ease;
+}
+.save-button:hover {
+  background: rgba(168,137,104,0.06);
+}
+
+/* 底部“第一页/第二页”那类假页码标识若存在（项目中具体类名不一样），
+   请把下面选择器替换为项目中实际使用的类名以确保隐藏。
+   这里用常见 .page-indicator 作为示例。 */
+.page-indicator, .bottom-page-indicator, .first-page-badge {
+  display: none !important;
+}
+
+/* 底部导航（如果你使用我之前的绝对定位方案）确保覆盖装饰圆角 */
+.editorial-bottom-nav {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 64px;
+  box-sizing: border-box;
+  z-index: 1200;
+  background: linear-gradient(#fff, #fff);
+  border-top: 1px solid rgba(74, 70, 63, .09);
+}
+
+/* 使面板内的真实点击更容易（在移动设备上） */
+button {
+  -webkit-tap-highlight-color: transparent;
 }
