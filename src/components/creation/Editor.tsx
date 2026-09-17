@@ -167,6 +167,8 @@ function getSvgPathFromStroke(stroke: number[][]): string {
 function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
   const stroke = s.color;
   const sw = s.strokeWidth;
+  // data-shape-id 供笔迹工具条定位用（取该形状的屏幕包围盒）
+  const sid = { "data-shape-id": s.id } as Record<string, string>;
   const common = {
     stroke,
     strokeWidth: sw,
@@ -174,6 +176,7 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
     filter: selectedShapeId === s.id ? "drop-shadow(0 0 4px #3b82f6)" : undefined,
+    ...sid,
   };
   switch (s.kind) {
     case "line":
@@ -204,7 +207,7 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
       const bx = s.x2 - len * Math.cos(angle + Math.PI / 6);
       const by = s.y2 - len * Math.sin(angle + Math.PI / 6);
       return (
-        <g key={s.id}>
+        <g key={s.id} {...sid}>
           <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} {...common} />
           <polyline points={`${ax},${ay} ${s.x2},${s.y2} ${bx},${by}`} {...common} />
         </g>
@@ -295,10 +298,10 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
 
       // 调参区（后续微调手感全靠这 5 个）
       const outline = getStroke(inputPoints, {
-        size: s.strokeWidth * 2.2,
-        thinning: 0.55,
-        smoothing: 0.5,
-        streamline: 0.45,
+        size: s.strokeWidth * 2.8,
+        thinning: 0.7,
+        smoothing: 0.55,
+        streamline: 0.35,
         easing: (t: number) => t,
         simulatePressure: !s.pressures || s.pressures.length < 2,
         last: true,
@@ -2323,26 +2326,46 @@ export default function Editor({
 
   const penBarPos = (() => {
     if (!selectedShape) return null;
-    const lb = shapeLocalBox(selectedShape);
-    // 局部包围盒四角 → 屏幕，取屏幕轴对齐包围盒
-    const corners = [
-      paperLocalToScreen(lb.x, lb.y, stageRef.current, paper),
-      paperLocalToScreen(lb.x + lb.w, lb.y, stageRef.current, paper),
-      paperLocalToScreen(lb.x, lb.y + lb.h, stageRef.current, paper),
-      paperLocalToScreen(lb.x + lb.w, lb.y + lb.h, stageRef.current, paper),
-    ];
-    const minX = Math.min(...corners.map((c) => c.x));
-    const maxX = Math.max(...corners.map((c) => c.x));
-    const minY = Math.min(...corners.map((c) => c.y));
-    const maxY = Math.max(...corners.map((c) => c.y));
 
     const BAR_W = 4 * 2 + 36 * 6 + 4 * 5;   // padding*2 + 6 个圆钮 + 5 个间距
     const BAR_H = 44;
+
+    // 优先用渲染出来的 <g data-shape-id> / <path data-shape-id> 实测量取屏幕包围盒
+    let minX = 0, maxX = 0, minY = 0, maxY = 0, measured = false;
+    const host = stageRef.current;
+    if (host) {
+      const el = host.querySelector(`[data-shape-id="${selectedShape.id}"]`) as SVGGraphicsElement | null;
+      if (el) {
+        try {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 || r.height > 0) {
+            minX = r.left; maxX = r.right;
+            minY = r.top; maxY = r.bottom;
+            measured = true;
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    if (!measured) {
+      // 兜底：局部包围盒四角 → 屏幕，取屏幕轴对齐包围盒
+      const lb = shapeLocalBox(selectedShape);
+      const corners = [
+        paperLocalToScreen(lb.x, lb.y, stageRef.current, paper),
+        paperLocalToScreen(lb.x + lb.w, lb.y, stageRef.current, paper),
+        paperLocalToScreen(lb.x, lb.y + lb.h, stageRef.current, paper),
+        paperLocalToScreen(lb.x + lb.w, lb.y + lb.h, stageRef.current, paper),
+      ];
+      minX = Math.min(...corners.map((c) => c.x));
+      maxX = Math.max(...corners.map((c) => c.x));
+      minY = Math.min(...corners.map((c) => c.y));
+      maxY = Math.max(...corners.map((c) => c.y));
+    }
+
     let left = (minX + maxX) / 2 - BAR_W / 2;
-    let top = minY - 60;
-    if (top < 8) top = maxY + 20;           // 超出屏幕上方 → 改到包围盒下方
-    if (top + BAR_H > window.innerHeight - 8) top = Math.max(8, minY - 60);
+    let top = minY - 60;                    // 包围盒上方 60px
+    if (top < 8) top = maxY + 20;           // 超出屏幕顶部 → 改到包围盒下方 20px
     left = Math.max(8, Math.min(left, window.innerWidth - BAR_W - 8));
+    if (top + BAR_H > window.innerHeight - 8) top = Math.max(8, window.innerHeight - BAR_H - 8);
     return { left, top };
   })();
 
@@ -2794,7 +2817,7 @@ export default function Editor({
           <button type="button" title="删除" onClick={() => {
             onUpdateRef.current({ shapes: (pageRef.current.shapes || []).filter((x) => x.id !== selectedShape.id) });
             setSelectedEl(null);
-          }} style={{ ...penBarBtn, background: "rgba(217,76,76,.9)" }}>🗑</button>
+          }} style={{ ...penBarBtn, background: "rgba(217,76,76,.9)" }}>删</button>
 
           <button type="button" title="取消选中" onClick={() => setSelectedEl(null)} style={penBarBtn}>×</button>
         </div>
