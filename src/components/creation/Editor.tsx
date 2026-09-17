@@ -298,10 +298,10 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
 
       // 调参区（后续微调手感全靠这 5 个）
       const outline = getStroke(inputPoints, {
-        size: s.strokeWidth * 2.8,
-        thinning: 0.7,
+        size: s.strokeWidth * 1.1,
+        thinning: 0.35,
         smoothing: 0.55,
-        streamline: 0.35,
+        streamline: 0.45,
         easing: (t: number) => t,
         simulatePressure: !s.pressures || s.pressures.length < 2,
         last: true,
@@ -1109,6 +1109,37 @@ export default function Editor({
     return out;
   }
 
+  /** 屏幕坐标点是否落在「选中元素」上（文字用 DOM 包围盒，其余用纸张局部包围盒 + 24px 容差） */
+  function isCenterOnSelectedEl(mx: number, my: number): boolean {
+    const sel = selectedElRef.current;
+    if (!sel) return false;
+    const stageEl = stageRef.current;
+    if (!stageEl) return false;
+
+    const selType: string = sel.type;
+    if (selType === "text") {
+      const el = stageEl.querySelector(`[data-text-id="${sel.id}"]`) as HTMLElement | null;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom;
+    }
+
+    const lx = screenToPaperLocal(mx, my, stageEl, paperStateRef.current);
+    const pg = pageRef.current;
+    let b: { x: number; y: number; w: number; h: number } | null = null;
+    if (sel.type === "image") { const n = (pg.images || []).find((x) => x.id === sel.id); if (n) b = { x: n.x, y: n.y, w: n.w, h: n.h }; }
+    else if (sel.type === "note")  { const n = (pg.notes  || []).find((x) => x.id === sel.id); if (n) b = { x: n.x, y: n.y, w: n.w, h: n.h }; }
+    else if (sel.type === "table") { const n = (pg.tables || []).find((x) => x.id === sel.id); if (n) b = { x: n.x, y: n.y, w: n.w, h: n.h }; }
+    else if (sel.type === "link")  { const n = (pg.links  || []).find((x) => x.id === sel.id); if (n) b = { x: n.x, y: n.y, w: n.w, h: n.h }; }
+    else if (sel.type === "shape") {
+      const s = (pg.shapes || []).find((x) => x.id === sel.id);
+      if (s) b = shapeLocalBox(s);
+    }
+    if (!b) return false;
+    const pad = 24;
+    return lx.x >= b.x - pad && lx.x <= b.x + b.w + pad && lx.y >= b.y - pad && lx.y <= b.y + b.h + pad;
+  }
+
   function onPointerDown(e: React.PointerEvent) {
     const target = e.target as HTMLElement;
     if (target === editTaRef.current || target.tagName === "TEXTAREA") return;
@@ -1132,10 +1163,14 @@ export default function Editor({
       return;
     }
 
-    // ★ 已有 1 指在屏上，第 2 指落下 → 双指缩放选中元素
+    // ★ 已有 1 指在屏上，第 2 指落下 → 双指缩放选中元素（需中心点在选中元素上）
     if (g.pointers.size === 1 && !drawToolRef.current) {
+      const pts0 = Array.from(g.pointers.values());
+      const exist = pts0[0];
+      const cx0 = (exist.x + e.clientX) / 2;
+      const cy0 = (exist.y + e.clientY) / 2;
       const sel = selectedElRef.current;
-      if (sel) {
+      if (sel && isCenterOnSelectedEl(cx0, cy0)) {
         const pg = pageRef.current;
         let node: any = null;
         if (sel.type === "image") node = (pg.images || []).find((x) => x.id === sel.id);
@@ -1461,9 +1496,10 @@ export default function Editor({
       const cur = paperStateRef.current;
       const snap = getTwoFingerSnapshot();
 
-      // ★ 有选中元素 → 缩放元素，不缩放纸张
+      // ★ 有选中元素 且 双指中心落在元素上 → 缩放元素；否则走纸张 pinch
       const sel = selectedElRef.current;
-      if (sel) {
+      const centerOnSel = isCenterOnSelectedEl(snap.midX, snap.midY);
+      if (sel && centerOnSel) {
         const pg = pageRef.current;
         let node: any = null;
         if (sel.type === "image") node = (pg.images || []).find((x) => x.id === sel.id);
