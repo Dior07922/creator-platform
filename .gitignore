@@ -33,3 +33,5 @@ OTF/
 # temp debug scripts
 _tmp_*.mjs
 _verify_*.cjs
+
+.env*

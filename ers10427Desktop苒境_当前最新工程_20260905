@@ -1,0 +1,20 @@
+[33mffd7ae5[m 接口地址自动切换：本地走同源相对路径，生产走域名
+[33m36e8728[m backup: 保存旧 CreationMinimalRoom.tsx 删前备份
+[33mcf9dee4[m 保存安卓原生适配、云端文档及正式签名配置
+[33me89e704[m Update workflow and build config
+[33m34d16b6[m fix: 删除 App.tsx 中 resumeAlipayReturn 函数的重复代码块，解决 TS1128/TS1434 编译错误
+[33m8ae9e99[m fix: 头像区放大+下移，96px圆形头像，昵称20px，简介13px
+[33maf0340f[m fix: 我的页面恢复顶部线，头像夹在两线之间
+[33m33b249f[m fix: 我的页面头像区移到菜单线上方
+[33m6ed180e[m fix: 我的页面修复 - 头像保存同步、布局顶线、账号安全真实手机号、会员设置接支付宝支付
+[33m2907643[m fix: SplashScreen 不再跳过登录流程，由 doAuthCheck 1.8s 后决定去向
+[33m3b4bfae[m chore: 清理商品/管理后台/设计服务全部死代码
+[33mee57a7b[m chore: 清理商品组件前的安全快照
+[33mc864daf[m feat: PersonalProfileScreen 重写（头像上传+左标签右输入细线布局）+ 云端空状态清理
+[33m5ec464c[m fix: splash 动画延迟 1.8s 后再执行登录状态检查，避免动画被提前覆盖
+[33mb6a97da[m 修复首页启动动画缺失
+[33mfdcd27d[m 修复UI布局，删除管理后台和商家入驻，恢复个人资料样式，新增会员支付接口
+[33me51827b[m 修复闭合符号错误
+[33m54e9a4b[m 保存三栏导航创作区与小说人物模板
+[33mb191389[m 修复创作入口布局并更新随笔编辑器
+[33m8bfc75e[m 完成随笔创作文件管理器

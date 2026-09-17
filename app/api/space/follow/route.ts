@@ -1,22 +1,43 @@
-﻿import { NextResponse } from "next/server";
-import { mockWorks } from "../works/route";
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const work = mockWorks.find(w => w.authorId === body.targetUserId);
-  if (!work) return NextResponse.json({ message: "作者不存在" }, { status: 404 });
+  const userId = "anonymous";
 
-  work.isFollowing = true;
-  work.followers += 1;
-  return NextResponse.json({ success: true, followers: work.followers, isFollowing: true });
+  await supabase.from("follows").upsert({ user_id: userId, author_id: body.targetUserId });
+
+  const { data: work } = await supabase
+    .from("works")
+    .select("followers")
+    .eq("author_id", body.targetUserId)
+    .single();
+
+  const newFollowers = (work?.followers || 0) + 1;
+  await supabase.from("works").update({ followers: newFollowers }).eq("author_id", body.targetUserId);
+
+  return NextResponse.json({ success: true, isFollowing: true, followers: newFollowers });
 }
 
 export async function DELETE(req: Request) {
   const body = await req.json();
-  const work = mockWorks.find(w => w.authorId === body.targetUserId);
-  if (!work) return NextResponse.json({ message: "作者不存在" }, { status: 404 });
+  const userId = "anonymous";
 
-  work.isFollowing = false;
-  work.followers -= 1;
-  return NextResponse.json({ success: true, followers: work.followers, isFollowing: false });
+  await supabase.from("follows").delete().eq("user_id", userId).eq("author_id", body.targetUserId);
+
+  const { data: work } = await supabase
+    .from("works")
+    .select("followers")
+    .eq("author_id", body.targetUserId)
+    .single();
+
+  const newFollowers = Math.max(0, (work?.followers || 0) - 1);
+  await supabase.from("works").update({ followers: newFollowers }).eq("author_id", body.targetUserId);
+
+  return NextResponse.json({ success: true, isFollowing: false, followers: newFollowers });
 }
