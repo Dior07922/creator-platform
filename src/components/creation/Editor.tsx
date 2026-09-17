@@ -2355,6 +2355,29 @@ export default function Editor({
   const hasSelection = !!boxGroupId || (box != null && box.w >= 4 && box.h >= 4);
   const isDrawing = !!drawTool;
 
+  /* ---- 框选版工具条：框内所有 shape（不分类型） ---- */
+  // 注意：box 是 stage 局部坐标，shape 包围盒经 paperLocalToScreen 出来是屏幕坐标，
+  // 因此统一把 box 抬到屏幕坐标再比对（与 computeMembersInBox 的做法一致）。
+  const shapesInBox = (b: BoxState): ShapeNode[] => {
+    const stageEl = stageRef.current;
+    if (!stageEl) return [];
+    const sr = stageEl.getBoundingClientRect();
+    const bx1 = sr.left + b.x;
+    const by1 = sr.top + b.y;
+    const bx2 = bx1 + b.w;
+    const by2 = by1 + b.h;
+    return (pageRef.current.shapes || []).filter((s) => {
+      const lb = shapeLocalBox(s);
+      const c1 = paperLocalToScreen(lb.x, lb.y, stageEl, paperStateRef.current);
+      const c2 = paperLocalToScreen(lb.x + lb.w, lb.y + lb.h, stageEl, paperStateRef.current);
+      const x1 = Math.min(c1.x, c2.x);
+      const y1 = Math.min(c1.y, c2.y);
+      const x2 = Math.max(c1.x, c2.x);
+      const y2 = Math.max(c1.y, c2.y);
+      return !(x2 < bx1 || x1 > bx2 || y2 < by1 || y1 > by2);
+    });
+  };
+
   /* ---- 笔迹工具条：只对选中的 shape 生效 ---- */
   const selectedShape = (!isDrawing && selectedEl?.type === "shape")
     ? (page.shapes || []).find((s) => s.id === selectedEl.id) || null
@@ -2794,8 +2817,79 @@ export default function Editor({
         >完成绘制</button>
       )}
 
+      {/* 框选版工具条：有框选时优先 */}
+      {box && box.w >= 4 && box.h >= 4 && (() => {
+        const BAR_W = 4 * 2 + 36 * 3 + 4 * 2;
+        const sr = stageRef.current?.getBoundingClientRect();
+        const originLeft = sr ? sr.left : 0;
+        const originTop = sr ? sr.top : 0;
+        let left = originLeft + box.x + box.w / 2 - BAR_W / 2;
+        let top = originTop + box.y - 60;
+        if (top < 8) top = originTop + box.y + box.h + 20;
+        left = Math.max(8, Math.min(left, window.innerWidth - BAR_W - 8));
+        return (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left, top,
+              height: 44, display: "flex", alignItems: "center",
+              gap: 4, padding: 4, borderRadius: 22,
+              background: "rgba(58,53,46,.92)",
+              boxShadow: "0 8px 24px rgba(0,0,0,.22)",
+              zIndex: 800,
+            }}
+          >
+            <button
+              type="button"
+              title="全删除"
+              onClick={() => {
+                const list = shapesInBox(box);
+                if (list.length === 0) return;
+                const ids = new Set(list.map((s) => s.id));
+                onUpdateRef.current({
+                  shapes: (pageRef.current.shapes || []).filter((s) => !ids.has(s.id)),
+                });
+                clearBox();
+              }}
+              style={{ ...penBarBtn, background: "rgba(217,76,76,.9)" }}
+            >🗑 {shapesInBox(box).length}</button>
+
+            <button
+              type="button"
+              title="全复制"
+              onClick={() => {
+                const list = shapesInBox(box);
+                if (list.length === 0) return;
+                const copies: ShapeNode[] = list.map((s) => {
+                  const c: ShapeNode = JSON.parse(JSON.stringify(s));
+                  c.id = `sh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                  if (c.points && c.points.length > 0) {
+                    c.points = c.points.map((p) => ({ x: p.x + 30, y: p.y + 30 }));
+                  } else {
+                    c.x1 += 30; c.y1 += 30; c.x2 += 30; c.y2 += 30;
+                  }
+                  return c;
+                });
+                onUpdateRef.current({
+                  shapes: [...(pageRef.current.shapes || []), ...copies],
+                });
+              }}
+              style={penBarBtn}
+            >⧉ 复制</button>
+
+            <button
+              type="button"
+              title="取消框选"
+              onClick={() => clearBox()}
+              style={penBarBtn}
+            >×</button>
+          </div>
+        );
+      })()}
+
       {/* 笔迹工具条：仅选中 shape 时出现 */}
-      {selectedShape && penBarPos && (
+      {!(box && box.w >= 4 && box.h >= 4) && selectedShape && penBarPos && (
         <div
           onPointerDown={(e) => e.stopPropagation()}
           style={{
