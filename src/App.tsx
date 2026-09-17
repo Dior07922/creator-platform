@@ -1,21 +1,91 @@
-"use client";
-import { useState, useEffect, useCallback, useRef } from "react";
-import { CapacitorHttp } from "@capacitor/core";
-import { Browser } from "@capacitor/browser";
-import CreationMinimalRoom from "./CreationMinimalRoom";
+﻿"use client";
+
+import { runTopBackHandler } from "./lib/globalBack";
+import { useState, useEffect, useRef } from "react";
+import { CapacitorHttp, Capacitor } from "@capacitor/core";
+import CreationLocalRoom from "./components/creation/CreationLocalRoom";
+import CreationCloudRoom from "./components/creation/CreationCloudRoom";
+import TemplateLibrary from "./TemplateLibrary";
 import splashCover from "./assets/splash-cover-original.png";
 import ranjingWelcomeInk from "./assets/ranjing-welcome-ink-v1.png";
-import { Character, loadNovels, newCharacter, newNovel, Novel, saveNovels, totalWords } from "./novels";
+import { App as CapApp } from "@capacitor/app";
+// ✅ 修复：引入真实的图片源接口
+import { searchPexels, trendingPexels, searchUnsplash, trendingUnsplash } from "./lib/assetSources";
+
+// ─── 智能 HTTP：原生 App 用 CapacitorHttp，浏览器用 fetch ──────────────
+// 这样同一份代码在 iOS 原生（走 WKWebView 原生请求，不受 CORS 限制）
+// 和网页/局域网调试（走 fetch）两种环境下都能正常工作。
+const USE_NATIVE_HTTP = Capacitor.isNativePlatform();
+
+// API 基址：本地调试走相对路径（同源），生产走 helloranjing.com。
+// 具体判断逻辑见 src/lib/apiBase.ts
+import { API_BASE } from "./lib/apiBase";
+
+async function apiGet(url: string) {
+  if (USE_NATIVE_HTTP) {
+    const r = await CapacitorHttp.get({ url });
+    return { status: r.status, data: r.data };
+  }
+  const r = await fetch(url);
+  const data = await r.json();
+  return { status: r.status, data };
+}
+
+async function apiPost(url: string, payload?: any) {
+  if (USE_NATIVE_HTTP) {
+    const r = await CapacitorHttp.post({
+      url, headers: { "Content-Type": "application/json" }, data: payload,
+    });
+    return { status: r.status, data: r.data };
+  }
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await r.json();
+  return { status: r.status, data };
+}
+
+async function apiDelete(url: string, payload?: any) {
+  if (USE_NATIVE_HTTP) {
+    const r = await CapacitorHttp.request({
+      method: "DELETE", url, headers: { "Content-Type": "application/json" }, data: payload,
+    });
+    return { status: r.status, data: r.data };
+  }
+  const r = await fetch(url, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await r.json();
+  return { status: r.status, data };
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Screen =
-  | "welcome" | "login" | "profile-setup" | "splash" | "home" | "create" | "works" | "writing"
-  | "profile" | "about" | "support" | "help" | "settings" | "wallet" | "membership"
-  | "personal-profile" | "payment-settings" | "message-settings" | "privacy-settings" | "membership-settings" | "account-security";
+  | "welcome" | "login" | "canvas" | "home" | "create"
+  | "profile" | "personal-profile" | "payment-settings" 
+  | "message-settings" | "privacy-settings" | "membership-settings" 
+  | "account-security" | "membership"
+  | "space" | "publish" | "community" | "gallery" 
+  | "group" | "house"; // 新增：组局、我的房子
 
 type CreatedOrder = { id: string; productId: number; product: string; icon: string; quantity: number; amount: string; paymentMethod: string; status: string; createdAt: string; deliveryEmail: string; saveDeliveryEmail: boolean; emailDeliveryStatus: "NotConfigured" | "Pending" | "Sent" | "Failed"; deliveredCode?: string; paidAt?: string };
-type TrendItem = { id: number | string; source: string; sourceLabel: string; rank: number; title: string; url: string | null; metricValue: number | null; metricLabel: string | null; publishedAt: string | null; fetchedAt: string };
+
+// ✅ 修复：给灵感瀑布图片定义类型，解决 any 报错
+type RemoteAsset = {
+  id: string;
+  src: string;
+  thumb: string;
+  w: number;
+  h: number;
+  name: string;
+  author?: string;
+  url?: string;
+};
 
 function BrandWord({ className = "" }: { className?: string }) {
   return <span className={`ran-brand-word ${className}`}>苒境</span>;
@@ -39,63 +109,31 @@ function LoginScreen({ onVerified }: { onVerified: (isNew: boolean) => void }) {
   const canEnter = phoneValid && /^\d{6}$/.test(code) && status === "idle";
 
   useEffect(() => { if (countdown <= 0) return; const timer=window.setInterval(()=>setCountdown((value)=>value-1),1000); return()=>clearInterval(timer); }, [countdown]);
+
   async function requestCode() {
     if (!phone) { setMessage("请输入手机号"); return; }
     if (!phoneValid) { setMessage("请输入正确的手机号"); return; }
     setStatus("sending"); setMessage("");
-   try {
-  const response = await CapacitorHttp.post({
-    url: "https://helloranjing.com/api/auth/sms/send",
-    headers: { "Content-Type": "application/json" },
-    data: { phone },
-  });
-
-  const result = response.data;
-
-  if (response.status < 200 || response.status >= 300) {
-    setMessage(result?.message || "验证码暂时无法发送，请稍后再试");
-    return;
+    try {
+      const response = await CapacitorHttp.post({ url: `${API_BASE}/api/auth/sms/send`, headers: { "Content-Type": "application/json" }, data: { phone } });
+      const result = response.data;
+      if (response.status < 200 || response.status >= 300) { setMessage(result?.message || "验证码暂时无法发送，请稍后再试"); return; }
+      setCountdown(Number(result?.retryAfter) || 60);
+    } catch { setMessage("验证码暂时无法发送，请稍后再试"); }
+    finally { setStatus("idle"); }
   }
 
-  setCountdown(Number(result?.retryAfter) || 60);
-}
-catch {
-  setMessage("验证码暂时无法发送，请稍后再试");
-}
-finally {
-  setStatus("idle");
-}
-}
-
-async function enter() {
-  if (!canEnter) return;
-
-  setStatus("verifying");
-  setMessage("");
-
-  try {
-    const response = await CapacitorHttp.post({
-      url: "https://helloranjing.com/api/auth/sms/verify",
-      headers: { "Content-Type": "application/json" },
-      data: { phone, code },
-    });
-
-    const result = response.data;
-
-    if (response.status < 200 || response.status >= 300) {
-      setMessage(result?.message || "登录服务暂时不可用，请稍后再试");
-      return;
-    }
-
-    onVerified(Boolean(result?.isNew));
+  async function enter() {
+    if (!canEnter) return;
+    setStatus("verifying"); setMessage("");
+    try {
+      const response = await CapacitorHttp.post({ url: `${API_BASE}/api/auth/sms/verify`, headers: { "Content-Type": "application/json" }, data: { phone, code } });
+      const result = response.data;
+      if (response.status < 200 || response.status >= 300) { setMessage(result?.message || "登录服务暂时不可用，请稍后再试"); return; }
+      onVerified(Boolean(result?.isNew));
+    } catch { setMessage("登录服务暂时不可用，请稍后再试"); }
+    finally { setStatus("idle"); }
   }
-  catch {
-    setMessage("登录服务暂时不可用，请稍后再试");
-  }
-  finally {
-    setStatus("idle");
-  }
-}
 
   return <div className="ran-auth-page">
     <main className="ran-auth-main">
@@ -112,43 +150,13 @@ async function enter() {
   </div>;
 }
 
-function ProfileSetupScreen({ go }: { go: (screen: Screen) => void }) {
-  const [nickname, setNickname] = useState("");
-  const [saving,setSaving]=useState(false); const [message,setMessage]=useState("");
-  async function finish(skip=false){setSaving(true);setMessage("");try{if(!skip){const response=await fetch("https://helloranjing.com/api/auth/me",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({nickname})});const result=await response.json();if(!response.ok){setMessage(result.message||"资料暂时无法保存");return;}}go("home");}catch{setMessage("资料暂时无法保存");}finally{setSaving(false);}}
-  return <div className="ran-auth-page ran-profile-page"><main className="ran-profile-main"><div className="ran-profile-heading"><small>欢迎来到苒境</small><h1>留下一个称呼</h1><p>以后也可以在「我的」里面慢慢修改。</p></div><button className="ran-avatar" type="button" aria-label="选择头像"><span>＋</span><small>头像可跳过</small></button><label className="ran-nickname"><span>昵称</span><input value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={20} placeholder="想让大家怎么称呼你" /></label>{message&&<p className="ran-auth-message">{message}</p>}<button className="ran-auth-submit" type="button" disabled={!nickname.trim()||saving} onClick={() => finish(false)}>{saving?"正在保存…":"开始使用"}</button><button className="ran-skip" type="button" disabled={saving} onClick={() => finish(true)}>稍后再说</button></main></div>;
-}
-
-
-
-// ─── Shared helpers ───────────────────────────────────────────────────────────
-
-
 function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) {
-  const tabs = [
-    { s: "home" as Screen, label: "首页" },
-    { s: "create" as Screen, label: "创作" },
-    { s: "profile" as Screen, label: "我的" },
-  ];
-
+  const tabs = [ { s: "home" as Screen, label: "首页" }, { s: "create" as Screen, label: "创作" }, { s: "profile" as Screen, label: "我的" } ];
   return (
-    <nav
-      className="editorial-bottom-nav absolute left-0 right-0 bottom-0 z-[1200] bg-[var(--bg2)] border-t border-[var(--border)]"
-      style={{
-        height: 64, // 固定高度（px）— 根据你想要的高度调整
-        paddingBottom: "env(safe-area-inset-bottom)",
-      }}
-    >
+    <nav className="editorial-bottom-nav absolute left-0 right-0 bottom-0 z-[1200] bg-[var(--bg2)] border-t border-[var(--border)]" style={{ height: 64, paddingBottom: "env(safe-area-inset-bottom)" }}>
       <div className="flex h-full items-stretch px-2">
         {tabs.map((t) => (
-          <button
-            key={t.s}
-            type="button"
-            onClick={() => go(t.s)}
-            className={`editorial-nav-item flex flex-1 items-center justify-center py-3 ${
-              screen === t.s ? "is-active" : ""
-            }`}
-          >
+          <button key={t.s} type="button" onClick={() => go(t.s)} className={`editorial-nav-item flex flex-1 items-center justify-center py-3 ${screen === t.s ? "is-active" : ""}`}>
             <span>{t.label}</span>
           </button>
         ))}
@@ -157,427 +165,831 @@ function BottomNav({ screen, go }: { screen: Screen; go: (s: Screen) => void }) 
   );
 }
 
-// ─── Girl Illustration (SVG) ──────────────────────────────────────────────────
+// ─── 空间底部悬浮导航栏（替代侧边栏，释放画面空间） ────────────────────────
+function SpaceSidebar({ active, go }: { active: Screen; go: (s: Screen) => void }) {
+  const ITEMS: { id: Screen; label: string; icon: string }[] = [
+    { id: "space", label: "灵感", icon: "✦" },
+    { id: "community", label: "智慧", icon: "🧠" },
+    { id: "group", label: "命运", icon: "🎲" },
+    { id: "house", label: "房子", icon: "🏠" },
+    { id: "canvas", label: "画布", icon: "🎨" },
+  ];
 
-function GirlIllustration({ size = 120 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Body */}
-      <ellipse cx="60" cy="90" rx="28" ry="22" fill="var(--pink-mid)" />
-      {/* Jacket */}
-      <ellipse cx="60" cy="92" rx="22" ry="17" fill="var(--pink)" />
-      {/* Collar / shirt */}
-      <ellipse cx="60" cy="80" rx="10" ry="6" fill="var(--bg2)" />
-      {/* Head */}
-      <circle cx="60" cy="52" r="24" fill="#D9B59B" />
-      {/* Hair top */}
-      <ellipse cx="60" cy="32" rx="23" ry="12" fill="#5F5045" />
-      {/* Hair bun */}
-      <circle cx="84" cy="30" r="7" fill="#5F5045" />
-      {/* Hair strand left */}
-      <path d="M38 46 Q32 56 36 68" stroke="#5F5045" strokeWidth="4" strokeLinecap="round" fill="none" />
-      {/* Eyes */}
-      <ellipse cx="52" cy="53" rx="3" ry="3.5" fill="#3F352C" />
-      <ellipse cx="68" cy="53" rx="3" ry="3.5" fill="#3F352C" />
-      {/* Eye shine */}
-      <circle cx="53.5" cy="51.5" r="1" fill="var(--bg2)" />
-      <circle cx="69.5" cy="51.5" r="1" fill="var(--bg2)" />
-      {/* Blush */}
-      <ellipse cx="45" cy="58" rx="5" ry="3" fill="var(--pink)" opacity="0.35" />
-      <ellipse cx="75" cy="58" rx="5" ry="3" fill="var(--pink)" opacity="0.35" />
-      {/* Mouth */}
-      <path d="M54 62 Q60 67 66 62" stroke="var(--pink)" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-      {/* Cup */}
-      <rect x="68" y="76" width="14" height="12" rx="3" fill="var(--bg2)" stroke="var(--pink)" strokeWidth="1.5" />
-      <path d="M82 80 Q86 80 86 84 Q86 88 82 88" stroke="var(--pink)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-      {/* Steam */}
-      <path d="M72 74 Q73 70 72 66" stroke="var(--pink)" strokeWidth="1" strokeLinecap="round" fill="none" opacity="0.5" />
-      <path d="M76 73 Q77 69 76 65" stroke="var(--pink)" strokeWidth="1" strokeLinecap="round" fill="none" opacity="0.5" />
-      {/* Stars */}
-      <text x="10" y="35" fontSize="10" fill="#D4A84F">★</text>
-      <text x="100" y="50" fontSize="8" fill="var(--pink)">♥</text>
-      <text x="15" y="70" fontSize="7" fill="var(--pink)">✦</text>
-    </svg>
-  );
-}
-// ─── Screen 01: Splash ────────────────────────────────────────────────────────
-
-function SplashScreen({ go }: { go: (s: Screen) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => go("home")}
-      aria-label="进入首页"
-      className="flex-1 w-full overflow-hidden bg-[#F8F3EB]"
-    >
-      <img
-        src={splashCover.src}
-        alt="每个人都有技能"
-        className="h-full w-full object-cover"
-      />
-    </button>
-  );
-}
-
-const TREND_SOURCES = ["百度", "腾讯", "今日头条", "知乎", "哔哩哔哩", "36氪", "少数派"];
-
-function TrendsScreen({ go, initialScrollTop, onScrollPositionChange }: { go: (s: Screen) => void; initialScrollTop: number; onScrollPositionChange: (value: number) => void }) {
-  const [source, setSource] = useState("全部");
-  const [items, setItems] = useState<TrendItem[]>([]);
-  const [liveStatus, setLiveStatus] = useState("正在更新实时热点…");
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const feedRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ startX: number; startScrollLeft: number; pointerId: number; moved: boolean; captured: boolean } | null>(null);
-  const suppressClickRef = useRef(false);
-  const isFirstSourceRef = useRef(true);
-  const [dragging, setDragging] = useState(false);
-
-  useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = initialScrollTop;
-  }, [initialScrollTop]);
-
-  useEffect(() => {
-    const isFirst = isFirstSourceRef.current;
-    if (isFirst) isFirstSourceRef.current = false;
-    setLiveStatus(`正在更新${source === "全部" ? "全网" : source}热点…`);
-    CapacitorHttp.get({
-  url: `https://helloranjing.com/api/hotspots?source=${encodeURIComponent(source)}`,
-})
-  .then((response) => {
-    const result = response.data;
-
-    if (
-      response.status < 200 ||
-      response.status >= 300 ||
-      !Array.isArray(result?.items) ||
-      result.items.length === 0
-    ) {
-      throw new Error(result?.message || "暂无实时热点");
-    }
-
-    setItems(result.items as TrendItem[]);
-    setLiveStatus(
-      `${source === "全部" ? "全网" : source}已更新 ${result.items.length} 条实时热点`
-    );
-
-    if (!isFirst) {
-      requestAnimationFrame(() => {
-        if (feedRef.current) feedRef.current.scrollTop = 0;
-      });
-    }
-  })
-  .catch((error) => {
-    setItems([]);
-    setLiveStatus(
-      error instanceof Error
-        ? error.message
-        : `${source}实时接口暂不可用`
-    );
-  });
-}, [source]);
-  return (
-    <div className="trends-home flex-1 flex flex-col overflow-hidden">
-      <div className="trends-masthead px-5 pt-[54px] pb-[30px] text-center">
-        <div className="trends-title">全网热点</div>
-        <div className="trends-date">今日正在发生</div>
-      </div>
-      <div className="trends-categories px-5">
-        <div
-          ref={tabsRef}
-          className={`hotspot-tabs-scroll flex flex-nowrap flex-row gap-7 overflow-x-auto whitespace-nowrap select-none ${dragging ? "cursor-grabbing" : ""}`}
-          onPointerDown={(e) => {
-            const el = tabsRef.current;
-            if (!el) return;
-            if (e.pointerType === "mouse" && e.button !== 0) return;
-            dragRef.current = { startX: e.clientX, startScrollLeft: el.scrollLeft, pointerId: e.pointerId, moved: false, captured: false };
-          }}
-          onPointerMove={(e) => {
-            const st = dragRef.current;
-            const el = tabsRef.current;
-            if (!st || !el) return;
-            const dx = e.clientX - st.startX;
-            if (!st.moved && Math.abs(dx) <= 5) return;
-            if (!st.moved) {
-              st.moved = true;
-              setDragging(true);
-              try { el.setPointerCapture(st.pointerId); st.captured = true; } catch { /* noop */ }
-            }
-            el.scrollLeft = st.startScrollLeft - dx;
-          }}
-          onPointerUp={() => {
-            const st = dragRef.current;
-            const el = tabsRef.current;
-            if (!st) return;
-            if (st.moved) {
-              suppressClickRef.current = true;
-              if (st.captured) { try { el?.releasePointerCapture(st.pointerId); } catch { /* noop */ } }
-            }
-            dragRef.current = null;
-            setDragging(false);
-          }}
-          onPointerCancel={() => {
-            const st = dragRef.current;
-            const el = tabsRef.current;
-            if (st?.captured) { try { el?.releasePointerCapture(st.pointerId); } catch { /* noop */ } }
-            dragRef.current = null;
-            setDragging(false);
+    <div style={{
+      position: "fixed", bottom: "calc(20px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)",
+      zIndex: 2000, display: "flex", gap: 8, padding: "8px 16px",
+      background: "rgba(255, 255, 255, 0.85)", backdropFilter: "blur(12px)",
+      borderRadius: 30, boxShadow: "0 8px 32px rgba(74,70,63,.12)", border: "1px solid rgba(74,70,63,.08)"
+    }}>
+      {ITEMS.map((item) => (
+        <button
+          key={item.id}
+          onClick={() => go(item.id)}
+          style={{
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            width: 56, height: 44, border: 0, borderRadius: 22, background: active === item.id ? "#3a352e" : "transparent",
+            color: active === item.id ? "#fff" : "#756f68", cursor: "pointer", transition: "all 0.2s"
           }}
         >
-          {["全部", ...TREND_SOURCES].map((item) => <button key={item} onClick={() => { if (suppressClickRef.current) { suppressClickRef.current = false; return; } setSource(item); }} className={`trend-category shrink-0 ${dragging ? "cursor-grabbing" : "cursor-pointer"} ${source === item ? "is-active" : ""}`}>{item}</button>)}
+          <span style={{ fontSize: 14, marginBottom: 2 }}>{item.icon}</span>
+          <span style={{ fontSize: 10, fontWeight: active === item.id ? 600 : 400 }}>{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── 空间首页（灵感瀑布） ──────────────────────────────────────────────────
+
+function SpaceHome({ go, user, onUpgradeVip }: { go: (s: Screen) => void; user: any; onUpgradeVip: () => void }) {
+  const isVip = !!user?.isVip;
+  const [query, setQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [images, setImages] = useState<RemoteAsset[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [source, setSource] = useState<"pexels" | "unsplash">("pexels");
+
+  // 搜索防抖
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(searchInput), 500);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // 加载推荐或搜索结果
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const loader = query.trim() 
+      ? (source === "pexels" ? () => searchPexels(query, 24) : () => searchUnsplash(query, 24))
+      : (source === "pexels" ? () => trendingPexels(24) : () => trendingUnsplash(24));
+
+    loader()
+      .then((list: RemoteAsset[]) => { if (active) setImages(list); })
+      .catch(() => { if (active) setImages([]); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [query, source]);
+
+  return (
+    <div className="trends-home flex-1 flex flex-col overflow-hidden" style={{ background: "#fbfaf7", position: "relative" }}>
+
+      {/* 顶部：灵感瀑布 + 搜索框 */}
+      <div className="px-5 pt-[54px] pb-4" style={{ flexShrink: 0, zIndex: 10 }}>
+        <div style={{ fontSize: 20, fontWeight: 600, color: "#3a352e", letterSpacing: "0.2em", textIndent: "0.2em", textAlign: "center", marginBottom: 20, marginTop: 4 }}>
+          灵感瀑布
+        </div>
+        
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", borderRadius: 20, padding: "10px 16px", border: "1px solid rgba(74,70,63,.08)", boxShadow: "0 2px 8px rgba(74,70,63,.04)" }}>
+          <span style={{ fontSize: 14, color: "#a49a8f" }}>🔍</span>
+          <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="搜索你喜欢的图片、颜色或风格" style={{ flex: 1, border: 0, background: "transparent", outline: "none", fontSize: 13, color: "#3a352e" }} />
+          {searchInput && <button onClick={() => setSearchInput("")} style={{ border: 0, background: "transparent", color: "#a49a8f", fontSize: 16, padding: 0 }}>×</button>}
+        </div>
+
+        <div className="flex gap-3 overflow-x-auto scrollbar-hide pt-4" style={{ flexShrink: 0 }}>
+          {[{ id: "pexels", label: "Pexels" }, { id: "unsplash", label: "Unsplash" }].map((s) => (
+            <button key={s.id} onClick={() => setSource(s.id as any)} style={{ padding: "6px 14px", borderRadius: 14, border: 0, background: source === s.id ? "#3a352e" : "#f0ede6", color: source === s.id ? "#fff" : "#756f68", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>{s.label}</button>
+          ))}
+          {["治愈", "风景", "静物", "暖色"].map((tag) => (
+            <button key={tag} onClick={() => setSearchInput(tag)} style={{ padding: "6px 14px", borderRadius: 14, border: "1px solid rgba(74,70,63,.1)", background: "#fff", color: "#756f68", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>{tag}</button>
+          ))}
         </div>
       </div>
-      <div ref={feedRef} onScroll={(event) => onScrollPositionChange(event.currentTarget.scrollTop)} className="trends-feed flex-1 overflow-y-auto px-5 pt-2">
-        <div className="trends-status">{liveStatus}{source !== "全部" ? ` · 当前查看：${source}` : ""}</div>
-        {items.length === 0 && <div className="py-12 text-center text-sm text-[var(--text2)]">当前平台暂时没有可显示的实时热点</div>}
-        {items.map((item, index) => {
-          const metricText = item.metricValue != null && item.metricLabel
-            ? ` · ${item.metricValue.toLocaleString("zh-CN")} ${item.metricLabel}`
-            : "";
-          return (
-          <button
-            key={item.id}
-           onClick={async () => {
-  if (!item.url) return;
-  onScrollPositionChange(feedRef.current?.scrollTop || 0);
-  await Browser.open({ url: item.url });
-}}
-            disabled={!item.url}
-            className={`trend-row w-full text-left ${!item.url ? "is-disabled" : ""}`}
-          >
-            <span className="trend-number">{String(index + 1).padStart(2, "0")}</span>
-            <div className="min-w-0 flex-1">
-              <div className="trend-item-title">{item.title}</div>
-              <div className="trend-meta">{item.sourceLabel}{metricText}</div>
-            </div>
-          </button>
-        )})}
+
+      {/* 全屏图片瀑布流（左侧留白由最外层 paddingLeft 统一处理） */}
+      <div className="trends-feed flex-1 overflow-y-auto px-4 pb-10">
+        {loading && <div style={{ textAlign: "center", padding: "40px 0", color: "#a49a8f", fontSize: 13 }}>正在寻找美的图片…</div>}
+        
+        {!loading && images.length > 0 && (
+          <div style={{ columnCount: 2, columnGap: 10 }}>
+            {images.map((img: RemoteAsset) => (
+              <div 
+                key={img.id} 
+                onClick={() => { 
+                  if (!isVip) { 
+                    if (confirm("使用「灵感瀑布」中的图片属于会员专属特权，是否前往开通？")) onUpgradeVip(); 
+                  } else { 
+                    alert("已选中该图片，后续将自动插入到您的创作区或房子装修中！"); 
+                  } 
+                }}
+                style={{ display: "block", width: "100%", marginBottom: 10, borderRadius: 14, overflow: "hidden", background: "#f0ede6", position: "relative", cursor: "pointer" }}>
+                <img src={img.thumb || img.src} alt={img.name} loading="lazy" style={{ width: "100%", height: "auto", display: "block" }} />
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && images.length === 0 && <div style={{ textAlign: "center", padding: "60px 0", color: "#a49a8f", fontSize: 13 }}>没有找到相关图片，换个词试试吧</div>}
       </div>
+    </div>
+  );
+}
+
+// ─── 空间里的子页面 ──────────────────────────────────────────────────────────
+
+function SpaceHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
+  return (
+    <header className="account-page-header">
+      <button type="button" onClick={() => go("space")} aria-label="返回空间">‹</button>
+      <h1>{title}</h1>
+      <span style={{ width: 36 }} />
+    </header>
+  );
+}
+
+function PublishScreen({ go }: { go: (s: Screen) => void }) {
+  const [text, setText] = useState("");
+  const [posts, setPosts] = useState<{ id: string; text: string; at: number }[]>(() => {
+    try { return JSON.parse(localStorage.getItem("ranjing.posts") || "[]"); } catch { return []; }
+  });
+  function publish() {
+    const t = text.trim(); if (!t) return;
+    const next = [{ id: `p-${Date.now()}`, text: t, at: Date.now() }, ...posts];
+    setPosts(next); try { localStorage.setItem("ranjing.posts", JSON.stringify(next)); } catch {}
+    setText("");
+  }
+  return (
+    <div className="account-page" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}>
+      <SpaceHeader title="发布动态" go={go} />
+      <main className="personal-profile-form">
+        <textarea className="pp-wish-textarea" value={text} onChange={(e) => setText(e.target.value)} placeholder="记录此刻……" />
+        <button type="button" className="account-primary-action" disabled={!text.trim()} onClick={publish}>发布</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+          {posts.map((p) => ( <div key={p.id} style={{ padding: "12px 14px", borderRadius: 10, background: "#fffdfa", border: "1px solid rgba(74,70,63,.1)", fontSize: 13, color: "#4a463f", lineHeight: 1.7 }}>{p.text}</div> ))}
+          {posts.length === 0 && <div style={{ fontSize: 12, color: "#b4ada5", textAlign: "center", padding: "24px 0" }}>还没有动态</div>}
+        </div>
+      </main>
       <BottomNav screen="home" go={go} />
     </div>
   );
 }
 
+// ─── 人类的智慧（作品最大化 + 头像跟随 + 互动区） ───────────────────────
 
-type CreationRoomType = "minimal";
-const CREATION_ROOMS: { type: CreationRoomType; name: string; sub: string }[] = [
-  { type: "minimal", name: "随笔", sub: "" },
-];
+// 交作业用的原生相册/相机调用。
+// 说明：@capacitor/camera 目前不是本工程的依赖（package.json 里没有），
+// 因此这里用「动态加载」而不是顶部 import —— 插件装好后无需改代码即自动启用，
+// 未安装时优雅降级到网页版 <input type="file">，不会让构建或运行时报错。
+type PickedImage = { base64String: string; format: string } | null;
 
-function CreateScreen({ go }: { go: (s: Screen) => void }) {
-  const [stage, setStage] = useState<"closed" | "open" | "room">("closed");
-
-  if (stage === "room") {
-    return <CreationMinimalRoom onBack={() => setStage("open")} />;
+async function pickHomeworkImage(): Promise<PickedImage> {
+  try {
+    const mod: any = await import(/* webpackIgnore: true */ "@capacitor/camera");
+    const image = await mod.Camera.getPhoto({
+      quality: 80,
+      allowEditing: false,
+      resultType: mod.CameraResultType.Base64,
+      source: mod.CameraSource.Prompt,
+      promptLabelHeader: "提交作业",
+      promptLabelPhoto: "从相册选择",
+      promptLabelPicture: "拍一张",
+    });
+    return { base64String: image.base64String, format: image.format || "jpeg" };
+  } catch (e: any) {
+    // 插件未安装 / 原生层不可用 → 回退到网页选图
+    if (e?.message === "User cancelled photos app") return null;
+    if (e?.code === "UNIMPLEMENTED" || e?.message?.includes("Cannot find module") || e?.message?.includes("not implemented")) {
+      return await pickHomeworkImageWeb();
+    }
+    throw e;
   }
+}
+
+function pickHomeworkImageWeb(): Promise<PickedImage> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) { resolve(null); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const raw = String(reader.result || "");
+        resolve({ base64String: raw.split(",")[1] || "", format: "jpeg" });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
+function CommunityScreen({ go }: { go: (s: Screen) => void }) {
+  const [works, setWorks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // 1. 拉取真实作品列表
+  const fetchWorks = async () => {
+    setLoading(true);
+    try {
+      const response = await apiGet(`${API_BASE}/api/space/works`);
+      if (response.status < 200 || response.status >= 300) throw new Error(`服务器返回 ${response.status}`);
+      setWorks(response.data?.items || []);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchWorks(); }, []);
+
+  // 2. 真实的关注
+  const toggleFollow = async (workId: string, authorId: string, isFollowing: boolean) => {
+    setWorks(prev => prev.map(w => w.id === workId ? { ...w, isFollowing: !isFollowing, followers: isFollowing ? w.followers - 1 : w.followers + 1 } : w));
+    try {
+      const response = isFollowing
+        ? await apiDelete(`${API_BASE}/api/space/follow`, { targetUserId: authorId })
+        : await apiPost(`${API_BASE}/api/space/follow`, { targetUserId: authorId });
+      if (response.status < 200 || response.status >= 300) fetchWorks();
+    } catch { fetchWorks(); }
+  };
+
+  // 3. 真实的点赞
+  const handleLike = async (workId: string) => {
+    setWorks(prev => prev.map(w => w.id === workId ? { ...w, likes: w.likes + 1, isLiked: true } : w));
+    try {
+      const response = await apiPost(`${API_BASE}/api/space/like`, { workId });
+      if (response.status < 200 || response.status >= 300) fetchWorks();
+    } catch { fetchWorks(); }
+  };
+
+  // 4. 真实的临摹（后端返回画布数据，跳入创作区）
+  const handleCopyWork = async (workId: string) => {
+    try {
+      const response = await apiPost(`${API_BASE}/api/space/copy`, { workId });
+      if (response.status === 403) {
+        alert(response.data?.message || "无法临摹，请先满足条件");
+        return;
+      }
+      if (response.status >= 200 && response.status < 300 && response.data?.docData) {
+        localStorage.setItem("ranjing.pendingCopyDoc", JSON.stringify(response.data.docData));
+        alert("已获取作品数据，正在进入创作区跟随临摹...");
+        go("canvas");
+      }
+    } catch { alert("网络异常，临摹失败"); }
+  };
+
+  // 5. 真实的交作业（Capacitor 相机 + Base64 上传）
+  const handleHomework = async (workId: string) => {
+    try {
+      const image = await pickHomeworkImage();
+      if (!image) return; // 用户取消
+      const base64Data = `data:image/jpeg;base64,${image.base64String}`;
+      const response = await apiPost(`${API_BASE}/api/space/homework`, { workId, image: base64Data, content: "这是我的作业" });
+      if (response.status >= 200 && response.status < 300) {
+        alert("作业提交成功，等待作者批改！");
+        fetchWorks();
+      } else { alert(response.data?.message || "提交失败"); }
+    } catch (e: any) {
+      if (e?.message !== "User cancelled photos app") alert("获取图片失败或提交失败");
+    }
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#a49a8f" }}>正在加载作品...</div>;
+  if (error) return (
+    <div style={{ padding: 40, textAlign: "center", color: "#b76e61" }}>
+      <div style={{ marginBottom: 16 }}>{error}</div>
+      <button type="button" onClick={fetchWorks} style={{ height: 36, padding: "0 18px", borderRadius: 10, border: "1px solid rgba(74,70,63,.15)", background: "#fff", color: "#756f68", fontSize: 13 }}>重试</button>
+    </div>
+  );
 
   return (
-    <div className="create-page flex-1 flex flex-col overflow-hidden">
-      <main className="create-portal flex-1 flex items-center justify-center">
-        <div className="create-door-stage">
-          <button
-            type="button"
-            className={`create-door ${stage === "open" ? "is-open" : ""}`}
-            onClick={() => {
-              if (stage === "closed") setStage("open");
-            }}
-            aria-label="打开创作入口"
-          >
-            <span className="create-door-leaf create-door-leaf--left" />
-            <span className="create-door-leaf create-door-leaf--right" />
-          </button>
+    <div className="account-page" style={{ background: "#fbfaf7", paddingBottom: "calc(100px + env(safe-area-inset-bottom))" }}>
 
-          {stage === "open" && (
-            <>
-              <div className="create-rooms is-visible">
-                {CREATION_ROOMS.map((room) => (
-                  <button
-                    key={room.type}
-                    type="button"
-                    className="create-room-item"
-                    onClick={() => setStage("room")}
-                  >
-                    <span className="create-room-name">{room.name}</span>
-                    {room.sub ? <span className="create-room-sub">{room.sub}</span> : null}
-                  </button>
-                ))}
+      <header className="account-page-header" style={{ position: "sticky", top: 0, background: "rgba(251,250,247,0.95)", backdropFilter: "blur(8px)", zIndex: 10 }}>
+        <button type="button" onClick={() => go("space")} aria-label="返回空间">‹</button>
+        <h1>人类的智慧</h1>
+        <span style={{ width: 36 }} />
+      </header>
+
+      <main style={{ padding: "12px 16px" }}>
+        {/* 发布入口（保留，但要精致一点） */}
+        <button onClick={() => go("publish")} style={{ width: "100%", height: 48, borderRadius: 12, border: "1px solid rgba(74,70,63,.1)", background: "#fff", color: "#5f554d", fontSize: 14, marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 2px 8px rgba(0,0,0,.02)" }}>
+          ✏️ 发布作品 / 分享智慧
+        </button>
+
+        {works.map((work) => (
+          <div key={work.id} style={{ marginBottom: 40 }}>
+
+            {/* 1. 作品最大化呈现 + 悬浮作者信息 */}
+            <div style={{ position: "relative", width: "100%", borderRadius: 16, overflow: "hidden", background: "#f0ede6" }}>
+              <img src={work.image} alt={work.title} style={{ width: "100%", height: "auto", display: "block" }} />
+
+              {/* 底部渐变遮罩，确保文字清晰可见 */}
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 80, background: "linear-gradient(transparent, rgba(0,0,0,0.6))" }} />
+
+              {/* 右下角悬浮：作者信息与跟随 */}
+              <div style={{ position: "absolute", bottom: 12, left: 12, right: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <img src={work.authorAvatar} alt="" style={{ width: 36, height: 36, borderRadius: "50%", border: "2px solid #fff" }} />
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{work.authorName}</span>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.8)" }}>{work.followers} 粉丝</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => toggleFollow(work.id, work.authorId, !!work.isFollowing)}
+                  style={{ padding: "6px 14px", borderRadius: 16, border: "none", background: work.isFollowing ? "rgba(255,255,255,0.3)" : "#fff", color: work.isFollowing ? "#fff" : "#3a352e", fontSize: 12, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(4px)" }}
+                >
+                  {work.isFollowing ? "已跟随" : "+ 跟随"}
+                </button>
               </div>
+            </div>
 
+            {/* 2. 作品信息与临摹状态 */}
+            <div style={{ marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "#3a352e" }}>{work.title}</div>
+              {/* 后端返回的临摹规则可能是空值，这里做安全兜底 */}
               <button
-                type="button"
-                className="create-rooms-back"
-                onClick={() => setStage("closed")}
-                aria-label="返回"
+                onClick={() => handleCopyWork(work.id)}
+                style={{ fontSize: 11, color: (work.copyRule || "").includes("粉丝") ? "#7a9e7e" : "#b76e61", background: (work.copyRule || "").includes("粉丝") ? "#eef3ee" : "#fdf0ee", padding: "3px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,.05)", cursor: "pointer" }}
               >
-                ←
+                {(work.copyRule || "").includes("粉丝") ? "🟢" : "🔒"} {work.copyRule || "暂不可临摹"}
               </button>
-            </>
-          )}
-        </div>
+            </div>
+
+            {/* 3. 互动按钮组 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, paddingBottom: 12, borderBottom: "1px solid rgba(74,70,63,.06)", color: "#756f68", fontSize: 12 }}>
+              <button onClick={() => handleLike(work.id)} style={{ border: 0, background: "transparent", color: work.isLiked ? "#c96a5e" : "inherit", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                {work.isLiked ? "❤️" : "🤍"} {work.likes}
+              </button>
+              <button style={{ border: 0, background: "transparent", color: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+                💬 {work.comments ?? 0}
+              </button>
+              <button style={{ border: 0, background: "transparent", color: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+                🗣️ {work.discussing ?? 0}
+              </button>
+              <button style={{ border: 0, background: "transparent", color: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+                🔔 催更
+              </button>
+              <button style={{ border: 0, background: "transparent", color: "#5f554d", display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+                📝 交作业 {work.homeworkCount ?? 0}
+              </button>
+            </div>
+
+            {/* 4. 评论区（交作业与作者批改）—— 数据来自后端，不再写死 */}
+            <div style={{ marginTop: 12, padding: 12, background: "#fff", borderRadius: 12, border: "1px solid rgba(74,70,63,.06)" }}>
+              <div style={{ fontSize: 12, color: "#a49a8f", marginBottom: 8 }}>正在讨论 · {work.discussing ?? 0} 人参与</div>
+
+              {(work.homeworkList || []).length === 0 && (
+                <div style={{ fontSize: 12, color: "#c4bdb4", padding: "8px 0" }}>还没有人交作业，来做第一个吧</div>
+              )}
+
+              {(work.homeworkList || []).map((hw: any, index: number) => (
+                <div key={hw.id || index} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <img src={hw.userAvatar} alt="" style={{ width: 24, height: 24, borderRadius: "50%", flexShrink: 0, objectFit: "cover" }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "#4a463f" }}><span style={{ fontWeight: 600 }}>{hw.userName}</span> 交作业：{hw.content}</div>
+                    <img src={hw.image} alt="作业" style={{ marginTop: 6, height: 60, width: 80, objectFit: "cover", borderRadius: 6 }} />
+                    {hw.authorReply && (
+                      <div style={{ marginTop: 6, padding: "6px 8px", background: "#fbfaf7", borderRadius: 8, border: "1px solid rgba(74,70,63,.08)", fontSize: 11, color: "#5f554d" }}>
+                        <span style={{ fontWeight: 600 }}>作者回复：</span>{hw.authorReply}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* 交作业按钮 */}
+              <button
+                onClick={() => handleHomework(work.id)}
+                style={{ width: "100%", height: 32, borderRadius: 8, border: "1px dashed rgba(74,70,63,.2)", background: "transparent", color: "#756f68", fontSize: 12, marginTop: 4 }}
+              >
+                + 我也要交作业
+              </button>
+            </div>
+
+          </div>
+        ))}
       </main>
-      <BottomNav screen="create" go={go} />
     </div>
   );
 }
-function NovelLibraryScreen({ go, openNovel }: { go: (s: Screen) => void; openNovel: (id: string) => void }) {
-  const [novels, setNovels] = useState<Novel[]>(() => loadNovels());
-  const [creating, setCreating] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  function createNovel() {
-    const novel = newNovel(newTitle.trim() || "未命名小说");
-    saveNovels([novel, ...novels]);
-    setNovels([novel, ...novels]);
-    openNovel(novel.id);
-  }
-  return <div className="novel-library flex-1 flex flex-col overflow-hidden">
-    <header className="novel-library-header"><button onClick={() => go("create")}>←&nbsp; 创作</button><span>小说</span><i /></header>
-    <main className="novel-library-content flex-1 overflow-y-auto scrollbar-hide">
-      <div className="novel-library-intro"><h1>我的作品</h1><p>每次回来，都从上次停下的地方继续。</p></div>
-      <div className="novel-list">
-        {novels.map((novel) => { const current = novel.chapters.find((item) => item.id === novel.activeChapterId) || novel.chapters[0]; return <button key={novel.id} onClick={() => openNovel(novel.id)} className="novel-row text-left"><small>继续写</small><strong>《{novel.title}》</strong><span>{current?.title || "尚未创建章节"} · {totalWords(novel)} 字</span><time>{new Date(novel.updatedAt).toLocaleDateString("zh-CN")}&nbsp; →</time></button>; })}
-        <button className="novel-new" onClick={() => setCreating(true)}>＋ 新建小说</button>
+
+// ─── 虚拟形象定义（软糯果冻风） ───────────────────────────────────────
+
+const AVATAR_OPTIONS = [
+  { id: "biped_peach", label: "软糯桃桃", type: "biped", color: "#F4C2A8" },
+  { id: "biped_mint", label: "薄荷奶糖", type: "biped", color: "#A8D8C2" },
+  { id: "biped_lavender", label: "香芋啵啵", type: "biped", color: "#C2B8E0" },
+  { id: "quad_caramel", label: "焦糖跑跑", type: "quadruped", color: "#D4A373" },
+  { id: "quad_cloud", label: "云朵滚滚", type: "quadruped", color: "#E0E0E0" },
+];
+
+// 遥控器模式的中文名（后端返回的 mode 是英文 key）
+const MODE_LABELS: Record<string, string> = {
+  movie: "电影播放",
+  entertainment: "娱乐联欢",
+  meeting: "会议白板",
+  teaching: "教学课堂",
+  demo: "作品演示",
+};
+
+// ─── 软糯 Q 版小人组件 ──────────────────────────────────────────
+
+function ChibiAvatar({ user, isSpeaking }: { user: any; isSpeaking: boolean }) {
+  const bounceAnim = isSpeaking ? "chibiSpeak 0.5s infinite alternate ease-in-out" : "none";
+  const walkAnim = isSpeaking ? "chibiWalk 0.6s infinite linear" : "none";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, width: 64 }}>
+      <div style={{ position: "relative", height: 56, display: "flex", alignItems: "flex-end", justifyContent: "center", animation: bounceAnim, transformOrigin: "bottom center" }}>
+        
+        {user.avatarType === "biped" && (
+          <div style={{ position: "relative", width: 36, height: 48 }}>
+            <div style={{ position: "absolute", bottom: 0, left: 6, width: 8, height: 14, borderRadius: 4, background: user.avatarColor, animation: walkAnim }} />
+            <div style={{ position: "absolute", bottom: 0, right: 6, width: 8, height: 14, borderRadius: 4, background: user.avatarColor, animation: walkAnim }} />
+            <div style={{ position: "absolute", bottom: 10, left: 2, width: 32, height: 28, borderRadius: "40% 40% 50% 50%", background: user.avatarColor, boxShadow: "inset -4px -4px 8px rgba(0,0,0,0.05)" }} />
+            <div style={{ position: "absolute", bottom: 22, left: -4, width: 8, height: 18, borderRadius: 4, background: user.avatarColor, transform: "rotate(15deg)" }} />
+            <div style={{ position: "absolute", bottom: 22, right: -4, width: 8, height: 18, borderRadius: 4, background: user.avatarColor, transform: "rotate(-15deg)" }} />
+
+            {/* 镂空头部（放置头像） */}
+            <div style={{ position: "absolute", top: 0, left: 4, width: 28, height: 28, borderRadius: "50%", border: `3px solid ${user.avatarColor}`, background: "#fbfaf7", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+              {user.avatarUrl ? <img src={user.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 12, color: "#a49a8f" }}>{user.nickname[0]}</span>}
+            </div>
+          </div>
+        )}
+
+        {user.avatarType === "quadruped" && (
+          <div style={{ position: "relative", width: 48, height: 36 }}>
+            <div style={{ position: "absolute", bottom: 8, left: 4, width: 36, height: 20, borderRadius: "20px 20px 10px 10px", background: user.avatarColor }} />
+            <div style={{ position: "absolute", bottom: 0, left: 8, width: 6, height: 12, borderRadius: 3, background: user.avatarColor, animation: walkAnim }} />
+            <div style={{ position: "absolute", bottom: 0, left: 18, width: 6, height: 12, borderRadius: 3, background: user.avatarColor, animation: walkAnim, animationDelay: "0.15s" }} />
+            <div style={{ position: "absolute", bottom: 0, right: 18, width: 6, height: 12, borderRadius: 3, background: user.avatarColor, animation: walkAnim, animationDelay: "0.3s" }} />
+            <div style={{ position: "absolute", bottom: 0, right: 8, width: 6, height: 12, borderRadius: 3, background: user.avatarColor, animation: walkAnim, animationDelay: "0.45s" }} />
+            <div style={{ position: "absolute", top: -2, right: 2, width: 24, height: 24, borderRadius: "50%", border: `3px solid ${user.avatarColor}`, background: "#fbfaf7", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+              {user.avatarUrl ? <img src={user.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 10, color: "#a49a8f" }}>{user.nickname[0]}</span>}
+            </div>
+            <div style={{ position: "absolute", top: 10, left: -2, width: 8, height: 8, borderRadius: "50%", background: user.avatarColor }} />
+          </div>
+        )}
       </div>
-    </main>
-    {creating && <div className="novel-dialog-backdrop" onClick={() => setCreating(false)}><section className="novel-dialog" onClick={(event) => event.stopPropagation()}><button className="novel-dialog-close" onClick={() => setCreating(false)}>×</button><h2>新建小说</h2><label>作品名<input autoFocus value={newTitle} onChange={(event) => setNewTitle(event.target.value)} onKeyDown={(event) => event.key === "Enter" && createNovel()} placeholder="给故事起个名字……" /></label><p>暂时没想好也没关系，之后可以修改。</p><button className="novel-start" onClick={createNovel}>开始写作&nbsp; →</button></section></div>}
-  </div>;
-}
-
-type WorkbenchPanel = "章节" | "人物" | "大纲";
-const outlineFields = [["core", "故事核心"], ["mainline", "主线"], ["beginning", "开端"], ["development", "发展"], ["climax", "高潮"], ["ending", "结局"], ["foreshadowing", "关键伏笔"]] as const;
-const characterFields: Array<[keyof Character, string]> = [["name", "姓名"], ["role", "角色身份"], ["personality", "性格"], ["motivation", "动机"], ["past", "过去"], ["relationships", "关系"], ["habits", "习惯"], ["abilities", "能力"], ["appearance", "外貌"], ["notes", "备注"]];
-
-function WritingScreen({ go, creationType, novelId }: { go: (s: Screen) => void; creationType: string; novelId: string | null }) {
-  const isNovel = creationType === "小说";
-  const storageKey = `jiantu-creation-${creationType}`;
-  const [novel, setNovel] = useState<Novel | null>(null);
-  const [generic, setGeneric] = useState({ title: "", text: "" });
-  const [panel, setPanel] = useState<WorkbenchPanel | null>(null);
-  const [saved, setSaved] = useState("已保存");
-  const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isNovel) {
-      const found = loadNovels().find((item) => item.id === novelId) || null;
-      setNovel(found);
-      setSelectedCharacterId(found?.characters[0]?.id || null);
-    } else {
-      try { setGeneric(JSON.parse(localStorage.getItem(storageKey) || '{"title":"","text":""}')); } catch { setGeneric({ title: "", text: "" }); }
-    }
-  }, [isNovel, novelId, storageKey]);
-
-  useEffect(() => {
-    if (isNovel && !novel) return;
-    setSaved("保存中…");
-    const timer = window.setTimeout(() => {
-      if (isNovel && novel) {
-        const all = loadNovels();
-        const updated = { ...novel, updatedAt: Date.now() };
-        saveNovels(all.map((item) => item.id === novel.id ? updated : item));
-      } else if (!isNovel) localStorage.setItem(storageKey, JSON.stringify(generic));
-      setSaved("已保存");
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [generic, isNovel, novel, storageKey]);
-
-  const active = novel?.chapters.find((item) => item.id === novel.activeChapterId) || novel?.chapters[0];
-  const title = isNovel ? active?.title || "" : generic.title;
-  const text = isNovel ? active?.text || "" : generic.text;
-  const count = text.replace(/\s/g, "").length;
-  const selectedCharacter = novel?.characters.find((item) => item.id === selectedCharacterId) || null;
-  if (isNovel && (!novel || !active)) return <div className="shared-workbench-loading">正在打开作品…</div>;
-
-  function patchNovel(patch: Partial<Novel>) { if (novel) setNovel({ ...novel, ...patch }); }
-  function updateChapter(id: string, patch: Partial<Novel["chapters"][number]>) { if (novel) patchNovel({ chapters: novel.chapters.map((item) => item.id === id ? { ...item, ...patch } : item) }); }
-  function addChapter() { if (!novel) return; const chapter = { id: crypto.randomUUID(), title: `第${novel.chapters.length + 1}章 · 未命名章节`, text: "" }; patchNovel({ chapters: [...novel.chapters, chapter], activeChapterId: chapter.id }); setEditingChapterId(chapter.id); }
-  function deleteChapter(id: string) { if (!novel || novel.chapters.length === 1) return; const chapters = novel.chapters.filter((item) => item.id !== id); patchNovel({ chapters, activeChapterId: id === novel.activeChapterId ? chapters[0].id : novel.activeChapterId }); }
-  function addPerson() { if (!novel) return; const person = newCharacter(); patchNovel({ characters: [...novel.characters, person] }); setSelectedCharacterId(person.id); }
-  function updatePerson(field: keyof Character, value: string) { if (!novel || !selectedCharacter) return; patchNovel({ characters: novel.characters.map((item) => item.id === selectedCharacter.id ? { ...item, [field]: value } : item) }); }
-  function deletePerson() { if (!novel || !selectedCharacter) return; const characters = novel.characters.filter((item) => item.id !== selectedCharacter.id); patchNovel({ characters }); setSelectedCharacterId(characters[0]?.id || null); }
-  function updateTitle(value: string) { if (isNovel && active) updateChapter(active.id, { title: value }); else setGeneric({ ...generic, title: value }); }
-  function updateText(value: string) { if (isNovel && active) updateChapter(active.id, { text: value }); else setGeneric({ ...generic, text: value }); }
-  function saveNow() {
-    if (isNovel && novel) { const all = loadNovels(); saveNovels(all.map((item) => item.id === novel.id ? { ...novel, updatedAt: Date.now() } : item)); }
-    else localStorage.setItem(storageKey, JSON.stringify(generic));
-    setSaved("已保存");
-  }
-
-  return <div className="shared-workbench flex-1 flex flex-col overflow-hidden">
-    <header className="shared-workbench-header">
-      <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); go("create"); }}>←&nbsp; 创作</button>
-      <div><strong>{isNovel ? `《${novel?.title}》` : `${creationType}创作区`}</strong><small>{creationType}</small></div>
-      <span>{saved}</span>
-    </header>
-    <div className="shared-workbench-body flex-1 overflow-hidden">
-      {isNovel && <aside className="novel-tools">{(["章节", "人物", "大纲"] as const).map((item) => <button key={item} className={panel === item ? "is-active" : ""} onClick={() => setPanel(panel === item ? null : item)}><b>{item[0]}</b><span>{item}</span></button>)}</aside>}
-      {isNovel && panel && novel && <aside className="novel-panel">
-        <header><strong>{panel}</strong><button onClick={() => setPanel(null)}>×</button></header>
-        {panel === "章节" && <div className="chapter-manager">{novel.chapters.map((chapter) => <div className={chapter.id === novel.activeChapterId ? "chapter-row is-active" : "chapter-row"} key={chapter.id}>{editingChapterId === chapter.id ? <input value={chapter.title} onChange={(event) => updateChapter(chapter.id, { title: event.target.value })} onBlur={() => setEditingChapterId(null)} /> : <button onClick={() => patchNovel({ activeChapterId: chapter.id })}>{chapter.title}</button>}<button onClick={() => setEditingChapterId(chapter.id)}>改</button><button disabled={novel.chapters.length === 1} onClick={() => deleteChapter(chapter.id)}>删</button></div>)}<button className="panel-add" onClick={addChapter}>＋ 新建章节</button></div>}
-        {panel === "人物" && <div className="character-manager"><div className="character-list">{novel.characters.map((person) => <button className={person.id === selectedCharacterId ? "is-active" : ""} onClick={() => setSelectedCharacterId(person.id)} key={person.id}>{person.name || "未命名人物"}</button>)}<button className="panel-add" onClick={addPerson}>＋ 新建人物</button></div>{selectedCharacter ? <div className="character-form">{characterFields.map(([field, label]) => <label key={field}><span>{label}</span>{field === "name" || field === "role" ? <input value={selectedCharacter[field]} onChange={(event) => updatePerson(field, event.target.value)} /> : <textarea value={selectedCharacter[field]} onChange={(event) => updatePerson(field, event.target.value)} />}</label>)}<button className="danger-text" onClick={deletePerson}>删除这个人物</button></div> : <p>还没有人物。先新建一个人物。</p>}</div>}
-        {panel === "大纲" && <div className="outline-editor">{outlineFields.map(([field, label]) => <label key={field}><span>{label}</span><textarea value={novel.outline[field]} onChange={(event) => patchNovel({ outline: { ...novel.outline, [field]: event.target.value } })} placeholder={`写下${label}……`} /></label>)}</div>}
-      </aside>}
-      <article className={`shared-writing-paper ${isNovel ? "is-novel" : ""}`}>
-        {isNovel && <input className="workbench-book-title" aria-label="作品名称" value={novel?.title || ""} onChange={(event) => patchNovel({ title: event.target.value })} />}
-        <div className="workbench-type-label">{creationType}创作区</div>
-        <input className="workbench-title" aria-label={isNovel ? "章节标题" : "内容标题"} value={title} onChange={(event) => updateTitle(event.target.value)} placeholder={isNovel ? "章节标题" : "给这篇内容起个标题"} />
-        <textarea aria-label="正文编辑区" value={text} onChange={(event) => updateText(event.target.value)} placeholder="从这里开始写……" />
-        <footer><span>{count.toLocaleString("zh-CN")} 字</span><span>{saved}</span><button onClick={saveNow}>保存</button></footer>
-      </article>
+      <span style={{ fontSize: 10, color: "#756f68", whiteSpace: "nowrap" }}>{user.nickname}</span>
     </div>
-  </div>;
+  );
 }
+
+// ─── 命运的随机性（房间 + 遥控器 + 模式选择） ──────────────────────
+
+function GroupSessionScreen({ go }: { go: (s: Screen) => void }) {
+  const [stage, setStage] = useState<"lobby" | "room" | "select-avatar">("lobby");
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [sessionMode, setSessionMode] = useState<string | null>(null);
+  const [hasRemote, setHasRemote] = useState(false);
+  const [isScreenUp, setIsScreenUp] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [maxUsers, setMaxUsers] = useState(4);
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_OPTIONS[0]);
+  const [busy, setBusy] = useState(false);
+
+  // 1. 创建房间（真实接口：随机匹配或开房）
+  const enterRoom = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await apiPost(`${API_BASE}/api/room/match`, { maxUsers });
+      if (response.status >= 200 && response.status < 300 && response.data?.roomId) {
+        setRoomId(response.data.roomId);
+        setStage("select-avatar");
+      } else { alert(response.data?.message || "匹配失败"); }
+    } catch { alert("网络异常，匹配失败"); }
+    finally { setBusy(false); }
+  };
+
+  // 2. 加入房间（真实接口）
+  const confirmAvatar = async () => {
+    if (!roomId || busy) return;
+    setBusy(true);
+    try {
+      const response = await apiPost(`${API_BASE}/api/room/join`, { roomId, avatarType: selectedAvatar.type, avatarColor: selectedAvatar.color });
+      if (response.status >= 200 && response.status < 300) {
+        setUsers(response.data.room?.users || []);
+        setStage("room");
+      } else { alert(response.data?.message || "加入房间失败"); }
+    } catch { alert("网络异常，加入房间失败"); }
+    finally { setBusy(false); }
+  };
+
+  // 3. 遥控器模式切换（真实接口）
+  const handleSelectMode = async (mode: string) => {
+    setSessionMode(mode);
+    setIsScreenUp(true);
+    setHasRemote(true);
+    try {
+      await apiPost(`${API_BASE}/api/room/mode`, { roomId, mode });
+    } catch { /* 广播失败不阻塞本地交互 */ }
+  };
+
+  // 4. 轮询拉取房间状态（每 3 秒同步一次，替代 WebSocket）
+  useEffect(() => {
+    if (stage !== "room" || !roomId) return;
+    const sync = async () => {
+      try {
+        const response = await apiGet(`${API_BASE}/api/room/status?roomId=${roomId}`);
+        if (response.status === 200 && response.data?.room) {
+          setUsers(response.data.room.users || []);
+          if (response.data.room.mode) { setSessionMode(response.data.room.mode); setHasRemote(true); }
+          if (response.data.room.isScreenUp !== undefined) setIsScreenUp(response.data.room.isScreenUp);
+        }
+      } catch { /* 单次轮询失败忽略，下个周期重试 */ }
+    };
+    const timer = setInterval(sync, 3000);
+    return () => clearInterval(timer);
+  }, [stage, roomId]);
+
+  const leaveRoom = () => { setStage("lobby"); setUsers([]); setSessionMode(null); setIsScreenUp(false); setRoomId(null); setHasRemote(false); setIsLandscape(false); };
+
+  return (
+    <div className="account-page" style={{ background: "#fbfaf7", paddingBottom: "calc(100px + env(safe-area-inset-bottom))" }}>
+      
+      <header className="account-page-header" style={{ position: "sticky", top: 0, background: "rgba(251,250,247,0.95)", backdropFilter: "blur(8px)", zIndex: 10 }}>
+        <button type="button" onClick={() => { leaveRoom(); go("space"); }} aria-label="返回空间">‹</button>
+        <h1>命运的随机性</h1>
+        <span style={{ width: 36 }} />
+      </header>
+
+      {/* 1. 大厅：随机匹配 & 人数设置 */}
+      {stage === "lobby" && (
+        <main className="personal-profile-form">
+          <div style={{ background: "#fff", borderRadius: 16, padding: 24, border: "1px solid rgba(74,70,63,.08)", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🎲</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: "#3a352e", marginBottom: 8 }}>命运的骰子</div>
+            <div style={{ fontSize: 13, color: "#a49a8f", lineHeight: 1.6, marginBottom: 20 }}>随机匹配陌生人，或邀请好友。一起看电影、开会、画画。</div>
+            
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 20 }}>
+              <span style={{ fontSize: 13, color: "#756f68" }}>房间人数上限：</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => setMaxUsers(Math.max(2, maxUsers - 1))} style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid #ddd", background: "#fff" }}>-</button>
+                <span style={{ fontSize: 16, fontWeight: 600, color: "#3a352e", width: 20, textAlign: "center" }}>{maxUsers}</span>
+                <button onClick={() => setMaxUsers(Math.min(10, maxUsers + 1))} style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid #ddd", background: "#fff" }}>+</button>
+              </div>
+            </div>
+
+            <button onClick={enterRoom} disabled={busy} style={{ width: "100%", height: 48, borderRadius: 12, border: 0, background: busy ? "#c4bdb4" : "#5f554d", color: "#fff", fontSize: 15, marginBottom: 10, cursor: busy ? "default" : "pointer" }}>
+              {busy ? "匹配中..." : "随机匹配"}
+            </button>
+            <button onClick={enterRoom} disabled={busy} style={{ width: "100%", height: 48, borderRadius: 12, border: "1px solid #5f554d", background: "transparent", color: "#5f554d", fontSize: 15, cursor: busy ? "default" : "pointer" }}>
+              邀请好友（创建房间）
+            </button>
+          </div>
+        </main>
+      )}
+
+      {/* 2. 选择形象 */}
+      {stage === "select-avatar" && (
+        <main className="personal-profile-form">
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#3a352e", marginBottom: 8 }}>挑选你的虚拟形象</div>
+            <div style={{ fontSize: 12, color: "#a49a8f" }}>进入房间后，你的头像会显示在小人的脸上</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 24 }}>
+            {AVATAR_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => setSelectedAvatar(opt)}
+                style={{
+                  padding: "16px 8px", borderRadius: 16, border: selectedAvatar.id === opt.id ? "2px solid #5f554d" : "1px solid rgba(74,70,63,.1)",
+                  background: selectedAvatar.id === opt.id ? "#f1ece4" : "#fff", 
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                  transition: "all 0.2s"
+                }}
+              >
+                {/* 预览小人 */}
+                <div style={{ height: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+                  <ChibiAvatar 
+                    user={{ avatarType: opt.type, avatarColor: opt.color, nickname: "我", avatarUrl: "" }} 
+                    isSpeaking={false} 
+                  />
+                </div>
+                <span style={{ fontSize: 12, color: "#4a463f", fontWeight: selectedAvatar.id === opt.id ? 600 : 400 }}>{opt.label}</span>
+              </button>
+            ))}
+          </div>
+          <button onClick={confirmAvatar} disabled={busy} style={{ width: "100%", height: 48, borderRadius: 12, border: 0, background: busy ? "#c4bdb4" : "#5f554d", color: "#fff", fontSize: 15, cursor: busy ? "default" : "pointer" }}>
+            {busy ? "进入中..." : "确认进入房间"}
+          </button>
+        </main>
+      )}
+
+      {/* 3. 房间 */}
+      {stage === "room" && (
+        <main className="personal-profile-form" style={{ position: "relative" }}>
+          
+          {/* 房间头部：在线人数 */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "#756f68" }}>在线人数：{users.length} / {maxUsers}</div>
+            <button onClick={leaveRoom} style={{ fontSize: 12, color: "#b76e61", background: "transparent", border: 0 }}>退出房间</button>
+          </div>
+
+          {/* 房间舞台（白板/投影区） */}
+          <div style={{
+            height: isLandscape ? 200 : 320,
+            borderRadius: 16, background: "#ece6dd", marginBottom: 20,
+            position: "relative", overflow: "hidden", border: "1px solid rgba(74,70,63,.08)",
+            transition: "height 0.5s ease"
+          }}>
+            
+            {/* 屏幕升起动画 */}
+            {isScreenUp && (
+              <div style={{
+                position: "absolute", bottom: "10%", left: "50%", transform: "translateX(-50%)",
+                width: isLandscape ? "90%" : "80%", height: "70%",
+                background: sessionMode === "meeting" ? "rgba(255,255,255,0.9)" : "#fff",
+                borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,.2)",
+                animation: "screenRise 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                color: "#5f554d", fontSize: 12, overflow: "hidden"
+              }}>
+                {sessionMode === "meeting" && (
+                  /* 会议模式：白板网格 */
+                  <div style={{ position: "absolute", inset: 0, backgroundImage: "radial-gradient(circle, #ccc 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
+                )}
+                <span style={{ zIndex: 1 }}>{sessionMode === "meeting" ? "会议白板" : "视频同步播放中..."}</span>
+              </div>
+            )}
+
+            {!isScreenUp && !hasRemote && (
+              <div style={{ position: "absolute", top: "40%", left: 0, right: 0, textAlign: "center", color: "#a49a8f", fontSize: 13 }}>
+                房间里空荡荡的，你发现桌上有一个遥控器。
+                <div style={{ marginTop: 12, fontSize: 24 }}>🎮</div>
+              </div>
+            )}
+            {!isScreenUp && hasRemote && (
+              <div style={{ position: "absolute", top: "40%", left: 0, right: 0, textAlign: "center", color: "#a49a8f", fontSize: 13 }}>请在遥控器上选择模式...</div>
+            )}
+          </div>
+
+          {/* Q版小人（数据来自 /api/room/status 轮询） */}
+          <div style={{ display: "flex", gap: 16, overflowX: "auto", padding: "10px 0", marginBottom: 20, minHeight: 80 }}>
+            {users.length === 0 && (
+              <div style={{ fontSize: 13, color: "#c4bdb4", padding: "20px 0" }}>正在同步房间成员...</div>
+            )}
+            {users.map(u => (
+              <ChibiAvatar
+                key={u.id}
+                user={{
+                  avatarType: u.avatarType || "biped",
+                  avatarColor: u.avatarColor || "#A8D8C2",
+                  nickname: u.nickname || "朋友",
+                  avatarUrl: u.avatarUrl || "",
+                }}
+                isSpeaking={!!u.isSpeaking}
+              />
+            ))}
+          </div>
+
+          {/* 🚨 关键点：让遥控器显眼地出现 */}
+          {!hasRemote && (
+            <button onClick={() => setHasRemote(true)} style={{ width: "100%", height: 60, borderRadius: 12, border: "2px dashed rgba(74,70,63,.2)", background: "#fff", color: "#756f68", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
+              🎮 拿起桌上的遥控器
+            </button>
+          )}
+
+          {/* 遥控器面板（选择模式） */}
+          {hasRemote && !isScreenUp && (
+            <div style={{ padding: 20, background: "#fff", borderRadius: 16, border: "1px solid rgba(74,70,63,.08)", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#3a352e", textAlign: "center" }}>🎮 遥控器 · 选择模式</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                {[
+                  { id: "movie", label: "电影", icon: "🎬" },
+                  { id: "entertainment", label: "娱乐", icon: "🎤" },
+                  { id: "meeting", label: "会议", icon: "📋" },
+                  { id: "teaching", label: "教学", icon: "📖" },
+                  { id: "demo", label: "演示", icon: "🖥️" },
+                ].map((mode) => (
+                  <button key={mode.id} onClick={() => handleSelectMode(mode.id)} style={{ padding: "16px 0", borderRadius: 10, border: sessionMode === mode.id ? "2px solid #5f554d" : "1px solid rgba(74,70,63,.1)", background: sessionMode === mode.id ? "#f1ece4" : "#fff", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                    <span style={{ fontSize: 20 }}>{mode.icon}</span>
+                    <span style={{ fontSize: 12, color: "#4a463f" }}>{mode.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 屏幕升起后的控制面板 */}
+          {hasRemote && isScreenUp && (
+            <div style={{ padding: 20, background: "#fff", borderRadius: 16, border: "1px solid rgba(74,70,63,.08)", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#3a352e", textAlign: "center" }}>🎮 遥控器 · {MODE_LABELS[sessionMode || ""] || "已连接"}</div>
+              <button onClick={() => setIsLandscape(!isLandscape)} style={{ height: 44, borderRadius: 10, border: 0, background: "#C9A87C", color: "#fff", fontSize: 14 }}>{isLandscape ? "切换竖屏" : "切换横屏"}</button>
+              <button onClick={() => { setIsScreenUp(false); setSessionMode(null); }} style={{ height: 44, borderRadius: 10, border: "1px solid rgba(74,70,63,.15)", background: "#fff", color: "#756f68", fontSize: 14 }}>收起屏幕</button>
+            </div>
+          )}
+        </main>
+      )}
+
+      <style>{`
+        @keyframes screenRise { 0% { transform: translateX(-50%) translateY(200px); opacity: 0; } 100% { transform: translateX(-50%) translateY(0); opacity: 1; } }
+        @keyframes chibiSpeak { 0% { transform: scaleY(1) scaleX(1); } 50% { transform: scaleY(0.95) scaleX(1.05); } 100% { transform: scaleY(1.05) scaleX(0.95); } }
+        @keyframes chibiWalk { 0% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-3px) rotate(5deg); } 100% { transform: translateY(0) rotate(0deg); } }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── 我的房子（个人空间装修） ────────────────────────────────────────────────────
+
+function MyHouseScreen({ go, user }: { go: (s: Screen) => void, user: any }) {
+  return (
+    <div className="account-page" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))", background: "#fbfaf7" }}>
+      <header className="account-page-header">
+        <button type="button" onClick={() => go("space")} aria-label="返回空间">‹</button>
+        <h1>我的房子</h1>
+        <span style={{ width: 36 }} />
+      </header>
+      <main className="personal-profile-form">
+        <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "1px solid rgba(74,70,63,.08)", marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#3a352e", marginBottom: 12 }}>房子外部</div>
+          <div style={{ height: 120, borderRadius: 12, background: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "center", color: "#a49a8f", fontSize: 12, marginBottom: 12 }}>
+            🚪 默认的门（可替换为你画的图形）
+          </div>
+          <button onClick={() => alert("装修功能开发中：用你在创作区画的图形替换门！")} style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #5f554d", background: "transparent", color: "#5f554d", fontSize: 13 }}>更换门</button>
+        </div>
+
+        <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "1px solid rgba(74,70,63,.08)" }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "#3a352e", marginBottom: 12 }}>房子内部</div>
+          <div style={{ height: 160, borderRadius: 12, background: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "center", color: "#a49a8f", fontSize: 12, marginBottom: 12 }}>
+            🛋️ 空空如也，快用你的作品装饰一下
+          </div>
+          <button onClick={() => alert("装修功能开发中：用素材库里的图片、颜色、图案装修室内！")} style={{ width: "100%", height: 40, borderRadius: 10, border: 0, background: "#5f554d", color: "#fff", fontSize: 13 }}>开始装修</button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function GalleryScreen({ go }: { go: (s: Screen) => void }) {
+  return (
+    <div className="account-page" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}>
+      <SpaceHeader title="作品展示" go={go} />
+      <main className="personal-profile-form"><div style={{ fontSize: 12, color: "#b4ada5", textAlign: "center", padding: "40px 0" }}>作品陈列区</div></main>
+      <BottomNav screen="home" go={go} />
+    </div>
+  );
+}
+
+function SaveTargetScreen({ go }: { go: (s: Screen) => void }) {
+  const [stage, setStage] = useState<"target" | "templates" | "room">("target");
+  const [saveTarget, setSaveTarget] = useState<"local" | "cloud" | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+
+  if (stage === "room" && selectedTemplate) {
+    const sharedProps = { initialText: selectedTemplate.initialText, docKey: `template-${selectedTemplate.id}`, onBack: () => setStage("templates"), onEnterSpace: () => go("space") };
+    return saveTarget === "cloud" ? <CreationCloudRoom {...sharedProps} /> : <CreationLocalRoom {...sharedProps} />;
+  }
+  if (stage === "templates" && saveTarget) {
+    return <TemplateLibrary mode={saveTarget} isVip={false} onBack={() => setStage("target")} onUseTemplate={(t: any) => { setSelectedTemplate(t); setStage("room"); }} onUpgradeVip={() => go("membership")} />;
+  }
+  return (
+    <div className="create-page flex-1 flex flex-col overflow-hidden">
+      <header className="account-page-header"><button type="button" onClick={() => go("space")} aria-label="返回空间">‹</button><h1>保存在哪里？</h1><span style={{ width: 36 }} /></header>
+      <main className="create-save-target">
+        <div className="create-save-heading"><h1>保存在哪里？</h1><p>本地无需登录，云端可以跨设备同步</p></div>
+        <div className="create-save-cards">
+          <button type="button" className="create-save-card" onClick={() => { setSaveTarget("local"); setStage("templates"); }}><span className="create-save-icon">▣</span><strong>本地创作</strong><small>文件保存在当前设备</small></button>
+          <button type="button" className="create-save-card" onClick={() => { setSaveTarget("cloud"); setStage("templates"); }}><span className="create-save-icon">☁</span><strong>云端创作</strong><small>支持跨设备同步</small></button>
+        </div>
+      </main>
+      <BottomNav screen="home" go={go} />
+    </div>
+  );
+}
+
+// ─── 个人中心相关页面（保持原样） ────────────────────────────────────────────────
+
 type PersonalProfile = { name: string; bio: string; gender: string; birthday: string; wish: string };
 const DEFAULT_PERSONAL_PROFILE: PersonalProfile = { name: "好技友", bio: "", gender: "", birthday: "", wish: "" };
-
 function loadPersonalProfile(): PersonalProfile {
   if (typeof window === "undefined") return DEFAULT_PERSONAL_PROFILE;
-  try { return { ...DEFAULT_PERSONAL_PROFILE, ...JSON.parse(localStorage.getItem("ranjingPersonalProfile") || "{}") }; }
-  catch { return DEFAULT_PERSONAL_PROFILE; }
+  try { return { ...DEFAULT_PERSONAL_PROFILE, ...JSON.parse(localStorage.getItem("ranjingPersonalProfile") || "{}") }; } catch { return DEFAULT_PERSONAL_PROFILE; }
 }
 
 function ProfileScreen({ go }: { go: (s: Screen) => void }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [profile, setProfile] = useState<PersonalProfile>(loadPersonalProfile);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
-  useEffect(() => {
-    setProfile(loadPersonalProfile());
-    try { setAvatarUrl(localStorage.getItem("ranjingUserAvatar") || ""); } catch { setAvatarUrl(""); }
-  }, [refreshKey]);
+  useEffect(() => { setProfile(loadPersonalProfile()); try { setAvatarUrl(localStorage.getItem("ranjingUserAvatar") || ""); } catch { setAvatarUrl(""); } }, [refreshKey]);
   useEffect(() => { function handleFocus() { setRefreshKey((k) => k + 1); } window.addEventListener("focus", handleFocus); return () => window.removeEventListener("focus", handleFocus); }, []);
   const accountItems: { label: string; screen: Screen }[] = [
-    { label: "个人资料", screen: "personal-profile" },
-    { label: "支付方式", screen: "payment-settings" },
-    { label: "消息通知", screen: "message-settings" },
-    { label: "隐私设置", screen: "privacy-settings" },
-    { label: "会员设置", screen: "membership-settings" },
-    { label: "账号与安全", screen: "account-security" },
+    { label: "个人资料", screen: "personal-profile" }, { label: "支付方式", screen: "payment-settings" }, { label: "消息通知", screen: "message-settings" }, { label: "隐私设置", screen: "privacy-settings" }, { label: "会员设置", screen: "membership-settings" }, { label: "账号与安全", screen: "account-security" },
   ];
-  const renderDirectory = (items: { label: string; screen: Screen }[]) => (
-    <div className="profile-directory">
-      {items.map((item) => (
-        <button key={item.label} onClick={() => { go(item.screen); setRefreshKey((k) => k + 1); }} className="profile-directory-item">
-          <span>{item.label}</span>
-          <span className="profile-directory-arrow">›</span>
-        </button>
-      ))}
-    </div>
-  );
   return (
     <div className="profile-page flex-1 flex flex-col overflow-hidden">
       <div className="profile-scroll flex-1 overflow-y-auto scrollbar-hide">
         <section className="profile-identity">
-          <div className="profile-avatar">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="用户头像" className="absolute inset-0 w-full h-full object-cover" />
-            ) : (
-              <img src={splashCover.src} alt="用户原创手绘头像" className="absolute inset-0 w-full h-full object-cover" />
-            )}
-          </div>
-          <div className="profile-copy">
-            <div className="profile-name">{profile.name}</div>
-            <div className="profile-bio">{profile.bio || "还没有简介"}</div>
-          </div>
+          <div className="profile-avatar">{avatarUrl ? <img src={avatarUrl} alt="用户头像" className="absolute inset-0 w-full h-full object-cover" /> : <img src={splashCover.src} alt="用户原创手绘头像" className="absolute inset-0 w-full h-full object-cover" />}</div>
+          <div className="profile-copy"><div className="profile-name">{profile.name}</div><div className="profile-bio">{profile.bio || "还没有简介"}</div></div>
         </section>
-        {renderDirectory(accountItems)}
+        <div className="profile-directory">
+          {accountItems.map((item) => (
+            <button key={item.label} onClick={() => { go(item.screen); setRefreshKey((k) => k + 1); }} className="profile-directory-item"><span>{item.label}</span><span className="profile-directory-arrow">›</span></button>
+          ))}
+        </div>
       </div>
       <BottomNav screen="profile" go={go} />
     </div>
@@ -591,34 +1003,21 @@ function AccountPageHeader({ title, go }: { title: string; go: (s: Screen) => vo
 function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
   const [profile, setProfile] = useState<PersonalProfile>(loadPersonalProfile);
   const [showSaved, setShowSaved] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string>(() => {
-    try { return localStorage.getItem("ranjingUserAvatar") || ""; } catch { return ""; }
-  });
+  const [avatarUrl, setAvatarUrl] = useState<string>(() => { try { return localStorage.getItem("ranjingUserAvatar") || ""; } catch { return ""; } });
   const fileInputRef = useRef<HTMLInputElement>(null);
   function handleAvatarPick(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
+    const file = event.target.files && event.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const url = reader.result as string;
-      setAvatarUrl(url);
-      try { localStorage.setItem("ranjingUserAvatar", url); } catch { /* noop */ }
-    };
+    reader.onload = () => { const url = reader.result as string; setAvatarUrl(url); try { localStorage.setItem("ranjingUserAvatar", url); } catch {} };
     reader.readAsDataURL(file);
   }
-  function save() {
-    localStorage.setItem("ranjingPersonalProfile", JSON.stringify(profile));
-    setShowSaved(true);
-    setTimeout(() => setShowSaved(false), 2000);
-  }
+  function save() { localStorage.setItem("ranjingPersonalProfile", JSON.stringify(profile)); setShowSaved(true); setTimeout(() => setShowSaved(false), 2000); }
   return (
     <div className="account-page">
       <AccountPageHeader title="编辑资料" go={go} />
       <main className="personal-profile-form">
         <div className="pp-avatar-block">
-          <button type="button" className="pp-avatar-btn" onClick={() => fileInputRef.current && fileInputRef.current.click()} aria-label="更换头像">
-            <img src={avatarUrl || splashCover.src} alt="用户头像" />
-          </button>
+          <button type="button" className="pp-avatar-btn" onClick={() => fileInputRef.current && fileInputRef.current.click()} aria-label="更换头像"><img src={avatarUrl || splashCover.src} alt="用户头像" /></button>
           <span className="pp-avatar-label">头像</span>
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
         </div>
@@ -637,9 +1036,7 @@ function PersonalProfileScreen({ go }: { go: (s: Screen) => void }) {
 }
 
 function PaymentSettingsScreen({ go }: { go: (s: Screen) => void }) {
-  const [bindings, setBindings] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem("ranjingPaymentBindings") || "{}"); } catch { return {}; }
-  });
+  const [bindings, setBindings] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("ranjingPaymentBindings") || "{}"); } catch { return {}; } });
   const [bankForm, setBankForm] = useState(false);
   const [bankCard, setBankCard] = useState("");
   const [bankName, setBankName] = useState("");
@@ -649,16 +1046,8 @@ function PaymentSettingsScreen({ go }: { go: (s: Screen) => void }) {
     if (method === "银行卡") { setBankForm(true); return; }
     setNotice(method);
   }
-  function saveBank() {
-    if (!bankCard.trim() || !bankName.trim()) return;
-    const next = { ...bindings, "银行卡": true };
-    setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next));
-    setBankForm(false); setBankCard(""); setBankName("");
-  }
-  function toggle(method: string) {
-    const next = { ...bindings, [method]: !bindings[method] };
-    setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next));
-  }
+  function saveBank() { if (!bankCard.trim() || !bankName.trim()) return; const next = { ...bindings, "银行卡": true }; setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next)); setBankForm(false); setBankCard(""); setBankName(""); }
+  function toggle(method: string) { const next = { ...bindings, [method]: !bindings[method] }; setBindings(next); localStorage.setItem("ranjingPaymentBindings", JSON.stringify(next)); }
   const [notice, setNotice] = useState("");
   const otherMethods = ["信用卡", "花呗", "HK支付宝"];
   return <div className="account-page"><AccountPageHeader title="支付设置" go={go} /><main className="account-list account-list-spaced">
@@ -670,11 +1059,8 @@ function PaymentSettingsScreen({ go }: { go: (s: Screen) => void }) {
 }
 
 type SettingItem = { label: string; kind?: "toggle" | "action"; value?: string };
-
 function PreferenceSettingsScreen({ title, items, storageKey, go }: { title: string; items: SettingItem[]; storageKey: string; go: (s: Screen) => void }) {
-  const [values, setValues] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch { return {}; }
-  });
+  const [values, setValues] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch { return {}; } });
   const [notice, setNotice] = useState("");
   function activate(item: SettingItem) {
     if (item.kind === "action") { setNotice(`${item.label}已打开`); return; }
@@ -691,15 +1077,9 @@ function AccountSecurityScreen({ go }: { go: (s: Screen) => void }) {
   const [phone, setPhone] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmAction, setConfirmAction] = useState("");
-  useEffect(() => { fetch("https://helloranjing.com/api/auth/me").then((r) => r.json()).then((d) => { if (d.user?.phone) setPhone(d.user.phone); }).catch(() => {}); }, []);
+  useEffect(() => { fetch(`${API_BASE}/api/auth/me`).then((r) => r.json()).then((d) => { if (d.user?.phone) setPhone(d.user.phone); }).catch(() => {}); }, []);
   const displayPhone = phone ? phone.replace(/(\d{3})\d{4}(\d{4})/, "$1****$2") : "未绑定";
-  const items = [
-    { label: "手机号", value: displayPhone, action: "phone" },
-    { label: "修改昵称", action: "nickname" },
-    { label: "授权管理", action: "auth" },
-    { label: "实名认证", value: "未认证", action: "verify" },
-    { label: "注销苒境账号", danger: true, action: "delete" },
-  ];
+  const items = [ { label: "手机号", value: displayPhone, action: "phone" }, { label: "修改昵称", action: "nickname" }, { label: "授权管理", action: "auth" }, { label: "实名认证", value: "未认证", action: "verify" }, { label: "注销苒境账号", danger: true, action: "delete" } ];
   function handleAction(action: string, label: string) {
     if (action === "phone") { setNotice("当前登录手机号：" + (phone || "未获取")); return; }
     if (action === "nickname") { go("personal-profile"); return; }
@@ -709,391 +1089,197 @@ function AccountSecurityScreen({ go }: { go: (s: Screen) => void }) {
   return <div className="account-page"><AccountPageHeader title="账号设置" go={go} /><main className="account-list account-list-spaced">{items.map((item) => <button type="button" className={item.danger ? "is-danger" : ""} key={item.label} onClick={() => handleAction(item.action!, item.label)}><span>{item.label}</span>{item.value && <small>{item.value}</small>}<b>›</b></button>)}{notice && <p className="account-notice">{notice}</p>}{confirmAction && <div className="account-notice" style={{ background: "#fde8e8", color: "#c0392b" }}><div>确认{confirmAction}？此操作不可恢复。</div><div style={{ marginTop: 8, display: "flex", gap: 8 }}><button onClick={() => { localStorage.clear(); setConfirmAction(""); setNotice("已清除本地数据"); }} style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid #c0392b", background: "#c0392b", color: "#fff", fontSize: 12 }}>确认清除</button><button onClick={() => setConfirmAction("")} style={{ padding: "6px 16px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", fontSize: 12 }}>取消</button></div></div>}</main></div>;
 }
 
-function MessageSettingsScreen({ go }: { go: (s: Screen) => void }) {
-  const [values, setValues] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem("ranjingMessageSettings") || "{}"); } catch { return {}; }
-  });
-  const [soundMode, setSoundMode] = useState(() => localStorage.getItem("ranjingSoundMode") || "响铃");
-  function toggle(key: string) { const next = { ...values, [key]: !values[key] }; setValues(next); localStorage.setItem("ranjingMessageSettings", JSON.stringify(next)); }
-  function setSound(mode: string) { setSoundMode(mode); localStorage.setItem("ranjingSoundMode", mode); }
-  const notifyItems = [{ key: "通知消息", desc: "接收来自平台的最新消息" }, { key: "上新消息", desc: "新模板上线时通知你" }, { key: "系统升级", desc: "系统维护和升级通知" }];
-  return <div className="account-page"><AccountPageHeader title="消息通知" go={go} /><main className="account-list account-list-spaced">
-    <div style={{ padding: "12px 3px 6px", fontSize: 11, color: "#918981" }}>通知设置</div>
-    {notifyItems.map((item) => { const on = values[item.key] !== false; return <div key={item.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 3px", borderBottom: "1px solid rgba(74,70,63,.055)" }}><div><div style={{ fontSize: 14, color: "#57524c" }}>{item.key}</div><div style={{ fontSize: 11, color: "#aaa59e", marginTop: 2 }}>{item.desc}</div></div><button onClick={() => toggle(item.key)} style={{ width: 44, height: 24, borderRadius: 12, border: 0, background: on ? "#7c6f64" : "#d5d0cb", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left .2s" }} /></button></div>; })}
-    <div style={{ padding: "18px 3px 6px", fontSize: 11, color: "#918981" }}>系统消息声音</div>
-    <div style={{ display: "flex", gap: 8, padding: "8px 3px" }}>
-      {["响铃", "震动", "静音"].map((mode) => <button key={mode} onClick={() => setSound(mode)} style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: soundMode === mode ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: soundMode === mode ? "#f3eee8" : "#fffdfa", fontSize: 13, color: "#57524c", cursor: "pointer" }}>{mode}</button>)}
-    </div>
-  </main></div>;
-}
-
-function PrivacySettingsScreen({ go }: { go: (s: Screen) => void }) {
-  const [values, setValues] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem("ranjingPrivacySettings") || "{}"); } catch { return {}; }
-  });
-  const [showFeedback, setShowFeedback] = useState(false);
-  const [feedback, setFeedback] = useState("");
-  const [feedbackSent, setFeedbackSent] = useState(false);
-  const [showPrivacy, setShowPrivacy] = useState("");
-  function toggle(key: string) { if (key === "允许采集云端" && !values[key]) { setShowPrivacy("cloud"); return; } const next = { ...values, [key]: !values[key] }; setValues(next); localStorage.setItem("ranjingPrivacySettings", JSON.stringify(next)); }
-  function submitFeedback() { if (!feedback.trim()) return; const tickets = JSON.parse(localStorage.getItem("supportTickets") || "[]"); tickets.push({ id: "FB-" + Date.now(), content: feedback.trim(), createdAt: new Date().toISOString() }); localStorage.setItem("supportTickets", JSON.stringify(tickets)); setFeedbackSent(true); setFeedback(""); setTimeout(() => { setShowFeedback(false); setFeedbackSent(false); }, 2000); }
-  return <div className="account-page"><AccountPageHeader title="隐私设置" go={go} /><main className="account-list account-list-spaced">
-    <button type="button" onClick={() => setShowFeedback(true)}><span>我有疑问</span><b>›</b></button>
-    <button type="button" onClick={() => setShowPrivacy("permission")}><span>系统权限管理</span><b>›</b></button>
-    {(["允许采集云端"] as const).map((key) => { const on = values[key] === true; return <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 3px", borderBottom: "1px solid rgba(74,70,63,.055)" }}><span style={{ fontSize: 14, color: "#57524c" }}>{key}</span><button onClick={() => toggle(key)} style={{ width: 44, height: 24, borderRadius: 12, border: 0, background: on ? "#7c6f64" : "#d5d0cb", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left .2s" }} /></button></div>; })}
-    <button type="button" onClick={() => {}}><span>团队信息</span><b>›</b></button>
-    {showFeedback && <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, background: "rgba(0,0,0,.25)" }}><div style={{ background: "#fff", borderRadius: 14, padding: "24px 20px", width: 300, boxShadow: "0 8px 32px rgba(0,0,0,.12)" }}><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>意见反馈</div><div style={{ fontSize: 12, color: "#999", marginBottom: 12 }}>如果你有什么想说的请在这里进行记录发送</div><textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="请输入你的反馈..." style={{ width: "100%", height: 100, padding: 12, borderRadius: 8, border: "1px solid #ddd", fontSize: 13, resize: "none", boxSizing: "border-box" }} />{feedbackSent && <div style={{ color: "#27ae60", fontSize: 13, marginTop: 8 }}>✓ 已发送，我们会尽快回复</div>}<div style={{ display: "flex", gap: 10, marginTop: 14 }}><button onClick={() => setShowFeedback(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13 }}>取消</button><button onClick={submitFeedback} disabled={!feedback.trim()} style={{ flex: 1, padding: 10, borderRadius: 8, border: 0, background: "#5f554d", color: "#fff", fontSize: 13, opacity: feedback.trim() ? 1 : 0.5 }}>发送</button></div></div></div>}
-    {showPrivacy && <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, background: "rgba(0,0,0,.25)" }}><div style={{ background: "#fff", borderRadius: 14, padding: "24px 20px", width: 300, maxHeight: "80%", overflow: "auto", boxShadow: "0 8px 32px rgba(0,0,0,.12)" }}><div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{showPrivacy === "cloud" ? "云端数据采集说明" : "系统权限管理"}</div><div style={{ fontSize: 12, color: "#666", lineHeight: 1.8 }}>
-      {showPrivacy === "cloud" ? (<><p>苒境在提供云端备份服务时，可能需要采集以下信息：</p><ul style={{ paddingLeft: 18, margin: "8px 0" }}><li>你的创作文本内容</li><li>文件结构与元数据</li><li>设备基本信息（用于同步）</li></ul><p style={{ color: "#c0392b", fontWeight: 500 }}>如果不同意采集，云端将无法备份你的文件，文件丢失后很难找回。</p><p>我们承诺：所有数据仅用于云端备份，不会用于其他用途，不会向第三方披露。</p></>) : (<><p>苒境可能需要以下系统权限：</p><ul style={{ paddingLeft: 18, margin: "8px 0" }}><li>屏幕方向控制（横屏/竖屏）</li><li>云端数据存储权限</li><li>通知推送权限</li></ul><p>你可以在这里管理这些权限的开关。关闭某些权限可能影响部分功能的使用。</p></>)}
-    </div><div style={{ display: "flex", gap: 10, marginTop: 16 }}><button onClick={() => setShowPrivacy("")} style={{ flex: 1, padding: 10, borderRadius: 8, border: "1px solid #ddd", background: "#fff", fontSize: 13 }}>不同意</button><button onClick={() => { if (showPrivacy === "cloud") { const next = { ...values, "允许采集云端": true }; setValues(next); localStorage.setItem("ranjingPrivacySettings", JSON.stringify(next)); } setShowPrivacy(""); }} style={{ flex: 1, padding: 10, borderRadius: 8, border: 0, background: "#5f554d", color: "#fff", fontSize: 13 }}>同意</button></div></div></div>}
-  </main></div>;
-}
-
-function MembershipSettingsScreen({ go }: { go: (s: Screen) => void }) {
-  const [values, setValues] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem("ranjingMembershipSettings") || "{}"); } catch { return {}; }
-  });
-  const [prefType, setPrefType] = useState(() => localStorage.getItem("ranjingTemplatePref") || "");
-  function toggle(key: string) { const next = { ...values, [key]: !values[key] }; setValues(next); localStorage.setItem("ranjingMembershipSettings", JSON.stringify(next)); }
-  function setPref(type: string) { setPrefType(type); localStorage.setItem("ranjingTemplatePref", type); }
-  const prefTypes = [{ key: "可爱", icon: "🎀" }, { key: "搞怪", icon: "🤪" }, { key: "工作", icon: "💼" }, { key: "设计", icon: "🎨" }];
-  return <div className="account-page"><AccountPageHeader title="会员设置" go={go} /><main className="account-list account-list-spaced">
-    {(["续费提醒", "订阅消息"] as const).map((key) => { const on = values[key] !== false; return <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 3px", borderBottom: "1px solid rgba(74,70,63,.055)" }}><span style={{ fontSize: 14, color: "#57524c" }}>{key}</span><button onClick={() => toggle(key)} style={{ width: 44, height: 24, borderRadius: 12, border: 0, background: on ? "#7c6f64" : "#d5d0cb", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left .2s" }} /></button></div>; })}
-    <div style={{ padding: "18px 3px 6px", fontSize: 11, color: "#918981" }}>设置偏好 · 推荐模板类型</div>
-    <div style={{ display: "flex", gap: 8, padding: "8px 3px" }}>
-      {prefTypes.map((t) => <button key={t.key} onClick={() => setPref(t.key)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: prefType === t.key ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: prefType === t.key ? "#f3eee8" : "#fffdfa", textAlign: "center", cursor: "pointer" }}><div style={{ fontSize: 20 }}>{t.icon}</div><div style={{ fontSize: 11, marginTop: 4, color: "#57524c" }}>{t.key}</div></button>)}
-    </div>
-    <div style={{ padding: "18px 3px 6px", fontSize: 11, color: "#918981" }}>团队默认模板（仅团队长可见）</div>
-    <button type="button" onClick={() => go("membership")}><span>团队模板设置</span><b>›</b></button>
-  </main></div>;
-}
-
 function SimpleHeader({ title, go }: { title: string; go: (s: Screen) => void }) {
   return (
-    <div
-      className="sticky top-0 z-[200] flex items-center px-3 bg-[var(--bg2)] border-b border-[var(--border)]"
-      style={{
-        minHeight: "calc(56px + env(safe-area-inset-top))",
-        paddingTop: "env(safe-area-inset-top)",
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => go("profile")}
-        className="flex items-center justify-center rounded-full bg-[var(--bg)]"
-        style={{
-          width: 44,
-          height: 44,
-          minWidth: 44,
-          fontSize: 22,
-          lineHeight: 1,
-        }}
-        aria-label="返回"
-      >
-        ←
-      </button>
-
-      <div className="flex-1 text-center font-bold text-[var(--text)]">
-        {title}
-      </div>
-
+    <div className="sticky top-0 z-[1600] flex items-center px-3 bg-[var(--bg2)] border-b border-[var(--border)]" style={{ minHeight: "calc(56px + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
+      <button type="button" onClick={() => go("profile")} className="flex items-center justify-center rounded-full bg-[var(--bg)]" style={{ width: 44, height: 44, minWidth: 44, fontSize: 22, lineHeight: 1 }} aria-label="返回">←</button>
+      <div className="flex-1 text-center font-bold text-[var(--text)]">{title}</div>
       <div style={{ width: 44, minWidth: 44 }} />
     </div>
   );
-}
-
-function SupportScreen({ go }: { go: (s: Screen) => void }) {
-  const [content, setContent] = useState("");
-  const [sent, setSent] = useState(false);
-  function submitSupport() {
-    if (!content.trim()) return;
-    const tickets = JSON.parse(localStorage.getItem("supportTickets") || "[]") as Array<Record<string, string>>;
-    tickets.push({ id: `TICKET-${Date.now()}`, content: content.trim(), createdAt: new Date().toISOString() });
-    localStorage.setItem("supportTickets", JSON.stringify(tickets));
-    setSent(true);
-    setContent("");
-  }
-  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="投诉建议" go={go} /><div className="p-4 flex flex-col gap-4"><div className="card-journal p-4"><div className="font-bold">需要我们帮什么？</div><div className="text-xs text-[var(--text2)] mt-1">订单、退款、兑换码或创作者入驻问题都可以提交。</div><textarea value={content} onChange={(event) => { setContent(event.target.value); setSent(false); }} className="mt-3 w-full h-28 rounded-xl border border-[var(--border)] p-3 text-sm" placeholder="请描述遇到的问题" /><button onClick={submitSupport} disabled={!content.trim()} className="mt-3 w-full h-10 rounded-xl bg-[var(--pink)] text-white font-bold text-sm disabled:opacity-50">提交问题</button>{sent && <div className="text-sm text-[var(--green)] mt-2">已提交并保存在本机，正式客服数据库接入后会同步到处理后台。</div>}</div><div className="card-journal p-4 text-xs leading-6 text-[var(--text2)]"><div className="font-bold text-sm text-[var(--text)]">虚拟商品说明</div>兑换码或卡密一经成功激活，通常不支持无理由退换；未激活、无法使用或商品描述不符的情况可以提交售后审核。</div></div></div>;
-}
-
-function HelpScreen({ go }: { go: (s: Screen) => void }) {
-  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="帮助中心" go={go} /><div className="p-4 flex flex-col gap-3">{[["如何购买？","选择商品后确认订单，支付成功会自动发放兑换码。"],["兑换码在哪里？","支付成功页和订单详情页都可以查看。"],["如何退款？","在订单详情或投诉建议中提交退款申请。"]].map(([q,a]) => <div key={q} className="card-journal p-4"><div className="font-bold text-sm">{q}</div><div className="text-xs text-[var(--text2)] mt-2">{a}</div></div>)}</div></div>;
-}
-
-function WalletScreen({ go }: { go: (s: Screen) => void }) {
-  const [bindings, setBindings] = useState<Record<string, boolean>>({});
-  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="我的钱包" go={go} /><div className="p-4"><div className="card-journal p-4"><div className="font-bold text-sm">支付方式</div>{[{ name:"支付宝", icon:"▣" },{ name:"微信支付", icon:"♥" }].map((item,index) => <div key={item.name} className={`flex items-center justify-between py-4 ${index === 0 ? "border-b border-[var(--border)]" : ""}`}><div className="flex items-center gap-3"><span className="text-xl text-[var(--pink)]">{item.icon}</span><span className="font-bold text-sm">{item.name}</span></div><button onClick={() => setBindings((current) => ({...current,[item.name]:!current[item.name]}))} className={`rounded-full border px-4 py-1 text-xs font-bold ${bindings[item.name] ? "border-[var(--pink)] bg-[var(--pink)] text-white" : "border-[var(--pink)] text-[var(--pink)]"}`}>{bindings[item.name] ? "已绑定" : "绑定"}</button></div>)}</div><div className="mt-4 text-xs leading-5 text-[var(--text2)]">当前只保存前端绑定状态。正式支付账户绑定需要服务端身份验证和支付平台授权。</div></div></div>;
 }
 
 function MembershipScreen({ go }: { go: (s: Screen) => void }) {
   const [plan, setPlan] = useState<"monthly" | "yearly" | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [shared, setShared] = useState(false);
-  const plans = [
-    { key: "monthly" as const, label: "月卡", price: "¥19.90/月" },
-    { key: "yearly" as const, label: "年卡", price: "¥168/年" },
-  ];
+  const plans = [ { key: "monthly" as const, label: "月度会员", sub: "按月使用，随时续订", price: "¥19.90/月" }, { key: "yearly" as const, label: "年度会员", sub: "全年使用，更适合长期创作", price: "¥168/年" } ];
   async function handlePay() {
-  if (!plan) return;
-
-  setLoading(true);
-  setMessage("");
-
-  try {
-    const orderRes = await CapacitorHttp.post({
-      url: "https://helloranjing.com/api/membership/orders",
-      headers: { "Content-Type": "application/json" },
-      data: { plan },
-    });
-
-    const orderData = orderRes.data;
-
-    if (orderRes.status < 200 || orderRes.status >= 300) {
-      setMessage(orderData?.message || "创建订单失败");
-      return;
-    }
-
-    const payRes = await CapacitorHttp.post({
-      url: "https://helloranjing.com/api/payments/alipay/create",
-      headers: { "Content-Type": "application/json" },
-      data: { orderId: orderData.order.id },
-    });
-
-    const payData = payRes.data;
-
-    if (payRes.status < 200 || payRes.status >= 300) {
-      setMessage(payData?.message || "支付通道暂时不可用");
-      return;
-    }
-
-    if (payData.paymentUrl) {
-      window.open(payData.paymentUrl, "_blank");
-      setMessage("支付订单已创建");
-    }
-  } catch {
-    setMessage("支付请求失败，请检查网络后重试");
-  } finally {
-    setLoading(false);
+    if (!plan) return; setLoading(true); setMessage("");
+    try {
+      const orderRes = await CapacitorHttp.post({ url: `${API_BASE}/api/membership/orders`, headers: { "Content-Type": "application/json" }, data: { plan } });
+      const orderData = orderRes.data;
+      if (orderRes.status < 200 || orderRes.status >= 300) { setMessage(orderData?.message || "创建订单失败"); return; }
+      const payRes = await CapacitorHttp.post({ url: `${API_BASE}/api/payments/alipay/create`, headers: { "Content-Type": "application/json" }, data: { orderId: orderData.order.id } });
+      const payData = payRes.data;
+      if (payRes.status < 200 || payRes.status >= 300) { setMessage(payData?.message || "支付通道暂时不可用"); return; }
+      if (payData.paymentUrl) { window.open(payData.paymentUrl, "_blank"); setMessage("支付订单已创建"); }
+    } catch { setMessage("支付请求失败，请检查网络后重试"); }
+    finally { setLoading(false); }
   }
-}
-  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="订阅会员" go={go} /><div className="p-4 flex flex-col gap-4"><div className="card-journal p-4"><div className="font-bold text-sm">选择会员方案</div><div className="mt-3 flex flex-col gap-2">{plans.map((p) => <button key={p.key} onClick={() => { setPlan(p.key); setMessage(""); }} style={{ padding: "14px 16px", borderRadius: 10, border: plan === p.key ? "1px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: plan === p.key ? "#f3eee8" : "#fffdfa", textAlign: "left" }}><strong style={{ fontSize: 14, fontWeight: 500 }}>{p.label}</strong><div style={{ marginTop: 4, color: "#918981", fontSize: 11 }}>{p.price}</div></button>)}</div><button type="button" disabled={!plan || loading} onClick={handlePay} style={{ width: "100%", height: 42, marginTop: 12, border: 0, borderRadius: 8, background: "#5f554d", color: "#fff", fontSize: 13, cursor: plan ? "pointer" : "default", opacity: plan && !loading ? 1 : 0.5 }}>{loading ? "处理中…" : "立即开通"}</button>{message && <div style={{ marginTop: 10, padding: "10px 13px", borderRadius: 8, background: "#f1ece5", color: "#716a63", fontSize: 11, lineHeight: 1.7 }}>{message}</div>}</div><div className="card-journal p-4"><div className="font-bold text-sm">分享 APP 可返现</div><div className="mt-2 text-xs leading-5 text-[var(--text2)]">分享你的专属邀请链接，好友注册后双方获得奖励。</div><button onClick={async () => { try { await navigator.clipboard.writeText(window.location.href); setShared(true); } catch { setShared(true); } }} className="mt-3 h-10 w-full rounded-xl bg-[var(--pink)] text-sm font-bold text-white">{shared ? "链接已复制" : "分享 APP"}</button></div></div></div>;
-}
-
-function SettingsScreen({ go, brightness, setBrightness, dark, setDark }: { go: (s: Screen) => void; brightness: number; setBrightness: (value: number) => void; dark: boolean; setDark: (value: boolean) => void }) {
-  const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem("appFontSize") || 100));
-  const [anonymous, setAnonymous] = useState(() => localStorage.getItem("anonymousTrade") !== "false");
-  function updateFontSize(value: number) { setFontSize(value); localStorage.setItem("appFontSize", String(value)); document.documentElement.style.fontSize = `${value}%`; }
-  function updateAnonymous(value: boolean) { setAnonymous(value); localStorage.setItem("anonymousTrade", String(value)); }
-  return <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden"><SimpleHeader title="设置" go={go} /><div className="p-4 overflow-y-auto flex flex-col gap-4">
-    <div className="card-journal p-4"><div className="font-bold text-sm">显示设置</div><label className="mt-3 flex justify-between text-sm">深色模式<input type="checkbox" checked={dark} onChange={(e) => setDark(e.target.checked)} /></label><label className="block mt-4 text-sm">APP 亮度：{brightness}%<input className="w-full mt-2" type="range" min="70" max="120" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} /></label><label className="block mt-4 text-sm">字体大小：{fontSize}%<input className="w-full mt-2" type="range" min="85" max="120" value={fontSize} onChange={(e) => updateFontSize(Number(e.target.value))} /></label></div>
-    <div className="card-journal p-4"><div className="font-bold text-sm">交易隐私</div><label className="mt-3 flex items-start gap-3 text-sm"><input type="checkbox" checked={anonymous} onChange={(e) => updateAnonymous(e.target.checked)} /><span><span className="font-bold">匿名交易</span><span className="mt-1 block text-xs leading-5 text-[var(--text2)]">对外隐藏真实昵称和联系方式，仅订单双方及平台审核人员按权限查看必要信息。</span></span></label></div>
-  </div></div>;
+  return <div className="flex-1 flex flex-col bg-[var(--bg)]"><SimpleHeader title="订阅会员" go={go} /><div className="p-4 flex flex-col gap-4"><div className="card-journal p-4"><div className="font-bold text-sm" style={{ fontSize: 18, marginBottom: 6 }}>解锁完整云端创作</div><div style={{ fontSize: 12, color: "#918981", marginBottom: 16, lineHeight: 1.7 }}>专业模板、多人协作与历史版本均包含在会员方案中。</div><div className="mt-3 flex flex-col gap-2">{plans.map((p) => <button key={p.key} onClick={() => { setPlan(p.key); setMessage(""); }} style={{ padding: "18px 16px", borderRadius: 12, border: plan === p.key ? "1.5px solid #75655a" : "1px solid rgba(128,107,92,.15)", background: plan === p.key ? "#f3eee8" : "#fffdfa", textAlign: "left" }}><strong style={{ fontSize: 16, fontWeight: 500 }}>{p.label}</strong><div style={{ marginTop: 6, color: "#918981", fontSize: 12 }}>{p.sub}</div></button>)}</div><button type="button" disabled={!plan || loading} onClick={handlePay} style={{ width: "100%", height: 48, marginTop: 14, border: 0, borderRadius: 10, background: "#5f554d", color: "#fff", fontSize: 14, cursor: plan ? "pointer" : "default", opacity: plan && !loading ? 1 : 0.5 }}>{loading ? "处理中…" : "继续"}</button>{message && <div style={{ marginTop: 10, padding: "10px 13px", borderRadius: 8, background: "#f1ece5", color: "#716a63", fontSize: 11, lineHeight: 1.7 }}>{message}</div>}</div></div></div>;
 }
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("splash");
-  const [authReady,setAuthReady]=useState(false);
-  const [user, setUser] = useState<{ id: string; phone: string; nickname: string; avatar: string; defaultDeliveryEmail?: string } | null>(null);
+  const [screen, setScreen] = useState<Screen>("welcome");
+  const [authReady, setAuthReady] = useState(false);
+  // 全屏「开门」过渡动画状态
+  const [isOpeningDoor, setIsOpeningDoor] = useState(false);
+  const [user, setUser] = useState<{ id: string; phone: string; nickname: string; avatar: string; defaultDeliveryEmail?: string; isVip?: boolean } | null>(null);
   const screenFromUrlRef = useRef<boolean>(false);
   const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
-
   const [trendScrollTop, setTrendScrollTop] = useState(0);
-  const [creationType, setCreationType] = useState("小说");
-  const [selectedNovelId, setSelectedNovelId] = useState<string | null>(null);
   const [brightness, setBrightness] = useState(100);
   const [dark, setDark] = useState(false);
-
   const splashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("authPreview") === "login") { setScreen("login"); setAuthReady(true); return; }
-  if (params.get("authPreview") === "profile") { setScreen("profile-setup"); setAuthReady(true); return; }
-  const alipayReturnOrderId = params.get("payment") === "alipay" ? params.get("orderId") : null;
-  if (alipayReturnOrderId) {
-    setAuthReady(true);
-    void resumeAlipayReturn(alipayReturnOrderId);
-    return;
-  }
-  const doAuthCheck = () => { fetch("https://helloranjing.com/api/auth/me").then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);if(!screenFromUrlRef.current)setScreen("home");}else if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen(localStorage.getItem("ranjingWelcomeSeen")==="true"?"login":"welcome");}).finally(()=>setAuthReady(true)); };
-  splashTimerRef.current = setTimeout(doAuthCheck, 1800);
-  const requestedCreation = params.get("creation");
-  const requestedNovelId = params.get("novel");
-  if (requestedCreation) {
-    screenFromUrlRef.current = true;
-    setCreationType(requestedCreation);
-    setSelectedNovelId(requestedNovelId);
-    setScreen(requestedCreation === "小说" && !requestedNovelId ? "works" : "writing");
-  }
-  // V7: 刷新恢复 — 统一走 loadOrderById，不自动跳转 paying
-  const savedOrderId = localStorage.getItem("ranjing.currentOrderId");
-  if (savedOrderId) {
-    setCurrentOrderId(savedOrderId);
-    void loadOrderById(savedOrderId);
-  }
-  // V7 disabled: do not hydrate createdOrder from localStorage.latestOrder
-  // const storedOrder = localStorage.getItem("latestOrder");
-  // if (storedOrder) {
-  //   try { setCreatedOrder(JSON.parse(storedOrder) as CreatedOrder); } catch { localStorage.removeItem("latestOrder"); }
-  // }
-  return () => { if (splashTimerRef.current) clearTimeout(splashTimerRef.current); };
-}, []);
+
+  // ✅ 修复：将 handleUpgradeVip 移到 user 和 go 之后，解决 TS 作用域报错
+  const handleUpgradeVip = () => {
+    if (!user) setScreen("login");
+    else setScreen("membership");
+  };
 
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-  }, [dark]);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("authPreview") === "login") { setScreen("login"); setAuthReady(true); return; }
+    const alipayReturnOrderId = params.get("payment") === "alipay" ? params.get("orderId") : null;
+    if (alipayReturnOrderId) { setAuthReady(true); void resumeAlipayReturn(alipayReturnOrderId); return; }
+    const doAuthCheck = () => { fetch(`${API_BASE}/api/auth/me`).then((response)=>response.json()).then((result)=>{if(result.user){setUser(result.user);}if(!screenFromUrlRef.current)setScreen("welcome");}).catch(()=>{if(!screenFromUrlRef.current)setScreen("welcome");}).finally(()=>setAuthReady(true)); };
+    splashTimerRef.current = setTimeout(doAuthCheck, 1800);
+    const savedOrderId = localStorage.getItem("ranjing.currentOrderId");
+    if (savedOrderId) { setCurrentOrderId(savedOrderId); void loadOrderById(savedOrderId); }
+    return () => { if (splashTimerRef.current) clearTimeout(splashTimerRef.current); };
+  }, []);
 
-  // V7-1B: 统一订单读取入口
+  useEffect(() => {
+    let listener: any = null;
+    CapApp.addListener("backButton", () => {
+      if (runTopBackHandler()) return;
+      setScreen((cur) => {
+        if (cur === "canvas") return "welcome";
+        if (cur === "welcome" || cur === "home") return "home";
+        // ❌ 删掉这里导致冲突的 if (cur === "create") return "home";
+        if (cur === "profile") return "home";
+        if (cur === "login") return "welcome";
+        if (cur === "membership" || cur === "personal-profile" || cur === "payment-settings" || cur === "message-settings" || cur === "privacy-settings" || cur === "membership-settings" || cur === "account-security") return "profile";
+        // ✅ 修复：让 create 回归 space
+        if (cur === "publish" || cur === "community" || cur === "gallery" || cur === "create") return "space";
+        if (cur === "space") return "canvas";
+        return "home";
+      });
+    }).then((l) => { listener = l; });
+    return () => { if (listener) listener.remove(); };
+  }, []);
+
+  useEffect(() => { document.documentElement.dataset.theme = dark ? "dark" : "light"; }, [dark]);
+
   async function loadOrderById(orderId: string): Promise<CreatedOrder | null> {
     try {
-      const res = await fetch(`https://helloranjing.com/api/orders?orderId=${encodeURIComponent(orderId)}`);
-      if (res.status === 404) {
-        setCreatedOrder(null);
-        setCurrentOrderId(null);
-        localStorage.removeItem("ranjing.currentOrderId");
-        return null;
-      }
-      if (!res.ok) {
-        // 网络/500：不制造假订单，不清 ID
-        return null;
-      }
+      const res = await fetch(`${API_BASE}/api/orders?orderId=${encodeURIComponent(orderId)}`);
+      if (res.status === 404) { setCreatedOrder(null); setCurrentOrderId(null); localStorage.removeItem("ranjing.currentOrderId"); return null; }
+      if (!res.ok) return null;
       const order = await res.json() as CreatedOrder;
-      setCreatedOrder(order);
-      setCurrentOrderId(order.id);
-      localStorage.setItem("ranjing.currentOrderId", order.id);
+      setCreatedOrder(order); setCurrentOrderId(order.id); localStorage.setItem("ranjing.currentOrderId", order.id);
       return order;
-    } catch {
-      // 网络异常：不清 ID，不伪造订单
-      return null;
-    }
+    } catch { return null; }
   }
 
-   async function resumeAlipayReturn(orderId: string) {
+  async function resumeAlipayReturn(orderId: string) {
     const order = await loadOrderById(orderId);
-
-    if (!order) {
-      setScreen("create");
-      return;
-    }
-
-    const membershipOrder = order as CreatedOrder & {
-      orderKind?: string;
-      membershipPlan?: "monthly" | "yearly";
-    };
-
-    /*
-     * VIP 会员订单单独处理。
-     * 不进入普通商品支付页面。
-     */
-    if (
-      membershipOrder.orderKind === "membership" ||
-      order.id.startsWith("VIP-")
-    ) {
-      localStorage.setItem(
-        "ranjing.pending.membership.orderId",
-        order.id
-      );
-
+    if (!order) { setScreen("create"); return; }
+    const membershipOrder = order as CreatedOrder & { orderKind?: string; membershipPlan?: "monthly" | "yearly"; };
+    if (membershipOrder.orderKind === "membership" || order.id.startsWith("VIP-")) {
+      localStorage.setItem("ranjing.pending.membership.orderId", order.id);
       try {
-        const response = await fetch(
-          `https://helloranjing.com/api/payments/alipay/status?orderId=${encodeURIComponent(
-            order.id
-          )}`,
-          {
-            cache: "no-store",
-          }
-        );
-
+        const response = await fetch(`${API_BASE}/api/payments/alipay/status?orderId=${encodeURIComponent(order.id)}`, { cache: "no-store" });
         const result = await response.json();
-
-        if (
-          response.ok &&
-          result.status === "Paid"
-        ) {
-          localStorage.setItem(
-            "ranjing.membership.returnPaid",
-            "true"
-          );
-        }
-      } catch {
-        /*
-         * 查询失败也不乱跳普通订单。
-         * 进入创作区后再继续确认。
-         */
-      }
-
+        if (response.ok && result.status === "Paid") { localStorage.setItem("ranjing.membership.returnPaid", "true"); }
+      } catch {}
       const cleanUrl = new URL(window.location.href);
-
-      cleanUrl.searchParams.delete("payment");
-      cleanUrl.searchParams.delete("orderId");
-
-      window.history.replaceState(
-        {},
-        "",
-        cleanUrl.pathname +
-          cleanUrl.search +
-          cleanUrl.hash
-      );
-
+      cleanUrl.searchParams.delete("payment"); cleanUrl.searchParams.delete("orderId");
+      window.history.replaceState({}, "", cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
       setScreen("create");
       return;
     }
   }
 
   function go(s: Screen) {
-    if (s === "create" || s === "works") {
+    if (s === "create") {
       const url = new URL(window.location.href);
-      if (s === "create") {
-        url.searchParams.delete("creation");
-        url.searchParams.delete("novel");
-      } else {
-        url.searchParams.set("creation", "小说");
-        url.searchParams.delete("novel");
-      }
+      url.searchParams.delete("creation"); url.searchParams.delete("novel");
       window.history.replaceState({}, "", url);
     }
     setScreen(s);
   }
 
-  function openCreation(type: string) {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("product");
-    url.searchParams.set("creation", type);
-    url.searchParams.delete("novel");
-    window.history.replaceState({}, "", url);
-    setCreationType(type);
-    setSelectedNovelId(null);
-    setScreen(type === "小说" ? "works" : "writing");
-  }
+  function enterFromWelcome() { setScreen("canvas"); }
 
-  function openNovel(id: string) {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("product");
-    url.searchParams.set("creation", "小说");
-    url.searchParams.set("novel", id);
-    window.history.replaceState({}, "", url);
-    setCreationType("小说");
-    setSelectedNovelId(id);
-    setScreen("writing");
-  }
-  function enterFromWelcome(){localStorage.setItem("ranjingWelcomeSeen","true");setScreen("login");}
+  const isSpaceContext = screen === "space" || screen === "community" || screen === "group" || screen === "house";
 
   return (
-    <div className="size-full flex items-center justify-center bg-[#F2EEE7]" style={{ fontFamily: "'Nunito', sans-serif", filter: `brightness(${brightness}%)` }}>
-      <div className="handbook-app relative flex flex-col bg-[var(--bg)] overflow-hidden"
-        style={{ width: "390px", height: "844px", borderRadius: "34px", border: "1px solid rgba(112, 103, 94, 0.24)", boxSizing: "border-box", boxShadow: "0 28px 72px rgba(65, 57, 49, 0.13)" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "#F7F3EC", fontFamily: "'Nunito', sans-serif" }}>
+      <div className="handbook-app relative flex flex-col bg-[var(--bg)] overflow-hidden" style={{ width: "100%", height: "100%", borderRadius: 0, border: 0, boxSizing: "border-box", boxShadow: "none" }}>
+        
         {!authReady && <div className="ran-auth-page" />}
         {authReady && screen === "welcome" && <WelcomeScreen onEnter={enterFromWelcome} />}
-        {authReady && screen === "login" && <LoginScreen onVerified={(isNew)=>setScreen(isNew?"profile-setup":"home")} />}
-        {screen === "profile-setup" && <ProfileSetupScreen go={go} />}
-        {screen === "splash" && <SplashScreen go={go} />}
-        {screen === "home" && <TrendsScreen go={go} initialScrollTop={trendScrollTop} onScrollPositionChange={setTrendScrollTop} />}
-        {screen === "create" && <CreateScreen go={go} />}
-        {screen === "works" && <NovelLibraryScreen go={go} openNovel={openNovel} />}
-        {screen === "writing" && <WritingScreen go={go} creationType={creationType} novelId={selectedNovelId} />}
+        {authReady && screen === "login" && <LoginScreen onVerified={()=>setScreen("canvas")} />}
+        
+        {/* 1. 画布创作区：始终挂载 */}
+        {authReady && (
+          <div
+            style={{
+              display: screen === "canvas" ? "flex" : "none",
+              position: "absolute",
+              inset: 0,
+              zIndex: 10,
+              flexDirection: "column",
+              width: "100%",
+              height: "100%"
+            }}
+          >
+            <CreationLocalRoom 
+              onBack={() => setScreen("welcome")} 
+              onEnterSpace={() => setIsOpeningDoor(true)} 
+              isVip={!!user?.isVip}              
+              onUpgradeVip={handleUpgradeVip}    
+            />
+          </div>
+        )}
+
+        {/* 2. 空间全局侧边栏（只要在空间语境里就一直显示） */}
+        {authReady && isSpaceContext && <SpaceSidebar active={screen} go={go} />}
+
+        {/* 3. 空间主框架：让内容全屏，不再被侧边栏挤占（底部悬浮导航靠 paddingBottom 让位） */}
+        {authReady && (
+          <div style={{ display: screen === "space" ? "block" : "none", position: "absolute", inset: 0, zIndex: 20, background: "#fbfaf7" }}>
+            <SpaceHome go={go} user={user} onUpgradeVip={handleUpgradeVip} />
+          </div>
+        )}
+        {authReady && (
+          <div style={{ display: screen === "community" ? "block" : "none", position: "absolute", inset: 0, zIndex: 20, background: "#fbfaf7" }}>
+            <CommunityScreen go={go} />
+          </div>
+        )}
+        {authReady && (
+          <div style={{ display: screen === "group" ? "block" : "none", position: "absolute", inset: 0, zIndex: 20, background: "#fbfaf7" }}>
+            <GroupSessionScreen go={go} />
+          </div>
+        )}
+        {authReady && (
+          <div style={{ display: screen === "house" ? "block" : "none", position: "absolute", inset: 0, zIndex: 20, background: "#fbfaf7" }}>
+            <MyHouseScreen go={go} user={user} />
+          </div>
+        )}
+
+        {screen === "publish" && <PublishScreen go={go} />}
+        {screen === "gallery" && <GalleryScreen go={go} />}
+        
+        {/* 图4/图5：本地/云端选择与模板库 */}
+        {screen === "create" && <SaveTargetScreen go={go} />}
+
         {screen === "profile" && <ProfileScreen go={go} />}
         {screen === "personal-profile" && <PersonalProfileScreen go={go} />}
         {screen === "payment-settings" && <PaymentSettingsScreen go={go} />}
@@ -1101,12 +1287,85 @@ export default function App() {
         {screen === "privacy-settings" && <PreferenceSettingsScreen title="隐私权限" storageKey="ranjingPrivacySettings" go={go} items={[{label:"我有疑问",kind:"action"},{label:"系统权限管理",kind:"action"},{label:"允许采集云端"},{label:"团队信息"}]} />}
         {screen === "membership-settings" && <PreferenceSettingsScreen title="会员设置" storageKey="ranjingMembershipSettings" go={go} items={[{label:"续费提醒"},{label:"订阅消息"},{label:"设置偏好",kind:"action"},{label:"团队默认模板",kind:"action"}]} />}
         {screen === "account-security" && <AccountSecurityScreen go={go} />}
-        {screen === "about" && <ProfileScreen go={go} />}
-        {screen === "support" && <SupportScreen go={go} />}
-        {screen === "help" && <HelpScreen go={go} />}
-        {screen === "wallet" && <WalletScreen go={go} />}
         {screen === "membership" && <MembershipScreen go={go} />}
-        {screen === "settings" && <SettingsScreen go={go} brightness={brightness} setBrightness={setBrightness} dark={dark} setDark={setDark} />}
+
+        {/* 全屏「开门」过渡动画：推开门 -> 光透进来 -> 进入空间 */}
+        {isOpeningDoor && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "#121214", // 暗色背景
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", perspective: "1200px"
+          }}>
+            {/* 左门 */}
+            <div style={{
+              position: "absolute", left: 0, top: 0, bottom: 0, width: "50%",
+              background: "linear-gradient(to right, #2a2a2a, #1a1a1a)",
+              borderRight: "1px solid rgba(201,168,124,.3)",
+              transformOrigin: "left center",
+              animation: "doorOpenLeft 1.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards",
+              zIndex: 1
+            }} />
+            {/* 右门 */}
+            <div style={{
+              position: "absolute", right: 0, top: 0, bottom: 0, width: "50%",
+              background: "linear-gradient(to left, #2a2a2a, #1a1a1a)",
+              borderLeft: "1px solid rgba(201,168,124,.3)",
+              transformOrigin: "right center",
+              animation: "doorOpenRight 1.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards",
+              zIndex: 1
+            }} />
+
+            {/* 门缝透出的光 */}
+            <div style={{
+              position: "absolute", left: "50%", top: "20%", bottom: "20%", width: "2px",
+              background: "#C9A87C",
+              boxShadow: "0 0 60px 30px rgba(201,168,124,.6)",
+              animation: "doorLight 1.2s ease-out forwards",
+              zIndex: 2,
+              pointerEvents: "none"
+            }} />
+
+            {/* 动画结束后的文字提示（可选） */}
+            <div style={{
+              color: "#C9A87C", fontSize: 14, letterSpacing: "0.3em",
+              position: "absolute", bottom: "15%", zIndex: 3,
+              animation: "fadeIn 1.5s ease-out forwards"
+            }}>正在进入空间...</div>
+
+            {/* 动画关键帧 */}
+            <style>{`
+              @keyframes doorOpenLeft {
+                0% { transform: translateX(0) rotateY(0deg); }
+                100% { transform: translateX(-100%) rotateY(-30deg); opacity: 0; }
+              }
+              @keyframes doorOpenRight {
+                0% { transform: translateX(0) rotateY(0deg); }
+                100% { transform: translateX(100%) rotateY(30deg); opacity: 0; }
+              }
+              @keyframes doorLight {
+                0% { opacity: 0; width: 2px; box-shadow: none; }
+                40% { opacity: 1; width: 4px; box-shadow: 0 0 120px 60px rgba(201,168,124,.8); }
+                100% { opacity: 0; width: 200px; box-shadow: 0 0 200px 100px rgba(201,168,124,0); }
+              }
+              @keyframes fadeIn {
+                0% { opacity: 0; }
+                70% { opacity: 1; }
+                100% { opacity: 0; }
+              }
+            `}</style>
+
+            {/* 动画结束，进入空间 */}
+            <div
+              style={{ position: "absolute", inset: 0, zIndex: 0, animation: "doorOpenLeft 1.2s linear forwards" }}
+              onAnimationEnd={() => {
+                setIsOpeningDoor(false);
+                setScreen("space");
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
- )}
+  );
+}
