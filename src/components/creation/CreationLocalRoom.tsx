@@ -533,6 +533,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
             }}
             hasClipboard={!!pageClipboard}
             onRequestConnect={() => startConnect(currentPageId)}
+            onDeletePage={() => { if (doc.pages.length > 1) deletePage(currentPageId); }}
             paperColor={paperColor}
             paperAlpha={paperAlpha}
             stageColor={stageColor}

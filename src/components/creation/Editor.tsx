@@ -2844,13 +2844,23 @@ export default function Editor({
               type="button"
               title="全删除"
               onClick={() => {
-                const list = shapesInBox(box);
-                if (list.length === 0) return;
-                const ids = new Set(list.map((s) => s.id));
-                onUpdateRef.current({
-                  shapes: (pageRef.current.shapes || []).filter((s) => !ids.has(s.id)),
-                });
-                clearBox();
+                const stageEl = stageRef.current;
+                if (!stageEl) return;
+                const sr = stageEl.getBoundingClientRect();
+                const cx = sr.left + box.x + box.w / 2;
+                const cy = sr.top + box.y + box.h / 2;
+                if (isInPaper(cx, cy)) {
+                  onDeletePage?.();
+                  clearBox();
+                } else {
+                  const list = shapesInBox(box);
+                  if (list.length === 0) return;
+                  const ids = new Set(list.map((s) => s.id));
+                  onUpdateRef.current({
+                    shapes: (pageRef.current.shapes || []).filter((s) => !ids.has(s.id)),
+                  });
+                  clearBox();
+                }
               }}
               style={{ ...penBarBtn, background: "rgba(217,76,76,.9)" }}
             >🗑 {shapesInBox(box).length}</button>
