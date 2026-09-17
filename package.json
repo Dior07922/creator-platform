@@ -11,13 +11,27 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.1",
+    "@capacitor/screen-orientation": "^8.0.1",
+    "@capacitor/share": "^8.0.1",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/noto-sans-sc": "^5.3.0",
+    "@fontsource/noto-serif-sc": "^5.3.0",
+    "@fontsource/source-sans-3": "^5.3.0",
+    "@fontsource/source-serif-4": "^5.3.0",
     "@neondatabase/serverless": "^1.1.0",
     "alipay-sdk": "^4.14.0",
+    "jsh_rime": "^2.0.2",
+    "lxgw-wenkai-webfont": "^1.7.0",
     "next": "^16.3.3",
+    "perfect-freehand": "^1.2.3",
+    "phaser": "^4.2.1",
+    "playcanvas": "^2.22.2",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
