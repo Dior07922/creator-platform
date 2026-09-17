@@ -7,3 +7,29 @@ node_modules
 .vercel
 out/
 .next/
+
+# build cache - changes every build, pollutes diff
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# IDE / editor personal config
+.idea/
+.vscode/
+*.iml
+
+# local native build artifacts
+android/.gradle/
+android/local.properties
+android/.idea/
+android/app/build/
+ios/App/Pods/
+ios/App/build/
+ios/App/App/public/
+
+# raw font / asset download packages (extracted copies live in public/)
+*.zip
+OTF/
+
+# temp debug scripts
+_tmp_*.mjs
+_verify_*.cjs

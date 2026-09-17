@@ -5,7 +5,7 @@ import { loadLocalDoc, saveLocalDoc } from "../../lib/localDocuments";
 import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode } from "../../types/document";
 import Editor from "./Editor";
 import {
-  ObjectDrawer, ShapeDrawer, WindowDrawer,
+  ObjectDrawer, ShapeDrawer,
   ColorDrawer, SpecDrawer, LockDrawer, FontDrawer,
 } from "./CreationDrawer";
 import PageSheet from "./PageSheet";
@@ -13,7 +13,7 @@ import { specScale } from "../../lib/paperSpecs";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import AssetBrowser from "./AssetBrowser";
 
-type Props = { onBack?: () => void; initialText?: string; docKey?: string };
+type Props = { onBack?: () => void; initialText?: string; docKey?: string; onEnterSpace?: (spaceId: string) => void; isVip?: boolean; onUpgradeVip?: () => void };
 
 type SideKind = "lock" | "page" | "object" | "color" | "shape" | "font" | "spec" | "door";
 
@@ -25,7 +25,7 @@ const SIDE_ITEMS: { id: string; def: string; kind: SideKind }[] = [
   { id: "object", def: "物",   kind: "object" },
   { id: "page",   def: "页",   kind: "page" },
   { id: "lock",   def: "🔒",   kind: "lock" },
-  { id: "door",   def: "门",   kind: "door" },
+  { id: "door",   def: "",     kind: "door" },
 ];
 
 const LABELS_KEY = "ranjing.sideLabels";
@@ -120,7 +120,7 @@ function SideEntryButton({
   );
 }
 
-export default function CreationLocalRoom({ onBack, initialText, docKey }: Props) {
+export default function CreationLocalRoom({ onBack, initialText, docKey, onEnterSpace, isVip, onUpgradeVip }: Props) {
   useEffect(() => {
     ScreenOrientation.unlock().catch(() => {});
     return () => { ScreenOrientation.unlock().catch(() => {}); };
@@ -164,6 +164,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
   const [elementConnectMode, setElementConnectMode] = useState(false);
   const [lassoMode, setLassoMode] = useState(false);
   const [sheetAction, setSheetAction] = useState<{ id: number; kind: string } | null>(null);
+  const [editorHasSelection, setEditorHasSelection] = useState(false);
 
   function dispatchSheet(kind: string) {
     if (kind === "connect-toggle") {
@@ -177,11 +178,11 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
       setLassoMode((v) => !v);
       return;
     }
-    setSheetAction({ id: Date.now(), kind });
+    setSheetAction({ id: Date.now() + Math.random(), kind });
   }
 
   const [openDrawer, setOpenDrawer] = useState<
-    "page" | "object" | "shape" | "color" | "spec" | "lock" | "window" | "font" | null
+    "page" | "object" | "shape" | "color" | "spec" | "lock" | "font" | null
   >(null);
 
   const [sideLabels, setSideLabels] = useState<Record<string, string>>(() => {
@@ -205,12 +206,21 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
     switch (kind) {
       case "lock":   setOpenDrawer("lock"); break;
       case "page":   setOpenDrawer("page"); break;
-      case "object": setShowAssets(true); break;
+      case "object":
+        if (!isVip && onUpgradeVip) {
+          onUpgradeVip();
+          return;
+        }
+        setShowAssets(true);
+        break;
       case "color":  setOpenDrawer("color"); break;
       case "shape":  setOpenDrawer("shape"); break;
       case "font":   setOpenDrawer("font"); break;
       case "spec":   setOpenDrawer("spec"); break;
-      case "door":   setOpenDrawer("window"); break;
+      case "door":
+        // 不再弹 WindowDrawer，直接触发进入空间
+        if (onEnterSpace) onEnterSpace("home");
+        break;
     }
   }
 
@@ -544,6 +554,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
             onDrawToolChange={(k) => setDrawTool(k)}
             elementConnectMode={elementConnectMode}
             lassoMode={lassoMode}
+            onSelectionChange={setEditorHasSelection}
             sheetAction={sheetAction}
           />
         )}
@@ -551,14 +562,41 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
 
       {openDrawer === null && (
         <div className="cd-side-entries">
-          {SIDE_ITEMS.map((it) => (
-            <SideEntryButton
-              key={it.id}
-              label={labelOf(it.id, it.def)}
-              onClick={() => onSideAction(it.kind)}
-              onRename={() => setRenaming({ id: it.id, label: labelOf(it.id, it.def) })}
-            />
-          ))}
+          {SIDE_ITEMS.map((it) => {
+            if (it.id === "door") {
+              return (
+                <button
+                  key={it.id}
+                  type="button"
+                  className="cd-side-entry"
+                  onClick={() => onSideAction(it.kind)}
+                  aria-label="门"
+                >
+                  {/* 替换掉原来那两个 span 拼接的简陋方块，换成这个 SVG */}
+                  <svg width="18" height="26" viewBox="0 0 18 26" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ writingMode: "horizontal-tb" }}>
+                    {/* 拱门主体 */}
+                    <path d="M2 25V9C2 4.58172 5.58172 1 10 1H8C12.4183 1 16 4.58172 16 9V25" stroke="#C9A87C" strokeWidth="1.2" strokeLinecap="round"/>
+                    {/* 门缝 */}
+                    <line x1="9" y1="1" x2="9" y2="25" stroke="#C9A87C" strokeWidth="0.8" strokeLinecap="round"/>
+                    {/* 左门环 */}
+                    <circle cx="6.5" cy="14" r="1.2" fill="#C9A87C"/>
+                    {/* 右门环 */}
+                    <circle cx="11.5" cy="14" r="1.2" fill="#C9A87C"/>
+                    {/* 门槛 */}
+                    <path d="M0 25H18" stroke="#C9A87C" strokeWidth="1.2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              );
+            }
+            return (
+              <SideEntryButton
+                key={it.id}
+                label={labelOf(it.id, it.def)}
+                onClick={() => onSideAction(it.kind)}
+                onRename={() => setRenaming({ id: it.id, label: labelOf(it.id, it.def) })}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -577,6 +615,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
           dispatchAction={dispatchSheet}
           connectModeActive={elementConnectMode}
           lassoModeActive={lassoMode}
+          hasSelection={editorHasSelection}
         />
       )}
       {openDrawer === "object" && <ObjectDrawer onClose={closeDrawer} />}
@@ -588,7 +627,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey }: Props
           onInsertShape={(kind) => { insertShapeAtCenter(kind); closeDrawer(); }}
         />
       )}
-      {openDrawer === "window" && <WindowDrawer onClose={closeDrawer} />}
       {openDrawer === "color" && (
         <ColorDrawer
           paperColor={paperColor}

@@ -258,26 +258,26 @@ export default function PageSheet({
             <>
               <SectionLabel>对齐</SectionLabel>
               <BtnGrid>
-                <ActBtn label="⇤ 左" onClick={() => dispatchAction("align-left")} />
-                <ActBtn label="⇹ 中" onClick={() => dispatchAction("align-hcenter")} />
-                <ActBtn label="⇥ 右" onClick={() => dispatchAction("align-right")} />
-                <ActBtn label="⤒ 上" onClick={() => dispatchAction("align-top")} />
-                <ActBtn label="↕ 中" onClick={() => dispatchAction("align-vcenter")} />
-                <ActBtn label="⤓ 下" onClick={() => dispatchAction("align-bottom")} />
+                <ActBtn label="⇤ 左" disabled={!hasSelection} onClick={() => dispatchAction("align-left")} />
+                <ActBtn label="⇹ 中" disabled={!hasSelection} onClick={() => dispatchAction("align-hcenter")} />
+                <ActBtn label="⇥ 右" disabled={!hasSelection} onClick={() => dispatchAction("align-right")} />
+                <ActBtn label="⤒ 上" disabled={!hasSelection} onClick={() => dispatchAction("align-top")} />
+                <ActBtn label="↕ 中" disabled={!hasSelection} onClick={() => dispatchAction("align-vcenter")} />
+                <ActBtn label="⤓ 下" disabled={!hasSelection} onClick={() => dispatchAction("align-bottom")} />
               </BtnGrid>
 
               <SectionLabel>分布</SectionLabel>
               <BtnGrid>
-                <ActBtn label="↔ 水平等距" onClick={() => dispatchAction("distribute-h")} />
-                <ActBtn label="↕ 垂直等距" onClick={() => dispatchAction("distribute-v")} />
+                <ActBtn label="↔ 水平等距" disabled={!hasSelection} onClick={() => dispatchAction("distribute-h")} />
+                <ActBtn label="↕ 垂直等距" disabled={!hasSelection} onClick={() => dispatchAction("distribute-v")} />
               </BtnGrid>
 
               <SectionLabel>图层</SectionLabel>
               <BtnGrid>
-                <ActBtn label="置顶" onClick={() => dispatchAction("bring-front")} />
-                <ActBtn label="上移" onClick={() => dispatchAction("bring-forward")} />
-                <ActBtn label="下移" onClick={() => dispatchAction("send-backward")} />
-                <ActBtn label="置底" onClick={() => dispatchAction("send-back")} />
+                <ActBtn label="置顶" disabled={!hasSelection} onClick={() => dispatchAction("bring-front")} />
+                <ActBtn label="上移" disabled={!hasSelection} onClick={() => dispatchAction("bring-forward")} />
+                <ActBtn label="下移" disabled={!hasSelection} onClick={() => dispatchAction("send-backward")} />
+                <ActBtn label="置底" disabled={!hasSelection} onClick={() => dispatchAction("send-back")} />
               </BtnGrid>
 
               {!hasSelection && (
@@ -292,9 +292,9 @@ export default function PageSheet({
             <>
               <SectionLabel>元素编组</SectionLabel>
               <BtnGrid>
-                <ActBtn label="编组" onClick={() => dispatchAction("group")} />
-                <ActBtn label="解组" onClick={() => dispatchAction("ungroup")} />
-                <ActBtn label="绑定笔迹" onClick={() => dispatchAction("bind-strokes")} />
+                <ActBtn label="编组" disabled={!hasSelection} onClick={() => dispatchAction("group")} />
+                <ActBtn label="解组" disabled={!hasSelection} onClick={() => dispatchAction("ungroup")} />
+                <ActBtn label="绑定笔迹" disabled={!hasSelection} onClick={() => dispatchAction("bind-strokes")} />
               </BtnGrid>
 
               <SectionLabel>智能合成（占位）</SectionLabel>
@@ -373,21 +373,22 @@ function BtnGrid({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ActBtn({ label, onClick, active }: { label: string; onClick: () => void; active?: boolean }) {
+function ActBtn({ label, onClick, active, disabled }: {
+  label: string; onClick: () => void; active?: boolean; disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         height: 44,
         border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
         borderRadius: 10,
-        background: active ? "#f1ece4" : "#fffdfa",
-        color: "#3a352e",
-        fontSize: 13,
-        cursor: "pointer",
-        fontFamily: "inherit",
-        padding: 0,
+        background: disabled ? "rgba(74,70,63,.04)" : active ? "#f1ece4" : "#fffdfa",
+        color: disabled ? "#b4ada5" : "#3a352e",
+        fontSize: 13, cursor: disabled ? "not-allowed" : "pointer",
+        fontFamily: "inherit", padding: 0,
       }}
     >{label}</button>
   );

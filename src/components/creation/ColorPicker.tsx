@@ -49,7 +49,6 @@ function rgbToHsv(r: number, g: number, b: number) {
   return { h, s, v: max };
 }
 
-// 苒境网格色板：6 列 × 6 行
 const GRID_COLORS: string[] = [
   "#000000", "#2B2B2B", "#666666", "#999999", "#D9D9D9", "#FFFFFF",
   "#F7F3EA", "#E8DFD0", "#D6C3A5", "#B89B72", "#8A6F55", "#5F554D",
@@ -66,9 +65,10 @@ type Props = {
   alpha: number;
   onChange: (hex: string) => void;
   onAlphaChange: (a: number) => void;
+  onCommit?: () => void;
 };
 
-export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: Props) {
+export default function ColorPicker({ color, alpha, onChange, onAlphaChange, onCommit }: Props) {
   const [tab, setTab] = useState<Tab>("grid");
 
   const [hsv, setHsv] = useState(() => {
@@ -129,6 +129,7 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
     setHexInput(hex);
     onChange(hex);
     pushRecent(hex);
+    onCommit?.();
   }
 
   function makeDragHandlers(
@@ -193,7 +194,6 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
   const hueHex = rgbToHex(hueRgb.r, hueRgb.g, hueRgb.b);
   const rgb = hexToRgb(color);
 
-  // ===== 内联样式常量 =====
   const tabsWrapStyle: React.CSSProperties = {
     display: "flex",
     gap: 4,
@@ -263,26 +263,12 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
 
   return (
     <div className="cp-root">
-      {/* Tab 切换 */}
       <div style={tabsWrapStyle}>
-        <button
-          type="button"
-          style={tabBtnStyle(tab === "grid")}
-          onClick={() => setTab("grid")}
-        >网格</button>
-        <button
-          type="button"
-          style={tabBtnStyle(tab === "spectrum")}
-          onClick={() => setTab("spectrum")}
-        >光谱</button>
-        <button
-          type="button"
-          style={tabBtnStyle(tab === "slider")}
-          onClick={() => setTab("slider")}
-        >滑块</button>
+        <button type="button" style={tabBtnStyle(tab === "grid")} onClick={() => setTab("grid")}>网格</button>
+        <button type="button" style={tabBtnStyle(tab === "spectrum")} onClick={() => setTab("spectrum")}>光谱</button>
+        <button type="button" style={tabBtnStyle(tab === "slider")} onClick={() => setTab("slider")}>滑块</button>
       </div>
 
-      {/* 网格 */}
       {tab === "grid" && (
         <div style={gridWrapStyle}>
           {GRID_COLORS.map((c) => (
@@ -297,21 +283,12 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
         </div>
       )}
 
-      {/* 光谱 */}
       {tab === "spectrum" && (
         <>
-          <div
-            className="cp-area"
-            ref={areaRef}
-            {...areaHandlers}
-            style={{ background: hueHex }}
-          >
+          <div className="cp-area" ref={areaRef} {...areaHandlers} style={{ background: hueHex }}>
             <div className="cp-area-white" />
             <div className="cp-area-black" />
-            <div
-              className="cp-area-cursor"
-              style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }}
-            />
+            <div className="cp-area-cursor" style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%` }} />
           </div>
           <div className="cp-hue" ref={hueRef} {...hueHandlers}>
             <div className="cp-hue-cursor" style={{ left: `${(hsv.h / 360) * 100}%` }} />
@@ -319,46 +296,34 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
         </>
       )}
 
-      {/* 滑块（RGB） */}
       {tab === "slider" && (
         <div style={slidersWrapStyle}>
           <div style={sliderRowStyle}>
             <span style={sliderLabelStyle}>R</span>
-            <input
-              type="range" min={0} max={255} value={rgb.r}
-              style={sliderStyle}
-              onChange={(e) => commitRgb(Number(e.target.value), rgb.g, rgb.b)}
-            />
+            <input type="range" min={0} max={255} value={rgb.r} style={sliderStyle}
+              onChange={(e) => commitRgb(Number(e.target.value), rgb.g, rgb.b)} />
             <span style={sliderValueStyle}>{rgb.r}</span>
           </div>
           <div style={sliderRowStyle}>
             <span style={sliderLabelStyle}>G</span>
-            <input
-              type="range" min={0} max={255} value={rgb.g}
-              style={sliderStyle}
-              onChange={(e) => commitRgb(rgb.r, Number(e.target.value), rgb.b)}
-            />
+            <input type="range" min={0} max={255} value={rgb.g} style={sliderStyle}
+              onChange={(e) => commitRgb(rgb.r, Number(e.target.value), rgb.b)} />
             <span style={sliderValueStyle}>{rgb.g}</span>
           </div>
           <div style={sliderRowStyle}>
             <span style={sliderLabelStyle}>B</span>
-            <input
-              type="range" min={0} max={255} value={rgb.b}
-              style={sliderStyle}
-              onChange={(e) => commitRgb(rgb.r, rgb.g, Number(e.target.value))}
-            />
+            <input type="range" min={0} max={255} value={rgb.b} style={sliderStyle}
+              onChange={(e) => commitRgb(rgb.r, rgb.g, Number(e.target.value))} />
             <span style={sliderValueStyle}>{rgb.b}</span>
           </div>
         </div>
       )}
 
-      {/* 透明度 —— 三个 tab 共用 */}
       <div className="cp-alpha" ref={alphaRef} {...alphaHandlers}>
         <div className="cp-alpha-fill" style={{ background: `linear-gradient(to right, transparent, ${color})` }} />
         <div className="cp-alpha-cursor" style={{ left: `${alpha * 100}%` }} />
       </div>
 
-      {/* HEX 输入 —— 共用 */}
       <div className="cp-hex-row">
         <span className="cp-hex-label">HEX</span>
         <input
@@ -372,6 +337,7 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
               const lc = v.toLowerCase();
               onChange(lc);
               pushRecent(lc);
+              onCommit?.();
             } else {
               setHexInput(color);
             }
@@ -382,7 +348,6 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
         />
       </div>
 
-      {/* 最近 —— 共用 */}
       <div className="cp-recent-row">
         <span className="cp-recent-label">最近</span>
         <div className="cp-recent-list">
@@ -393,7 +358,7 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange }: P
               type="button"
               className="cp-recent-item"
               style={{ background: c }}
-              onClick={() => { onChange(c); pushRecent(c); }}
+              onClick={() => { onChange(c); pushRecent(c); onCommit?.(); }}
               aria-label={c}
             />
           ))}

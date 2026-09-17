@@ -5,6 +5,7 @@ import type { Page, PageLink, ShapeKind } from "../../types/document";
 import ColorPicker from "./ColorPicker";
 import { FONT_LIBRARY } from "../../lib/fonts";
 import { SPEC_CATEGORIES } from "../../lib/paperSpecs";
+import { API_BASE } from "../../lib/apiBase";
 
 const PAGE_LIMIT = 30;
 
@@ -498,13 +499,86 @@ export function ShapeDrawer({
    窗
 ============================================================ */
 export function WindowDrawer({ onClose }: { onClose: () => void }) {
+  const [items, setItems] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { CapacitorHttp } = await import("@capacitor/core");
+        const res = await CapacitorHttp.get({
+          url: `${API_BASE}/api/hotspots?source=%E5%85%A8%E9%83%A8`,
+        });
+        if (!alive) return;
+        const d = res.data;
+        const list = Array.isArray(d?.items) ? d.items : [];
+        setItems(list);
+      } catch (e: any) {
+        if (alive) setErr(e?.message || "加载失败");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   return (
     <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
       <div className="cd-body">
-        <div className="cd-empty-block">
-          <div className="cd-empty-title">窗</div>
-          <div className="cd-empty-desc">外面的世界<br />建设中</div>
+        <div style={{
+          fontSize: 13, fontWeight: 600, color: "#3a352e",
+          letterSpacing: ".1em", padding: "4px 4px 12px",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <span style={{ display: "flex", gap: 2 }}>
+            <span style={{ width: 5, height: 11, border: "1.2px solid #756f68", borderRight: "0.6px solid #756f68", borderRadius: "2px 0 0 2px" }} />
+            <span style={{ width: 5, height: 11, border: "1.2px solid #756f68", borderLeft: "0.6px solid #756f68", borderRadius: "0 2px 2px 0" }} />
+          </span>
+          <span>门 · 社交</span>
         </div>
+
+        {loading && <div style={{ fontSize: 12, color: "#918981", padding: "12px 4px" }}>加载中…</div>}
+        {!loading && err && <div style={{ fontSize: 12, color: "#a06f64", padding: "12px 4px" }}>{err}</div>}
+        {!loading && !err && items.length === 0 && (
+          <div style={{ fontSize: 12, color: "#918981", padding: "12px 4px" }}>暂无内容</div>
+        )}
+        {!loading && !err && items.map((it, i) => (
+          <button
+            key={it.id ?? i}
+            type="button"
+            onClick={() => {
+              const url = it.url || it.link;
+              if (url && typeof window !== "undefined") window.open(url, "_blank");
+            }}
+            style={{
+              display: "flex", alignItems: "flex-start", gap: 8,
+              width: "100%", padding: "10px 10px", marginBottom: 6,
+              border: "1px solid rgba(74,70,63,.10)",
+              borderRadius: 10, background: "#fffdfa",
+              textAlign: "left", cursor: "pointer",
+            }}
+          >
+            <span style={{ fontSize: 10, color: "#a49a8f", flex: "none", paddingTop: 2, width: 16 }}>
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{
+                fontSize: 12, color: "#3a352e", lineHeight: 1.5,
+                overflow: "hidden", textOverflow: "ellipsis",
+                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+              } as React.CSSProperties}>
+                {it.title || "(无标题)"}
+              </span>
+              {it.sourceLabel && (
+                <span style={{ display: "block", fontSize: 10, color: "#a49a8f", marginTop: 4 }}>
+                  {it.sourceLabel}
+                </span>
+              )}
+            </span>
+          </button>
+        ))}
       </div>
       <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
     </aside>

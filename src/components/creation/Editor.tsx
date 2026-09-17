@@ -26,6 +26,7 @@ type Props = {
   onDrawToolChange?: (kind: ShapeKind | null) => void;
   elementConnectMode?: boolean;
   lassoMode?: boolean;
+  onSelectionChange?: (hasSelection: boolean) => void;
   sheetAction?: { id: number; kind: string } | null;
 };
 
@@ -345,6 +346,7 @@ export default function Editor({
   onDrawToolChange,
   elementConnectMode,
   lassoMode,
+  onSelectionChange,
   sheetAction,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -2312,6 +2314,54 @@ export default function Editor({
       return;
     }
 
+    if (kind === "distribute-h" || kind === "distribute-v") {
+      const bs = sel
+        .map((s) => ({ s, b: boundsOf(s.type, s.id) }))
+        .filter((x) => x.b) as { s: any; b: any }[];
+      if (bs.length < 3) return; // 少于 3 个没意义
+      if (kind === "distribute-h") {
+        bs.sort((a, b) => a.b.x - b.b.x);
+        const minX = bs[0].b.x;
+        const maxX = bs[bs.length - 1].b.x + bs[bs.length - 1].b.w;
+        const totalW = bs.reduce((sum, x) => sum + x.b.w, 0);
+        const gap = (maxX - minX - totalW) / (bs.length - 1);
+        let cursor = minX;
+        bs.forEach(({ s, b }) => {
+          const dx = cursor - b.x;
+          if (dx) setPos(s.type, s.id, dx, 0);
+          cursor += b.w + gap;
+        });
+      } else {
+        bs.sort((a, b) => a.b.y - b.b.y);
+        const minY = bs[0].b.y;
+        const maxY = bs[bs.length - 1].b.y + bs[bs.length - 1].b.h;
+        const totalH = bs.reduce((sum, x) => sum + x.b.h, 0);
+        const gap = (maxY - minY - totalH) / (bs.length - 1);
+        let cursor = minY;
+        bs.forEach(({ s, b }) => {
+          const dy = cursor - b.y;
+          if (dy) setPos(s.type, s.id, 0, dy);
+          cursor += b.h + gap;
+        });
+      }
+      return;
+    }
+
+    if (kind === "bind-strokes") {
+      // 简易实现：把当前框选内的所有 shape 打成一个 group
+      const ids = (pageRef.current.shapes || [])
+        .filter((s) => selectedElRef.current?.type === "shape"
+          ? s.id === selectedElRef.current.id
+          : sel.some((x) => x.type === "shape" && x.id === s.id))
+        .map((s) => s.id);
+      if (!ids.length) return;
+      const gid = `g-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      onUpdateRef.current({
+        groups: [...(pageRef.current.groups || []), { id: gid, memberIds: ids, createdAt: Date.now() }],
+      });
+      return;
+    }
+
     if (kind === "group") {
       const ids = sel.map((s) => s.id);
       if (!ids.length) return;
@@ -2335,7 +2385,7 @@ export default function Editor({
     if (!sheetAction) return;
     handleSheetAction(sheetAction.kind);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetAction?.id]);
+  }, [sheetAction?.id, sheetAction?.kind]);
   const otherPages = (allPages || []).filter((p) => p.id !== page.id);
 
   const selectedTextIds = new Set<string>();
@@ -2352,7 +2402,16 @@ export default function Editor({
   }
   const mainPaperSelected = boxContainsPaper(boxRef.current || { x: 0, y: 0, w: 0, h: 0 });
 
-  const hasSelection = !!boxGroupId || (box != null && box.w >= 4 && box.h >= 4);
+  const hasBoxSel = !!box && box.w >= 4 && box.h >= 4;
+  const hasElSel  = !!selectedEl;
+  const hasSelection = hasBoxSel || hasElSel || !!boxGroupId;
+
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+
+  useEffect(() => {
+    onSelectionChangeRef.current?.(hasSelection);
+  }, [hasSelection]);
   const isDrawing = !!drawTool;
 
   /* ---- 框选版工具条：框内所有 shape（不分类型） ---- */
