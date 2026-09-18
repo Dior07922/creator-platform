@@ -2,6 +2,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import type { Page, PageLink, ShapeKind } from "../../types/document";
+import type { BrushParams, EasingName } from "./Editor";
 import ColorPicker from "./ColorPicker";
 import { FONT_LIBRARY } from "../../lib/fonts";
 import { SPEC_CATEGORIES } from "../../lib/paperSpecs";
@@ -318,7 +319,7 @@ export function PageDrawer({
 ============================================================ */
 export function ObjectDrawer({ onClose }: { onClose: () => void }) {
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body">
         <div className="cd-empty-block">
           <div className="cd-empty-title">物</div>
@@ -336,6 +337,22 @@ export function ObjectDrawer({ onClose }: { onClose: () => void }) {
 /* ============================================================
    形抽屉
 ============================================================ */
+/** 笔刷手感默认值 —— 与 Editor.tsx renderShape 的缺省值保持一致，
+ *  这样未存参数的历史笔迹和新建笔迹渲染结果一致。 */
+export const BRUSH_DEFAULTS: BrushParams = {
+  size: undefined,
+  thinning: 0.35,
+  smoothing: 0.55,
+  streamline: 0.45,
+  easingName: "linear",
+  startTaper: 0,
+  startCap: true,
+  endTaper: 0,
+  endCap: false,
+  fill: false,
+  simulatePressure: true,
+};
+
 const PEN_TOOLS: { kind: ShapeKind; name: string; sw: number }[] = [
   { kind: "crayon",    name: "蜡笔",   sw: 3.2 },
   { kind: "free",      name: "自由笔", sw: 1.4 },
@@ -374,48 +391,84 @@ const LINE_ARTS: { kind: ShapeKind; name: string; icon: string }[] = [
 
 export function ShapeDrawer({
   onClose, onPickTool, onInsertText, onInsertShape,
+  brush, onBrushChange,
 }: {
   onClose: () => void;
   onPickTool: (kind: ShapeKind) => void;
   onInsertText: (text: string) => void;
   onInsertShape: (kind: ShapeKind) => void;
+  brush: BrushParams;
+  onBrushChange: (patch: Partial<BrushParams>) => void;
 }) {
   const [tab, setTab] = useState<"pen" | "shapes" | "emoji" | "line" | "eraser">("pen");
 
   const tabsWrapStyle: React.CSSProperties = {
-    display: "flex", gap: 2, padding: 4, margin: "0 0 8px 0",
+    display: "flex", gap: 2, padding: 4, margin: "0 0 10px 0",
     position: "sticky", top: 0, zIndex: 3,
     background: "#fbfaf7", borderRadius: 10,
     boxShadow: "0 2px 4px rgba(74,70,63,.04)",
   };
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
-    flex: 1, height: 32, border: 0, borderRadius: 8,
+    flex: 1, height: 30, border: 0, borderRadius: 8,
     background: active ? "#fff" : "transparent",
     color: active ? "#3a352e" : "#756f68",
     fontWeight: active ? 600 : 400,
-    fontSize: 11, fontFamily: "inherit", cursor: "pointer",
+    fontSize: 10, fontFamily: "inherit", cursor: "pointer",
     boxShadow: active ? "0 1px 3px rgba(0,0,0,.06)" : "none",
     padding: 0,
   });
+  const fixBtnStyle: React.CSSProperties = {
+    flex: 1, height: 30, border: 0, borderRadius: 6,
+    background: "rgba(74,70,63,.06)", color: "#4a463f",
+    fontSize: 14, cursor: "pointer", padding: 0,
+  };
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 11, color: "#8a8178", letterSpacing: ".1em",
+    margin: "14px 2px 10px",
+  };
+  const toggleStyle = (on: boolean): React.CSSProperties => ({
+    width: 36, height: 20, borderRadius: 10, border: 0, padding: 0,
+    background: on ? "#5f554d" : "rgba(74,70,63,.15)",
+    position: "relative", cursor: "pointer", flex: "none",
+  });
+  const knobStyle = (on: boolean): React.CSSProperties => ({
+    position: "absolute", top: 2, left: on ? 18 : 2,
+    width: 16, height: 16, borderRadius: 8, background: "#fff",
+    transition: "left .2s",
+  });
+  const rowStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center",
+    justifyContent: "space-between", marginBottom: 8,
+  };
 
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220, paddingTop: 80, top: 0 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130, paddingTop: 80, top: 0 }}>
       <div className="cd-body" style={{ paddingTop: 0 }}>
+
+        {/* 撤销 / 重做 / 复制 */}
+        <div style={{ display: "flex", gap: 4, padding: "0 4px 10px", borderBottom: "1px solid rgba(74,70,63,.08)", marginBottom: 10 }}>
+          <button type="button" title="撤销" onClick={() => window.dispatchEvent(new CustomEvent("ranjing:cmd", { detail: "undo" }))} style={fixBtnStyle}>↶</button>
+          <button type="button" title="重做" onClick={() => window.dispatchEvent(new CustomEvent("ranjing:cmd", { detail: "redo" }))} style={fixBtnStyle}>↷</button>
+          <button type="button" title="复制" onClick={() => window.dispatchEvent(new CustomEvent("ranjing:cmd", { detail: "copy" }))} style={fixBtnStyle}>⧉</button>
+        </div>
+
+        {/* tab 切换 */}
         <div style={tabsWrapStyle}>
           <button type="button" style={tabBtnStyle(tab === "pen")} onClick={() => setTab("pen")}>笔</button>
           <button type="button" style={tabBtnStyle(tab === "shapes")} onClick={() => setTab("shapes")}>形状</button>
-          <button type="button" style={tabBtnStyle(tab === "emoji")} onClick={() => setTab("emoji")}>颜表情</button>
-          <button type="button" style={tabBtnStyle(tab === "line")} onClick={() => setTab("line")}>线画稿</button>
-          <button type="button" style={tabBtnStyle(tab === "eraser")} onClick={() => setTab("eraser")}>橡皮</button>
+          <button type="button" style={tabBtnStyle(tab === "emoji")} onClick={() => setTab("emoji")}>颜</button>
+          <button type="button" style={tabBtnStyle(tab === "line")} onClick={() => setTab("line")}>线</button>
+          <button type="button" style={tabBtnStyle(tab === "eraser")} onClick={() => setTab("eraser")}>橡</button>
         </div>
 
         {tab === "pen" && (
           <>
-            <div className="cd-sub-label">笔</div>
+            {/* 笔列表 */}
+            <div style={sectionLabel}>笔</div>
             {PEN_TOOLS.map((t) => (
               <button key={t.kind} type="button" className="cd-item"
                 onClick={() => onPickTool(t.kind)}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", fontSize: 14, width: "100%" }}>
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", fontSize: 14, width: "100%" }}>
                 <span style={{ width: 26, display: "flex", justifyContent: "center", flex: "none" }}>
                   <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block", flex: "none" }}>
                     <path
@@ -431,6 +484,99 @@ export function ShapeDrawer({
                 <span>{t.name}</span>
               </button>
             ))}
+
+
+            {/* 笔刷手感参数面板 —— perfect-freehand */}
+            <div style={{
+              marginTop: 14, padding: "12px 10px",
+              background: "rgba(74,70,63,.04)", borderRadius: 10,
+            }}>
+              <div style={{ fontSize: 11, color: "#8a8178", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
+
+              <PenSlider label="尺寸" value={brush.size ?? 0} min={0} max={40} step={1}
+                onChange={(v) => onBrushChange({ size: v > 0 ? v : undefined })} />
+              <PenSlider label="精简" value={brush.streamline} min={0} max={1} step={0.05}
+                onChange={(v) => onBrushChange({ streamline: v })} />
+              <PenSlider label="平滑" value={brush.smoothing} min={0} max={1} step={0.05}
+                onChange={(v) => onBrushChange({ smoothing: v })} />
+
+              {/* 缓释（easing） */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: "#756f68", width: 52, flex: "none" }}>缓释</span>
+                <select
+                  value={brush.easingName ?? "linear"}
+                  onChange={(e) => onBrushChange({ easingName: e.target.value as EasingName })}
+                  style={{
+                    flex: 1, minWidth: 0, height: 26, padding: "0 6px",
+                    border: "1px solid rgba(74,70,63,.15)", borderRadius: 6,
+                    background: "#fff", color: "#3a352e", fontSize: 11, outline: "none",
+                  }}
+                >
+                  <option value="linear">线性</option>
+                  <option value="easeIn">缓入</option>
+                  <option value="easeOut">缓出</option>
+                  <option value="easeInOut">缓入缓出</option>
+                </select>
+              </div>
+
+              <PenSlider label="渐弱起步" value={brush.startTaper} min={0} max={60} step={1}
+                onChange={(v) => onBrushChange({ startTaper: v })} />
+
+              {/* 启动 cap */}
+              <div style={rowStyle}>
+                <span style={{ fontSize: 11, color: "#756f68" }}>启动</span>
+                <button type="button" aria-pressed={!!brush.startCap}
+                  onClick={() => onBrushChange({ startCap: !brush.startCap })} style={toggleStyle(!!brush.startCap)}>
+                  <span style={knobStyle(!!brush.startCap)} />
+                </button>
+              </div>
+
+
+              <PenSlider label="锥形端" value={brush.endTaper} min={0} max={60} step={1}
+                onChange={(v) => onBrushChange({ endTaper: v })} />
+
+              {/* 缓和结尾 cap */}
+              <div style={rowStyle}>
+                <span style={{ fontSize: 11, color: "#756f68" }}>缓和结尾</span>
+                <button type="button" aria-pressed={!!brush.endCap}
+                  onClick={() => onBrushChange({ endCap: !brush.endCap })} style={toggleStyle(!!brush.endCap)}>
+                  <span style={knobStyle(!!brush.endCap)} />
+                </button>
+              </div>
+
+              {/* 充满 */}
+              <div style={rowStyle}>
+                <span style={{ fontSize: 11, color: "#756f68" }}>充满</span>
+                <button type="button" aria-pressed={!!brush.fill}
+                  onClick={() => onBrushChange({ fill: !brush.fill })} style={toggleStyle(!!brush.fill)}>
+                  <span style={knobStyle(!!brush.fill)} />
+                </button>
+              </div>
+
+              <PenSlider label="中风" value={brush.thinning} min={-1} max={1} step={0.05}
+                onChange={(v) => onBrushChange({ thinning: v })} />
+
+              {/* 模拟压力 */}
+              <div style={{ ...rowStyle, marginTop: 10, marginBottom: 0 }}>
+                <span style={{ fontSize: 11, color: "#756f68" }}>模拟压力</span>
+                <button type="button" aria-pressed={brush.simulatePressure}
+                  onClick={() => onBrushChange({ simulatePressure: !brush.simulatePressure })}
+                  style={toggleStyle(brush.simulatePressure)}>
+                  <span style={knobStyle(brush.simulatePressure)} />
+                </button>
+              </div>
+
+              {/* 重置 */}
+              <button
+                type="button"
+                onClick={() => onBrushChange({ ...BRUSH_DEFAULTS })}
+                style={{
+                  width: "100%", height: 30, marginTop: 12, borderRadius: 6,
+                  border: "1px solid rgba(74,70,63,.15)", background: "#fff",
+                  color: "#756f68", fontSize: 11, cursor: "pointer",
+                }}
+              >重置选项</button>
+            </div>
           </>
         )}
 
@@ -440,7 +586,7 @@ export function ShapeDrawer({
             {GEOM_TOOLS.map((t) => (
               <button key={t.kind} type="button" className="cd-item"
                 onClick={() => onPickTool(t.kind)}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 12px", fontSize: 14, width: "100%" }}>
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", fontSize: 14, width: "100%" }}>
                 <span style={{ fontSize: 18, width: 26, textAlign: "center", color: "#5f554d" }}>{t.icon}</span>
                 <span>{t.name}</span>
               </button>
@@ -525,7 +671,7 @@ export function WindowDrawer({ onClose }: { onClose: () => void }) {
   }, []);
 
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body">
         <div style={{
           fontSize: 13, fontWeight: 600, color: "#3a352e",
@@ -620,7 +766,7 @@ export function ColorDrawer({
   const setAlpha = target === "paper" ? onPaperAlphaChange : onStageAlphaChange;
 
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-tabs">
         <button type="button" className={target === "paper" ? "is-active" : ""} onClick={() => setTarget("paper")}>纸色</button>
         <button type="button" className={target === "stage" ? "is-active" : ""} onClick={() => setTarget("stage")}>背景色</button>
@@ -675,7 +821,7 @@ export function SpecDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
   const [customOpen, setCustomOpen] = useState(false);
 
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body">
         {picked && <div className="cd-picked">当前规格：{picked}</div>}
         {SPEC_CATEGORIES.map((c) => {
@@ -728,7 +874,7 @@ export function FontDrawer({
   onClose: () => void;
 }) {
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body">
         <div style={{ fontSize: 11, color: "#918981", padding: "0 4px 12px", letterSpacing: ".08em" }}>字体</div>
         {FONT_LIBRARY.map((f) => {
@@ -774,7 +920,7 @@ export function LockDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
   }
 
   return (
-    <aside className="cd-panel" style={{ width: "min(52vw, 220px)", maxWidth: 220 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body" style={{ display: "flex", flexDirection: "column" }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "stretch", gap: 12, paddingBottom: 60 }}>
           <button type="button" className="cd-item" onClick={() => setDirDialog(true)}
@@ -804,5 +950,27 @@ export function LockDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
         </div>
       )}
     </aside>
+  );
+}
+
+/* ============================================================
+   笔刷手感滑条
+============================================================ */
+function PenSlider({ label, value, min, max, step, onChange }: {
+  label: string; value: number; min: number; max: number; step: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <span style={{ fontSize: 11, color: "#756f68", width: 52, flex: "none" }}>{label}</span>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, minWidth: 0, accentColor: "#5f554d", height: 4 }}
+      />
+      <span style={{ fontSize: 10, color: "#a49a8f", width: 28, textAlign: "right", flex: "none" }}>
+        {value.toFixed(step < 1 ? 2 : 0)}
+      </span>
+    </div>
   );
 }

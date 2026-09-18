@@ -1,9 +1,61 @@
-// name=src/components/creation/Editor.tsx
+﻿// name=src/components/creation/Editor.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
   Group, ImageNode, LinkNode, NoteNode, Page, ShapeKind, ShapeNode, TableNode, TextNode,
 } from "../../types/document";
+
+/** perfect-freehand easing 预设（StrokeOptions.easing 需要函数，UI 用名字选） */
+export type EasingName =
+  | "linear" | "easeIn" | "easeOut" | "easeInOut"
+  | "easeInQuad" | "easeOutQuad" | "easeInOutQuad";
+
+export const EASING_FNS: Record<EasingName, (t: number) => number> = {
+  linear: (t) => t,
+  easeIn: (t) => t * t,
+  easeOut: (t) => 1 - (1 - t) * (1 - t),
+  easeInOut: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
+  easeInQuad: (t) => t * t,
+  easeOutQuad: (t) => 1 - (1 - t) * (1 - t),
+  easeInOutQuad: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
+};
+
+/** 笔刷手感参数（对应 perfect-freehand 的 StrokeOptions） */
+export type BrushParams = {
+  /** 尺寸覆盖：undefined = 跟随笔种类自身的 strokeWidth */
+  size?: number;
+  /** 稀疏：perfect-freehand 无此选项，保留字段仅作前向兼容，不参与渲染 */
+  spacing?: number;
+  thinning: number;
+  smoothing: number;
+  streamline: number;
+  easingName?: EasingName;
+  startTaper: number;
+  startCap?: boolean;
+  endTaper: number;
+  endCap?: boolean;
+  /** 充满：自由笔迹是否用实心填充而非描边 */
+  fill?: boolean;
+  simulatePressure: boolean;
+};
+
+/** 把当前笔刷参数摊平成 ShapeNode 的可选字段（供落笔/草稿写入） */
+function brushToShapePatch(b?: BrushParams): Partial<ShapeNode> {
+  if (!b) return {};
+  return {
+    size: b.size,
+    thinning: b.thinning,
+    smoothing: b.smoothing,
+    streamline: b.streamline,
+    easing: b.easingName ? EASING_FNS[b.easingName] : undefined,
+    startTaper: b.startTaper,
+    startCap: b.startCap,
+    endTaper: b.endTaper,
+    endCap: b.endCap,
+    solid: b.fill ? true : undefined,
+    simulatePressure: b.simulatePressure,
+  };
+}
 
 type Props = {
   page: Page;
@@ -28,6 +80,8 @@ type Props = {
   lassoMode?: boolean;
   onSelectionChange?: (hasSelection: boolean) => void;
   sheetAction?: { id: number; kind: string } | null;
+  /** 当前笔刷手感参数，绘制时写入新笔迹 */
+  brush?: BrushParams;
 };
 
 type Mode =
@@ -297,14 +351,18 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
         s.pressures?.[i] ?? 0.5,
       ]);
 
-      // 调参区（后续微调手感全靠这 5 个）
+      // 调参区：优先读每个 shape 自己存的笔刷参数，缺省时用内置默认值
+      // （默认值与旧版硬编码一致，保证已有笔迹渲染不变）
+      const baseSize = s.strokeWidth * 1.1;
       const outline = getStroke(inputPoints, {
-        size: s.strokeWidth * 1.1,
-        thinning: 0.35,
-        smoothing: 0.55,
-        streamline: 0.45,
-        easing: (t: number) => t,
-        simulatePressure: !s.pressures || s.pressures.length < 2,
+        size: (s.size != null && s.size > 0) ? s.size : baseSize,
+        thinning: s.thinning ?? 0.35,
+        smoothing: s.smoothing ?? 0.55,
+        streamline: s.streamline ?? 0.45,
+        easing: s.easing ?? ((t: number) => t),
+        start: { taper: s.startTaper ?? 0, cap: s.startCap ?? true },
+        end: { taper: s.endTaper ?? 0, cap: s.endCap ?? false },
+        simulatePressure: s.simulatePressure ?? (!s.pressures || s.pressures.length < 2),
         last: true,
       });
 
@@ -314,8 +372,8 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
         <path
           key={s.id}
           d={d}
-          fill={stroke}
-          stroke="none"
+          fill={s.solid === false ? "none" : stroke}
+          stroke={s.solid === false ? stroke : "none"}
           opacity={s.opacity ?? 1}
           style={filterStyle}
         />
@@ -348,6 +406,7 @@ export default function Editor({
   lassoMode,
   onSelectionChange,
   sheetAction,
+  brush,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const editTaRef = useRef<HTMLTextAreaElement>(null);
@@ -358,6 +417,7 @@ export default function Editor({
   const allPagesRef = useRef<Page[]>([]);
   const onUpdatePageTransformRef = useRef(onUpdatePageTransform);
   const drawToolRef = useRef<ShapeKind | null>(null);
+  const brushRef = useRef<BrushParams | undefined>(undefined);
   const onDrawToolConsumedRef = useRef(onDrawToolConsumed);
   const onDrawToolChangeRef = useRef(onDrawToolChange);
   onDrawToolChangeRef.current = onDrawToolChange;
@@ -370,6 +430,7 @@ export default function Editor({
   allPagesRef.current = allPages || [];
   onUpdatePageTransformRef.current = onUpdatePageTransform;
   drawToolRef.current = drawTool ?? null;
+  brushRef.current = brush;
   onDrawToolConsumedRef.current = onDrawToolConsumed;
 
   const [paper, setPaper] = useState<PaperState>(() => {
@@ -418,6 +479,11 @@ export default function Editor({
   const boxClipboardRef = useRef<{ texts: TextNode[]; pages: Page[] } | null>(null);
   const dragSelectRef = useRef<{ startX: number; startY: number; cursorAtDown: number; moved: boolean } | null>(null);
 
+  const [comicFrames, setComicFrames] = useState<{ id: string; x: number; y: number; w: number; h: number }[]>([]);
+  const [playingIdx, setPlayingIdx] = useState(-1);
+  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number } | null>(null);
+  const [textPanel, setTextPanel] = useState<{ x: number; y: number } | null>(null);
+  const [redoStack, setRedoStack] = useState<any[]>([]);
   const [selectedEl, setSelectedEl] = useState<{
     type: "shape" | "image" | "note" | "table" | "link";
     id: string;
@@ -427,17 +493,46 @@ export default function Editor({
   const [draft, setDraft] = useState<ShapeNode | null>(null);
   const drawingRef = useRef<DrawingDraft | null>(null);
   const shapeHistoryRef = useRef<ShapeNode[][]>([]);
+  const redoStackRef = useRef<ShapeNode[][]>([]);
   const [undoTick, setUndoTick] = useState(0);
 
   function pushShapeHistory() {
     const stack = shapeHistoryRef.current;
     stack.push(JSON.parse(JSON.stringify(pageRef.current.shapes || [])));
     if (stack.length > 40) stack.shift();
+    redoStackRef.current = [];
     setUndoTick((t) => t + 1);
   }
+  function redoShape() {
+    const stack = redoStackRef.current;
+    if (!stack.length) return;
+    const cur = JSON.parse(JSON.stringify(pageRef.current.shapes || []));
+    shapeHistoryRef.current.push(cur);
+    const next = stack.pop()!;
+    onUpdateRef.current({ shapes: next });
+    setUndoTick((t) => t + 1);
+  }
+
+  function copySelection() {
+    const sel = getSelectedRefs();
+    if (!sel.length) return;
+    const pg = pageRef.current;
+    const newShapes = (pg.shapes || [])
+      .filter((s) => sel.some((x: any) => x.type === "shape" && x.id === s.id))
+      .map((s) => ({
+        ...s,
+        id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        x1: s.x1 + 20, y1: s.y1 + 20, x2: s.x2 + 20, y2: s.y2 + 20,
+        points: s.points ? s.points.map((p: any) => ({ x: p.x + 20, y: p.y + 20 })) : undefined,
+      }));
+    if (newShapes.length) onUpdateRef.current({ shapes: [...(pg.shapes || []), ...newShapes] });
+  }
+
   function undoShape() {
     const stack = shapeHistoryRef.current;
     if (!stack.length) return;
+    const cur = JSON.parse(JSON.stringify(pageRef.current.shapes || []));
+    redoStackRef.current.push(cur);
     const prev = stack.pop()!;
     onUpdateRef.current({ shapes: prev });
     setUndoTick((t) => t + 1);
@@ -754,6 +849,10 @@ export default function Editor({
     showFloatingEditor(rect.left, rect.top, wideWidth, height, fontSize, t.color, t.text || "");
     focusFloatingEditor();
     setEditingId(t.id); editingIdRef.current = t.id;
+    {
+      const __r = el?.getBoundingClientRect();
+      if (__r) setTextPanel({ x: __r.left + __r.width, y: __r.top });
+    }
   }
   function createTextAndEdit(screenX: number, screenY: number, layer: "background" | "paper") {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -803,7 +902,7 @@ export default function Editor({
     return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
   }
   function hitShapeAt(px: number, py: number, list: ShapeNode[]): ShapeNode | null {
-    const TH = 24;
+    const TH = 8;
     for (let i = list.length - 1; i >= 0; i--) {
       const s = list[i];
       if (isFreeKind(s.kind) && s.points && s.points.length >= 2) {
@@ -1143,6 +1242,34 @@ export default function Editor({
   }
 
   function onPointerDown(e: React.PointerEvent) {
+    const __tgt = e.target as HTMLElement;
+    if (__tgt.closest("[data-ctx-menu]")) return;
+    {
+      const sx = e.clientX, sy = e.clientY;
+      const lp = window.setTimeout(() => {
+        const hit = hitText(sx, sy);
+        if (hit) {
+          setCtxMenu({ kind: "element", x: sx, y: sy });
+        } else {
+          const local = screenToPaperLocal(sx, sy, stageRef.current, paperStateRef.current);
+          if (!local.inside) setCtxMenu({ kind: "blank", x: sx, y: sy });
+        }
+        try { navigator.vibrate && navigator.vibrate(12); } catch {}
+      }, 500);
+      (window as any).__ranjingLongPress = lp;
+      const cancel = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 10) {
+          window.clearTimeout((window as any).__ranjingLongPress);
+        }
+      };
+      const stop = () => {
+        window.clearTimeout((window as any).__ranjingLongPress);
+        window.removeEventListener("pointermove", cancel);
+        window.removeEventListener("pointerup", stop);
+      };
+      window.addEventListener("pointermove", cancel);
+      window.addEventListener("pointerup", stop);
+    }
     const target = e.target as HTMLElement;
     if (target === editTaRef.current || target.tagName === "TEXTAREA") return;
 
@@ -1308,8 +1435,8 @@ export default function Editor({
       const hitId = hit0 ? hit0.id : "__empty__";
       const now0 = Date.now();
       const last0 = lastTapRef.current;
-      const nearLast = Math.hypot(e.clientX - last0.x, e.clientY - last0.y) < 40;
-      if (last0.id === hitId && now0 - last0.time < 600 && nearLast) {
+      const nearLast = Math.hypot(e.clientX - last0.x, e.clientY - last0.y) < 30;
+      if (last0.id === hitId && now0 - last0.time < 400 && nearLast) {
         lastTapRef.current = { time: 0, x: 0, y: 0, id: null };
         if (hit0) {
           enterEditing(hit0);
@@ -1571,6 +1698,7 @@ export default function Editor({
         points: d.points,
         pressures: d.pressures,
         color: st.color, strokeWidth: st.strokeWidth, opacity: st.opacity,
+        ...brushToShapePatch(brushRef.current),
       });
       return;
     }
@@ -1610,15 +1738,18 @@ export default function Editor({
         d.y2 = local.y;
       }
       const st = styleForKind(d.kind);
+      const bp = brushRef.current;
       setDraft({
         id: "draft",
         kind: d.kind,
         layer: "paper",
         x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2,
         points: d.points ? [...d.points] : undefined,
+        pressures: d.pressures ? [...d.pressures] : undefined,
         color: st.color,
         strokeWidth: st.strokeWidth,
         opacity: st.opacity,
+        ...brushToShapePatch(bp),
       });
       return;
     }
@@ -2030,12 +2161,14 @@ export default function Editor({
       if (isFree) {
         if (d.points && d.points.length >= 2) {
           pushShapeHistory();
+          const bp = brushRef.current;
           const shape: ShapeNode = {
             id, kind: d.kind, layer: "paper",
             x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2,
             points: d.points,
             pressures: d.pressures,
             color: st.color, strokeWidth: st.strokeWidth, opacity: st.opacity,
+            ...brushToShapePatch(bp),
           };
           const next = [...(pageRef.current.shapes || []), shape];
           onUpdateRef.current({ shapes: next });
@@ -2271,7 +2404,67 @@ export default function Editor({
     }
   }
 
-  function handleSheetAction(kind: string) {
+    useEffect(() => {
+    const h = (ev: any) => {
+      const c = ev.detail;
+      if (c === "undo") undoShape();
+      if (c === "redo") redoShape();
+      if (c === "delete") deleteSelection();
+      if (c === "copy") copySelection();
+    };
+    window.addEventListener("ranjing:cmd", h);
+    return () => window.removeEventListener("ranjing:cmd", h);
+  }, []);
+
+  useEffect(() => {
+    (window as any).__ranjingCommands = {
+      undo: () => {
+        const stack = shapeHistoryRef.current;
+        if (!stack.length) return;
+        const cur = JSON.parse(JSON.stringify(pageRef.current.shapes || []));
+        setRedoStack((prev) => [...prev, cur]);
+        const prev = stack.pop()!;
+        onUpdateRef.current({ shapes: prev });
+        setUndoTick((t) => t + 1);
+      },
+      redo: () => {
+        if (!redoStack.length) return;
+        const cur = JSON.parse(JSON.stringify(pageRef.current.shapes || []));
+        shapeHistoryRef.current.push(cur);
+        const next = redoStack[redoStack.length - 1];
+        setRedoStack((prev) => prev.slice(0, -1));
+        onUpdateRef.current({ shapes: next });
+        setUndoTick((t) => t + 1);
+      },
+      delete: () => deleteSelection(),
+      copy: () => {
+        const sel = getSelectedRefs();
+        if (!sel.length) return;
+        const pg = pageRef.current;
+        const newShapes = (pg.shapes || [])
+          .filter((s) => sel.some((x: any) => x.type === "shape" && x.id === s.id))
+          .map((s) => ({
+            ...s,
+            id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            x1: s.x1 + 20, y1: s.y1 + 20, x2: s.x2 + 20, y2: s.y2 + 20,
+            points: s.points ? s.points.map((p: any) => ({ x: p.x + 20, y: p.y + 20 })) : undefined,
+          }));
+        if (newShapes.length) onUpdateRef.current({ shapes: [...(pg.shapes || []), ...newShapes] });
+      },
+      eraser: () => onDrawToolChangeRef.current?.("eraser"),
+      selectAll: () => {
+        const list = (pageRef.current.shapes || []).map((s) => ({ type: "shape" as const, id: s.id }));
+        if (list.length === 0) return;
+        const sr = stageRef.current?.getBoundingClientRect();
+        if (!sr) return;
+        const b = { x: 8, y: 8, w: sr.width - 16, h: sr.height - 16 };
+        boxRef.current = b;
+        setBox(b);
+      },
+    };
+  }, [redoStack]);
+
+function handleSheetAction(kind: string) {
     const sel = getSelectedRefs();
 
     if (kind.startsWith("align-")) {
@@ -2383,6 +2576,48 @@ export default function Editor({
 
   useEffect(() => {
     if (!sheetAction) return;
+    const k = String(sheetAction.kind);
+    if (k === "frame-2x2" || k === "frame-2x3" || k === "frame-3x3") {
+      const parts: [number, number] = k === "frame-2x2" ? [2, 2] : k === "frame-2x3" ? [2, 3] : [3, 3];
+      const [cols, rows] = parts;
+      const ppr = paperStateRef.current;
+      const W = ppr.w > 0 ? ppr.w : 400;
+      const H = ppr.h > 0 ? ppr.h : 600;
+      const gap = 6;
+      const cw = (W - gap * (cols + 1)) / cols;
+      const ch = (H - gap * (rows + 1)) / rows;
+      const out: { id: string; x: number; y: number; w: number; h: number }[] = [];
+      for (let rr = 0; rr < rows; rr++) {
+        for (let cc = 0; cc < cols; cc++) {
+          out.push({ id: `f-${rr}-${cc}`, x: gap + cc * (cw + gap), y: gap + rr * (ch + gap), w: cw, h: ch });
+        }
+      }
+      setComicFrames(out);
+      return;
+    }
+    if (k === "frame-clear") { setComicFrames([]); return; }
+    if (k === "play") {
+      if (comicFrames.length === 0) { alert("请先在排列里选一个分格版式"); return; }
+      let i = 0;
+      setPlayingIdx(0);
+      const timer = window.setInterval(() => {
+        i += 1;
+        if (i >= comicFrames.length) {
+          window.clearInterval(timer);
+          setPlayingIdx(-1);
+          return;
+        }
+        setPlayingIdx(i);
+      }, 800);
+      (window as any).__ranjingPlayTimer = timer;
+      return;
+    }
+    if (k === "play-stop") {
+      const tm = (window as any).__ranjingPlayTimer;
+      if (tm) window.clearInterval(tm);
+      setPlayingIdx(-1);
+      return;
+    }
     handleSheetAction(sheetAction.kind);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetAction?.id, sheetAction?.kind]);
@@ -2442,50 +2677,6 @@ export default function Editor({
     ? (page.shapes || []).find((s) => s.id === selectedEl.id) || null
     : null;
 
-  const penBarPos = (() => {
-    if (!selectedShape) return null;
-
-    const BAR_W = 4 * 2 + 36 * 6 + 4 * 5;   // padding*2 + 6 个圆钮 + 5 个间距
-    const BAR_H = 44;
-
-    // 优先用渲染出来的 <g data-shape-id> / <path data-shape-id> 实测量取屏幕包围盒
-    let minX = 0, maxX = 0, minY = 0, maxY = 0, measured = false;
-    const host = stageRef.current;
-    if (host) {
-      const el = host.querySelector(`[data-shape-id="${selectedShape.id}"]`) as SVGGraphicsElement | null;
-      if (el) {
-        try {
-          const r = el.getBoundingClientRect();
-          if (r.width > 0 || r.height > 0) {
-            minX = r.left; maxX = r.right;
-            minY = r.top; maxY = r.bottom;
-            measured = true;
-          }
-        } catch { /* ignore */ }
-      }
-    }
-    if (!measured) {
-      // 兜底：局部包围盒四角 → 屏幕，取屏幕轴对齐包围盒
-      const lb = shapeLocalBox(selectedShape);
-      const corners = [
-        paperLocalToScreen(lb.x, lb.y, stageRef.current, paper),
-        paperLocalToScreen(lb.x + lb.w, lb.y, stageRef.current, paper),
-        paperLocalToScreen(lb.x, lb.y + lb.h, stageRef.current, paper),
-        paperLocalToScreen(lb.x + lb.w, lb.y + lb.h, stageRef.current, paper),
-      ];
-      minX = Math.min(...corners.map((c) => c.x));
-      maxX = Math.max(...corners.map((c) => c.x));
-      minY = Math.min(...corners.map((c) => c.y));
-      maxY = Math.max(...corners.map((c) => c.y));
-    }
-
-    let left = (minX + maxX) / 2 - BAR_W / 2;
-    let top = minY - 60;                    // 包围盒上方 60px
-    if (top < 8) top = maxY + 20;           // 超出屏幕顶部 → 改到包围盒下方 20px
-    left = Math.max(8, Math.min(left, window.innerWidth - BAR_W - 8));
-    if (top + BAR_H > window.innerHeight - 8) top = Math.max(8, window.innerHeight - BAR_H - 8);
-    return { left, top };
-  })();
 
   const paperInner = (
     <>
@@ -2605,6 +2796,25 @@ export default function Editor({
       >
         {shapes.filter((s) => s.layer === "paper").map((s) => renderShape(s, selectedEl?.type === "shape" ? selectedEl.id : null))}
         {draft && renderShape(draft)}
+        {comicFrames.map((f, idx) => {
+          const isHot = idx === playingIdx;
+          const dim = playingIdx >= 0 && !isHot;
+          return (
+            <g key={f.id} opacity={dim ? 0.25 : 1} style={{ transition: "opacity 0.4s" }}>
+              <rect
+                x={f.x} y={f.y} width={f.w} height={f.h}
+                fill={isHot ? "rgba(201,168,124,0.15)" : "none"}
+                stroke={isHot ? "rgba(201,168,124,1)" : "rgba(201,168,124,0.55)"}
+                strokeWidth={isHot ? 3 : 1.5}
+                strokeDasharray={isHot ? "none" : "6 4"}
+                style={{ transition: "stroke 0.3s, stroke-width 0.3s, fill 0.3s" }}
+              />
+              <text x={f.x + 10} y={f.y + 22} fontSize="13" fill="rgba(201,168,124,0.8)" fontFamily="serif">
+                {String(idx + 1).padStart(2, "0")}
+              </text>
+            </g>
+          );
+        })}
       </svg>
     </>
   );
@@ -2772,6 +2982,71 @@ export default function Editor({
         </>
       )}
 
+      {ctxMenu && (
+        <>
+          <div data-ctx-menu onClick={() => setCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 2499, background: "transparent" }} />
+          <div data-ctx-menu
+            onPointerDown={(ev) => ev.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: Math.min(ctxMenu.x, window.innerWidth - 190),
+              top: Math.min(ctxMenu.y, window.innerHeight - 280),
+              zIndex: 2500, width: 180, padding: 6,
+              background: "rgba(251,250,247,.98)",
+              backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+              borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
+              border: "1px solid rgba(74,70,63,.08)",
+            }}>
+            {ctxMenu.kind === "blank" ? (
+              <>
+                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); alert("粘贴"); }} />
+                <CtxItem label="复制为 SVG" onClick={() => { setCtxMenu(null); alert("复制为 SVG"); }} />
+                <CtxItem label="复制为 PNG" onClick={() => { setCtxMenu(null); alert("复制为 PNG"); }} />
+                <CtxItem label="复制为透明 PNG" onClick={() => { setCtxMenu(null); alert("复制为透明 PNG"); }} />
+                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <CtxItem label="选中全部" onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.selectAll?.(); }} />
+              </>
+            ) : (
+              <>
+                <CtxItem label="复制" onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.copy?.(); }} />
+                <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.delete?.(); }} />
+                <CtxItem label="移动到新页面" onClick={() => { setCtxMenu(null); alert("移动到新页面"); }} />
+                <CtxItem label="水平翻转" onClick={() => { setCtxMenu(null); alert("水平翻转"); }} />
+                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <CtxItem label="导出 SVG" onClick={() => { setCtxMenu(null); alert("导出 SVG"); }} />
+                <CtxItem label="导出 PNG" onClick={() => { setCtxMenu(null); alert("导出 PNG"); }} />
+                <CtxItem label="下载原图" onClick={() => { setCtxMenu(null); alert("下载原图"); }} />
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {textPanel && (
+        <div data-ctx-menu
+          onPointerDown={(ev) => ev.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: Math.min(textPanel.x + 14, window.innerWidth - 160),
+            top: Math.max(20, textPanel.y - 60),
+            zIndex: 2400, width: 150, padding: 10,
+            background: "rgba(251,250,247,.98)",
+            backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+            borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
+            border: "1px solid rgba(74,70,63,.08)",
+          }}>
+          <div style={{ fontSize: 10, color: "#8a8178", marginBottom: 8, letterSpacing: ".1em" }}>字体</div>
+          <button type="button" onClick={() => { const t = textsRef.current.find(x => x.id === editingIdRef.current); if (t) updateText(t.id, { fontSize: 28 }); }}
+            style={{ display: "block", width: "100%", height: 30, marginBottom: 4, border: 0, borderRadius: 6, background: "rgba(74,70,63,.06)", fontSize: 12, cursor: "pointer" }}>大</button>
+          <button type="button" onClick={() => { const t = textsRef.current.find(x => x.id === editingIdRef.current); if (t) updateText(t.id, { fontSize: 16 }); }}
+            style={{ display: "block", width: "100%", height: 30, marginBottom: 4, border: 0, borderRadius: 6, background: "rgba(74,70,63,.06)", fontSize: 12, cursor: "pointer" }}>中</button>
+          <button type="button" onClick={() => { const t = textsRef.current.find(x => x.id === editingIdRef.current); if (t) updateText(t.id, { fontSize: 12 }); }}
+            style={{ display: "block", width: "100%", height: 30, marginBottom: 4, border: 0, borderRadius: 6, background: "rgba(74,70,63,.06)", fontSize: 12, cursor: "pointer" }}>小</button>
+          <button type="button" onClick={() => setTextPanel(null)}
+            style={{ width: "100%", height: 26, marginTop: 4, border: 0, borderRadius: 6, background: "transparent", color: "#a49a8f", fontSize: 11, cursor: "pointer" }}>关闭</button>
+        </div>
+      )}
+
       <textarea
         ref={editTaRef}
         autoCorrect="off"
@@ -2800,229 +3075,19 @@ export default function Editor({
         }}
       />
 
-      {/* 常驻橡皮悬浮按钮 —— 右侧中部 */}
-      {(() => {
-        const isEraser = drawTool === "eraser";
-        const hasTool = !!drawTool;
-        // 无绘制工具 → 完全隐形
-        if (!hasTool) return null;
-
-        return (
-          <button
-            type="button"
-            onClick={() => {
-              if (isEraser) {
-                onDrawToolConsumedRef.current?.();
-              } else {
-                onDrawToolChangeRef.current?.("eraser");
-              }
-            }}
-            title={isEraser ? "退出橡皮" : "橡皮"}
-            style={{
-              position: "fixed",
-              right: 14,
-              top: "50%",
-              transform: "translateY(-50%)",
-              width: 52, height: 52,
-              borderRadius: 26,
-              border: isEraser ? "2px solid #fff" : "none",
-              background: isEraser
-                ? "rgba(217,76,76,.95)"
-                : "rgba(95,85,77,.75)",
-              color: "#fff",
-              fontSize: 24,
-              lineHeight: 1,
-              cursor: "pointer",
-              zIndex: 700,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 0,
-              boxShadow: "0 6px 18px rgba(0,0,0,.18)",
-              transition: "background .15s, border-color .15s",
-            }}
-          >⌫</button>
-        );
-      })()}
-
-      {/* 撤销按钮（常驻，无可撤销时半透明） */}
-      <button
-        type="button"
-        onClick={undoShape}
-        disabled={shapeHistoryRef.current.length === 0}
-        style={{
-          position: "fixed", right: 16, top: isDrawing ? 104 : 60,
-          height: 36, padding: "0 14px", borderRadius: 18, border: 0,
-          background: "rgba(95,85,77,.82)", color: "#fff",
-          fontSize: 13, cursor: "pointer", zIndex: 700,
-          boxShadow: "0 6px 18px rgba(0,0,0,.14)",
-          opacity: shapeHistoryRef.current.length === 0 ? 0.4 : 1,
-        }}
-        title="撤销上一笔"
-      >↶ 撤销</button>
-
-      {/* 绘制模式：右上角"完成"按钮 */}
-      {isDrawing && (
-        <button
-          type="button"
-          onClick={() => { onDrawToolConsumedRef.current?.(); }}
-          style={{
-            position: "fixed", right: 16, top: 60,
-            height: 36, padding: "0 16px", borderRadius: 18, border: 0,
-            background: "rgba(95,85,77,.92)", color: "#fff",
-            fontSize: 13, cursor: "pointer", zIndex: 700,
-            boxShadow: "0 6px 18px rgba(0,0,0,.18)",
-          }}
-        >完成绘制</button>
-      )}
-
-      {/* 框选版工具条：有框选时优先 */}
-      {box && box.w >= 4 && box.h >= 4 && (() => {
-        const BAR_W = 4 * 2 + 36 * 3 + 4 * 2;
-        const sr = stageRef.current?.getBoundingClientRect();
-        const originLeft = sr ? sr.left : 0;
-        const originTop = sr ? sr.top : 0;
-        let left = originLeft + box.x + box.w / 2 - BAR_W / 2;
-        let top = originTop + box.y - 60;
-        if (top < 8) top = originTop + box.y + box.h + 20;
-        left = Math.max(8, Math.min(left, window.innerWidth - BAR_W - 8));
-        return (
-          <div
-            onPointerDown={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              left, top,
-              height: 44, display: "flex", alignItems: "center",
-              gap: 4, padding: 4, borderRadius: 22,
-              background: "rgba(58,53,46,.92)",
-              boxShadow: "0 8px 24px rgba(0,0,0,.22)",
-              zIndex: 800,
-            }}
-          >
-            <button
-              type="button"
-              title="全删除"
-              onClick={() => {
-                const stageEl = stageRef.current;
-                if (!stageEl) return;
-                const sr = stageEl.getBoundingClientRect();
-                const cx = sr.left + box.x + box.w / 2;
-                const cy = sr.top + box.y + box.h / 2;
-                if (isInPaper(cx, cy)) {
-                  onDeletePage?.();
-                  clearBox();
-                } else {
-                  const list = shapesInBox(box);
-                  if (list.length === 0) return;
-                  const ids = new Set(list.map((s) => s.id));
-                  onUpdateRef.current({
-                    shapes: (pageRef.current.shapes || []).filter((s) => !ids.has(s.id)),
-                  });
-                  clearBox();
-                }
-              }}
-              style={{ ...penBarBtn, background: "rgba(217,76,76,.9)" }}
-            >🗑 {shapesInBox(box).length}</button>
-
-            <button
-              type="button"
-              title="全复制"
-              onClick={() => {
-                const list = shapesInBox(box);
-                if (list.length === 0) return;
-                const copies: ShapeNode[] = list.map((s) => {
-                  const c: ShapeNode = JSON.parse(JSON.stringify(s));
-                  c.id = `sh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-                  if (c.points && c.points.length > 0) {
-                    c.points = c.points.map((p) => ({ x: p.x + 30, y: p.y + 30 }));
-                  } else {
-                    c.x1 += 30; c.y1 += 30; c.x2 += 30; c.y2 += 30;
-                  }
-                  return c;
-                });
-                onUpdateRef.current({
-                  shapes: [...(pageRef.current.shapes || []), ...copies],
-                });
-              }}
-              style={penBarBtn}
-            >⧉ 复制</button>
-
-            <button
-              type="button"
-              title="取消框选"
-              onClick={() => clearBox()}
-              style={penBarBtn}
-            >×</button>
-          </div>
-        );
-      })()}
-
-      {/* 笔迹工具条：仅选中 shape 时出现 */}
-      {!(box && box.w >= 4 && box.h >= 4) && selectedShape && penBarPos && (
-        <div
-          onPointerDown={(e) => e.stopPropagation()}
-          style={{
-            position: "fixed",
-            left: penBarPos.left,
-            top: penBarPos.top,
-            height: 44,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            padding: 4,
-            borderRadius: 22,
-            background: "rgba(58,53,46,.92)",
-            boxShadow: "0 8px 24px rgba(0,0,0,.22)",
-            zIndex: 800,
-            boxSizing: "border-box",
-          }}
-        >
-          <button type="button" title="加粗" onClick={() => {
-            onUpdateRef.current({ shapes: (pageRef.current.shapes || []).map((x) =>
-              x.id === selectedShape.id ? { ...x, strokeWidth: Math.min(40, (x.strokeWidth || 2) + 2) } : x) });
-          }} style={penBarBtn}>＋</button>
-
-          <button type="button" title="变细" onClick={() => {
-            onUpdateRef.current({ shapes: (pageRef.current.shapes || []).map((x) =>
-              x.id === selectedShape.id ? { ...x, strokeWidth: Math.max(1, (x.strokeWidth || 2) - 2) } : x) });
-          }} style={penBarBtn}>－</button>
-
-          <button type="button" title="换色" onClick={() => {
-            onUpdateRef.current({ shapes: (pageRef.current.shapes || []).map((x) => {
-              if (x.id !== selectedShape.id) return x;
-              const i = PEN_COLORS.indexOf(x.color);
-              return { ...x, color: PEN_COLORS[(i + 1) % PEN_COLORS.length] };
-            }) });
-          }} style={penBarBtn}>
-            <span style={{
-              display: "block", width: 16, height: 16, borderRadius: 8,
-              background: selectedShape.color, boxShadow: "0 0 0 1.5px rgba(255,255,255,.85)",
-            }} />
-          </button>
-
-          <button type="button" title="复制" onClick={() => {
-            // 深拷贝，保留 points / pressures
-            const copy: ShapeNode = JSON.parse(JSON.stringify(selectedShape));
-            copy.id = `sh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-            if (copy.points && copy.points.length > 0) {
-              copy.points = copy.points.map((p) => ({ x: p.x + 30, y: p.y + 30 }));
-            } else {
-              copy.x1 += 30; copy.y1 += 30; copy.x2 += 30; copy.y2 += 30;
-            }
-            onUpdateRef.current({ shapes: [...(pageRef.current.shapes || []), copy] });
-            setSelectedEl({ type: "shape", id: copy.id });
-          }} style={penBarBtn}>⧉</button>
-
-          <button type="button" title="删除" onClick={() => {
-            onUpdateRef.current({ shapes: (pageRef.current.shapes || []).filter((x) => x.id !== selectedShape.id) });
-            setSelectedEl(null);
-          }} style={{ ...penBarBtn, background: "rgba(217,76,76,.9)" }}>删</button>
-
-          <button type="button" title="取消选中" onClick={() => setSelectedEl(null)} style={penBarBtn}>×</button>
-        </div>
-      )}
-
     </div>
+  );
+}
+
+function CtxItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button type="button" onClick={onClick}
+      style={{
+        display: "block", width: "100%", height: 34, padding: "0 12px",
+        border: 0, borderRadius: 8, background: "transparent",
+        color: danger ? "#c0392b" : "#3a352e", fontSize: 13, cursor: "pointer",
+        textAlign: "left", fontFamily: "inherit",
+      }}>{label}</button>
   );
 }
 

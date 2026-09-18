@@ -318,8 +318,7 @@ function PublishScreen({ go }: { go: (s: Screen) => void }) {
           {posts.length === 0 && <div style={{ fontSize: 12, color: "#b4ada5", textAlign: "center", padding: "24px 0" }}>还没有动态</div>}
         </div>
       </main>
-      <BottomNav screen="home" go={go} />
-    </div>
+</div>
   );
 }
 
@@ -892,33 +891,250 @@ function GroupSessionScreen({ go }: { go: (s: Screen) => void }) {
   );
 }
 
-// ─── 我的房子（个人空间装修） ────────────────────────────────────────────────────
+// ─── 我的房子（3D 个人空间） ────────────────────────────────────────────────────
 
 function MyHouseScreen({ go, user }: { go: (s: Screen) => void, user: any }) {
+  const [rotate, setRotate] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef({ x: 0, y: 0, sx: 0, sy: 0 });
+  const movedRef = useRef(false);
+
+  const [wallpaper, setWallpaper] = useState<string>("");
+  const [frameImage, setFrameImage] = useState<string>("");
+  const [doorImage, setDoorImage] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("ranjing.house");
+      if (raw) {
+        const h = JSON.parse(raw);
+        setWallpaper(h.wallpaper || "");
+        setFrameImage(h.frameImage || "");
+        setDoorImage(h.doorImage || "");
+      }
+    } catch {}
+  }, []);
+
+  const saveHouse = (patch: { wallpaper?: string; frameImage?: string; doorImage?: string }) => {
+    const next = { wallpaper, frameImage, doorImage, ...patch };
+    try { localStorage.setItem("ranjing.house", JSON.stringify(next)); } catch {}
+  };
+
+  const W = 380;
+  const H = 480;
+  const D = 780;
+
   return (
-    <div className="account-page" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))", background: "#fbfaf7" }}>
-      <header className="account-page-header">
-        <button type="button" onClick={() => go("space")} aria-label="返回空间">‹</button>
-        <h1>我的房子</h1>
-        <span style={{ width: 36 }} />
-      </header>
-      <main className="personal-profile-form">
-        <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "1px solid rgba(74,70,63,.08)", marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "#3a352e", marginBottom: 12 }}>房子外部</div>
-          <div style={{ height: 120, borderRadius: 12, background: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "center", color: "#a49a8f", fontSize: 12, marginBottom: 12 }}>
-            🚪 默认的门（可替换为你画的图形）
-          </div>
-          <button onClick={() => alert("装修功能开发中：用你在创作区画的图形替换门！")} style={{ width: "100%", height: 40, borderRadius: 10, border: "1px solid #5f554d", background: "transparent", color: "#5f554d", fontSize: 13 }}>更换门</button>
+    <div
+      style={{
+        position: "fixed", inset: 0,
+        background: "radial-gradient(ellipse at 50% 50%, #221c15 0%, #0e0b08 100%)",
+        overflow: "hidden", touchAction: "none",
+        userSelect: "none", WebkitUserSelect: "none",
+        perspective: "700px", perspectiveOrigin: "50% 44%",
+        cursor: dragging ? "grabbing" : "grab",
+      }}
+      onPointerDown={(e) => {
+        dragRef.current = { x: e.clientX, y: e.clientY, sx: rotate.x, sy: rotate.y };
+        movedRef.current = false;
+        setDragging(true);
+        try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+      }}
+      onPointerMove={(e) => {
+        if (!dragging) return;
+        const dx = e.clientX - dragRef.current.x;
+        const dy = e.clientY - dragRef.current.y;
+        if (Math.hypot(dx, dy) > 6) movedRef.current = true;
+        setRotate({
+          x: Math.max(-12, Math.min(12, dragRef.current.sx - dy * 0.07)),
+          y: Math.max(-22, Math.min(22, dragRef.current.sy + dx * 0.13)),
+        });
+      }}
+      onPointerUp={() => { setDragging(false); setRotate({ x: 0, y: 0 }); }}
+      onPointerCancel={() => { setDragging(false); setRotate({ x: 0, y: 0 }); }}
+    >
+      <div
+        style={{
+          position: "absolute", left: "50%", top: "50%",
+          width: W, height: H, marginLeft: -W / 2, marginTop: -H / 2,
+          transformStyle: "preserve-3d",
+          transform: `rotateX(${rotate.x}deg) rotateY(${rotate.y}deg)`,
+          transition: dragging ? "none" : "transform 0.7s cubic-bezier(0.34, 1.2, 0.36, 1)",
+        }}
+      >
+        {/* 后墙 */}
+        <div
+          style={{
+            position: "absolute", left: "50%", top: "50%", width: W, height: H,
+            marginLeft: -W / 2, marginTop: -H / 2, transform: `translateZ(-310px)`,
+            background: "radial-gradient(ellipse at 50% 45%, #f3ecdc 0%, #ded2b8 70%, #c9b89a 100%)",
+            boxShadow: "inset 0 0 140px rgba(120,95,70,0.22)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (movedRef.current) return;
+              // 长按换门，短按进社区
+              if (e.type === "contextmenu") return;
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = "image/*";
+              input.onchange = () => {
+                const f = input.files?.[0];
+                if (!f) return;
+                const r = new FileReader();
+                r.onload = () => {
+                  const url = r.result as string;
+                  setDoorImage(url);
+                  saveHouse({ doorImage: url });
+                };
+                r.readAsDataURL(f);
+              };
+              input.click();
+            }}
+            style={{
+              width: 96, height: 190, border: 0, padding: 0,
+              borderRadius: "48px 48px 0 0",
+              background: doorImage
+                ? `url(${doorImage}) center/cover no-repeat`
+                : "linear-gradient(180deg, #8b6b46 0%, #5a3f26 60%, #3d2a17 100%)",
+              boxShadow: "0 12px 30px rgba(40,25,12,0.5), inset 0 0 0 3px #3d2a17, inset 0 0 40px rgba(0,0,0,0.35)",
+              cursor: "pointer", position: "relative",
+            }}
+          >
+            {!doorImage && (
+              <span style={{
+                position: "absolute", right: 14, top: "52%", width: 8, height: 8, borderRadius: "50%",
+                background: "radial-gradient(circle at 30% 30%, #f5d9a4 0%, #a47c46 70%)",
+                boxShadow: "0 0 6px rgba(240,201,137,0.6)",
+              }} />
+            )}
+          </button>
         </div>
 
-        <div style={{ background: "#fff", borderRadius: 16, padding: 20, border: "1px solid rgba(74,70,63,.08)" }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "#3a352e", marginBottom: 12 }}>房子内部</div>
-          <div style={{ height: 160, borderRadius: 12, background: "#f0ede6", display: "flex", alignItems: "center", justifyContent: "center", color: "#a49a8f", fontSize: 12, marginBottom: 12 }}>
-            🛋️ 空空如也，快用你的作品装饰一下
-          </div>
-          <button onClick={() => alert("装修功能开发中：用素材库里的图片、颜色、图案装修室内！")} style={{ width: "100%", height: 40, borderRadius: 10, border: 0, background: "#5f554d", color: "#fff", fontSize: 13 }}>开始装修</button>
+        {/* 左墙 */}
+        <div
+          style={{
+            position: "absolute", left: "50%", top: "50%", width: D, height: H,
+            marginLeft: -D / 2, marginTop: -H / 2,
+            transform: `translateX(${-W / 2}px) rotateY(90deg)`,
+            background: "linear-gradient(90deg, #c9b89a 0%, #d8cbb0 70%, #e0d4bc 100%)",
+            boxShadow: "inset 0 0 80px rgba(90,70,50,0.18)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; go("space"); }}
+            style={{
+              width: 130, height: 170, border: 0, padding: 0, borderRadius: 8,
+              background: "linear-gradient(180deg, #bcd7e8 0%, #e8d9b8 100%)",
+              boxShadow: "inset 0 0 0 6px #8b6b46, inset 0 0 0 8px #5a3f26, 0 4px 16px rgba(40,25,12,0.35)",
+              cursor: "pointer", position: "relative",
+            }}
+          >
+            <span style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, background: "#5a3f26", transform: "translateX(-50%)" }} />
+            <span style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 2, background: "#5a3f26", transform: "translateY(-50%)" }} />
+          </button>
         </div>
-      </main>
+
+        {/* 右墙 - 画框 */}
+        <div
+          style={{
+            position: "absolute", left: "50%", top: "50%", width: D, height: H,
+            marginLeft: -D / 2, marginTop: -H / 2,
+            transform: `translateX(${W / 2}px) rotateY(-90deg)`,
+            background: "linear-gradient(270deg, #c9b89a 0%, #d8cbb0 70%, #e0d4bc 100%)",
+            boxShadow: "inset 0 0 80px rgba(90,70,50,0.18)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (movedRef.current) return;
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = "image/*";
+              input.onchange = () => {
+                const f = input.files?.[0];
+                if (!f) return;
+                const r = new FileReader();
+                r.onload = () => {
+                  const url = r.result as string;
+                  setFrameImage(url);
+                  saveHouse({ frameImage: url });
+                };
+                r.readAsDataURL(f);
+              };
+              input.click();
+            }}
+            style={{
+              width: 150, height: 110, border: 0, padding: 0, borderRadius: 4,
+              background: frameImage
+                ? `url(${frameImage}) center/cover no-repeat`
+                : "linear-gradient(135deg, #e8d9b8 0%, #c9a87c 100%)",
+              boxShadow: "inset 0 0 0 5px #8b6b46, inset 0 0 0 7px #3d2a17, 0 4px 16px rgba(40,25,12,0.35)",
+              cursor: "pointer",
+            }}
+          />
+        </div>
+
+        {/* 地板 */}
+        <div
+          style={{
+            position: "absolute", left: "50%", top: "50%", width: W, height: D,
+            marginLeft: -W / 2, marginTop: -D / 2,
+            transform: `translateY(${H / 2}px) rotateX(90deg)`,
+            background: "linear-gradient(180deg, #a18166 0%, #7d6247 60%, #5f4a34 100%)",
+            boxShadow: "inset 0 0 120px rgba(20,12,6,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); if (movedRef.current) return; go("group"); }}
+            style={{
+              width: 200, height: 240, border: 0, padding: 0, borderRadius: "50%",
+              background: "radial-gradient(circle at center, #b8543e 0%, #8a3a28 70%, #5a2418 100%)",
+              boxShadow: "inset 0 0 0 8px #3d2a17, inset 0 0 60px rgba(0,0,0,0.35), 0 0 40px rgba(0,0,0,0.3)",
+              cursor: "pointer",
+            }}
+          />
+        </div>
+
+        {/* 天花板 */}
+        <div
+          style={{
+            position: "absolute", left: "50%", top: "50%", width: W, height: D,
+            marginLeft: -W / 2, marginTop: -D / 2,
+            transform: `translateY(${-H / 2}px) rotateX(-90deg)`,
+            background: "linear-gradient(180deg, #f6f0e0 0%, #ece0c6 100%)",
+            boxShadow: "inset 0 0 80px rgba(120,95,70,0.15)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div style={{
+            width: 70, height: 70, borderRadius: "50%",
+            background: "radial-gradient(circle at center, #fff2cc 0%, #d4a96a 60%, #8b6b46 100%)",
+            boxShadow: "0 0 60px 20px rgba(255,235,180,0.45), inset 0 0 20px rgba(255,240,200,0.6)",
+          }} />
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: "absolute", left: 0, right: 0,
+          bottom: "calc(env(safe-area-inset-bottom) + 26px)",
+          textAlign: "center",
+          color: "rgba(240,228,208,0.55)",
+          fontSize: 11, letterSpacing: "0.32em", textIndent: "0.32em",
+          fontFamily: '"Songti SC", "STSong", "Noto Serif SC", serif',
+          pointerEvents: "none",
+        }}
+      >
+        拖动屏幕 · 环顾四周
+      </div>
     </div>
   );
 }
@@ -928,8 +1144,7 @@ function GalleryScreen({ go }: { go: (s: Screen) => void }) {
     <div className="account-page" style={{ paddingBottom: "calc(64px + env(safe-area-inset-bottom))" }}>
       <SpaceHeader title="作品展示" go={go} />
       <main className="personal-profile-form"><div style={{ fontSize: 12, color: "#b4ada5", textAlign: "center", padding: "40px 0" }}>作品陈列区</div></main>
-      <BottomNav screen="home" go={go} />
-    </div>
+</div>
   );
 }
 
@@ -955,8 +1170,7 @@ function SaveTargetScreen({ go }: { go: (s: Screen) => void }) {
           <button type="button" className="create-save-card" onClick={() => { setSaveTarget("cloud"); setStage("templates"); }}><span className="create-save-icon">☁</span><strong>云端创作</strong><small>支持跨设备同步</small></button>
         </div>
       </main>
-      <BottomNav screen="home" go={go} />
-    </div>
+</div>
   );
 }
 
@@ -991,8 +1205,7 @@ function ProfileScreen({ go }: { go: (s: Screen) => void }) {
           ))}
         </div>
       </div>
-      <BottomNav screen="profile" go={go} />
-    </div>
+</div>
   );
 }
 

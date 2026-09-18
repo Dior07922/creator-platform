@@ -81,6 +81,19 @@ export type ShapeNode = {
   strokeWidth: number;
   opacity?: number;
   fill?: string;
+  /** 笔刷手感参数（perfect-freehand）。缺省时 renderShape 用内置默认值。 */
+  size?: number;
+  thinning?: number;
+  smoothing?: number;
+  streamline?: number;
+  easing?: (t: number) => number;
+  startTaper?: number;
+  startCap?: boolean;
+  endTaper?: number;
+  endCap?: boolean;
+  /** 实心填充自由笔迹（true 时 fill 用笔色，画成实心色块） */
+  solid?: boolean;
+  simulatePressure?: boolean;
 };
 
 export type PaperTransform = { x: number; y: number; scale: number; rotate: number };
@@ -134,5 +147,7 @@ export type SheetAction = {
     | "distribute-h" | "distribute-v"
     | "bring-front" | "bring-forward" | "send-backward" | "send-back"
     | "group" | "ungroup" | "bind-strokes"
-    | "connect-toggle" | "lasso-toggle" | "connect-cancel";
+    | "connect-toggle" | "lasso-toggle" | "connect-cancel"
+    | "frame-2x2" | "frame-2x3" | "frame-3x3" | "frame-clear"
+    | "play" | "play-stop";
 };

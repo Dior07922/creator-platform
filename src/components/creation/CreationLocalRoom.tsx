@@ -4,9 +4,11 @@ import { makeEmptyDoc } from "../../lib/documents";
 import { loadLocalDoc, saveLocalDoc } from "../../lib/localDocuments";
 import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode } from "../../types/document";
 import Editor from "./Editor";
+import type { BrushParams } from "./Editor";
 import {
   ObjectDrawer, ShapeDrawer,
   ColorDrawer, SpecDrawer, LockDrawer, FontDrawer,
+  BRUSH_DEFAULTS,
 } from "./CreationDrawer";
 import PageSheet from "./PageSheet";
 import { specScale } from "../../lib/paperSpecs";
@@ -22,10 +24,8 @@ const SIDE_ITEMS: { id: string; def: string; kind: SideKind }[] = [
   { id: "shape",  def: "笔",   kind: "shape" },
   { id: "color",  def: "色",   kind: "color" },
   { id: "font",   def: "字",   kind: "font" },
-  { id: "object", def: "物",   kind: "object" },
   { id: "page",   def: "页",   kind: "page" },
   { id: "lock",   def: "🔒",   kind: "lock" },
-  { id: "door",   def: "",     kind: "door" },
 ];
 
 const LABELS_KEY = "ranjing.sideLabels";
@@ -126,6 +126,82 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     return () => { ScreenOrientation.unlock().catch(() => {}); };
   }, []);
 
+  // 侧栏 Drawer 通用手势：往左滑回去
+  useEffect(() => {
+    let dragging = false;
+    let startX = 0;
+    let panel: HTMLElement | null = null;
+    let pid = -1;
+    let moved = false;
+    let curDx = 0;
+
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      // 只排除输入框，其余都能拖
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      const p = target.closest(".cd-panel") as HTMLElement | null;
+      if (!p) return;
+      dragging = true;
+      moved = false;
+      curDx = 0;
+      panel = p;
+      startX = e.clientX;
+      pid = e.pointerId;
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!dragging || !panel || e.pointerId !== pid) return;
+      const dx = e.clientX - startX;
+      if (!moved) {
+        if (Math.abs(dx) < 6) return;
+        moved = true;
+        panel.style.transition = "none";
+        try { panel.setPointerCapture(e.pointerId); } catch {}
+      }
+      e.preventDefault();
+      // 只允许向左（dx < 0），向右不动
+      const clamped = Math.min(0, dx);
+      curDx = clamped;
+      panel.style.transform = `translateX(${clamped}px)`;
+      panel.style.opacity = String(Math.max(0.3, 1 - Math.abs(clamped) / 400));
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (!dragging || !panel || e.pointerId !== pid) return;
+      const p = panel;
+      const closed = moved && curDx < -60;
+      p.style.transition = "transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.24s";
+      if (closed) {
+        p.style.transform = "translateX(-110%)";
+        p.style.opacity = "0";
+        const closeBtn = p.querySelector(".cd-collapse-handle") as HTMLElement | null;
+        setTimeout(() => {
+          closeBtn?.click();
+          p.style.transform = "";
+          p.style.opacity = "";
+        }, 220);
+      } else {
+        p.style.transform = "";
+        p.style.opacity = "";
+      }
+      dragging = false;
+      moved = false;
+      curDx = 0;
+      panel = null;
+      pid = -1;
+    };
+
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("pointermove", onMove, { passive: false });
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
   const DOC_ID = docKey || "default-doc";
 
   const [doc, setDoc] = useState<DocModel>(() => {
@@ -160,6 +236,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   const [currentFont, setCurrentFont] = useState<string>('"Noto Sans SC", sans-serif');
   const [showAssets, setShowAssets] = useState(false);
   const [drawTool, setDrawTool] = useState<ShapeKind | null>(null);
+  const [brush, setBrush] = useState<BrushParams>(() => ({ ...BRUSH_DEFAULTS }));
 
   const [elementConnectMode, setElementConnectMode] = useState(false);
   const [lassoMode, setLassoMode] = useState(false);
@@ -556,6 +633,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             lassoMode={lassoMode}
             onSelectionChange={setEditorHasSelection}
             sheetAction={sheetAction}
+            brush={brush}
           />
         )}
       </main>
@@ -568,23 +646,18 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
                 <button
                   key={it.id}
                   type="button"
-                  className="cd-side-entry"
-                  onClick={() => onSideAction(it.kind)}
-                  aria-label="门"
+                  className="cd-side-entry" onClick={() => onSideAction(it.kind)} aria-label="门"
                 >
                   {/* 替换掉原来那两个 span 拼接的简陋方块，换成这个 SVG */}
-                  <svg width="18" height="26" viewBox="0 0 18 26" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ writingMode: "horizontal-tb" }}>
-                    {/* 拱门主体 */}
-                    <path d="M2 25V9C2 4.58172 5.58172 1 10 1H8C12.4183 1 16 4.58172 16 9V25" stroke="#C9A87C" strokeWidth="1.2" strokeLinecap="round"/>
-                    {/* 门缝 */}
-                    <line x1="9" y1="1" x2="9" y2="25" stroke="#C9A87C" strokeWidth="0.8" strokeLinecap="round"/>
-                    {/* 左门环 */}
-                    <circle cx="6.5" cy="14" r="1.2" fill="#C9A87C"/>
-                    {/* 右门环 */}
-                    <circle cx="11.5" cy="14" r="1.2" fill="#C9A87C"/>
-                    {/* 门槛 */}
-                    <path d="M0 25H18" stroke="#C9A87C" strokeWidth="1.2" strokeLinecap="round"/>
-                  </svg>
+                  <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ writingMode: "horizontal-tb" }}>
+                {/* 胖拱门主体 */}
+                <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#C9A87C" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                {/* 门缝（比中线略偏，显得门更厚） */}
+                <line x1="10" y1="0" x2="10" y2="20" stroke="#C9A87C" strokeWidth="0.8"/>
+                {/* 门环 */}
+                <circle cx="7" cy="11" r="1" fill="#C9A87C"/>
+                <circle cx="13" cy="11" r="1" fill="#C9A87C"/>
+              </svg>
                 </button>
               );
             }
@@ -597,7 +670,30 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
               />
             );
           })}
-        </div>
+              {/* 裸门：无卡片、无边框、透明，只保留金色拱门 */}
+      <button
+        type="button"
+        onClick={() => onSideAction("door")}
+        aria-label="门"
+        style={{
+          width: 44, height: 56,
+          marginLeft: 0,
+          marginTop: 20,
+          background: "transparent",
+          border: 0, outline: 0,
+          boxShadow: "none",
+          padding: 0, margin: 0,
+          display: "flex", alignItems: "center", justifyContent: "flex-start", paddingLeft: 6, cursor: "pointer", flex: "none",
+          WebkitTapHighlightColor: "transparent",
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#C9A87C" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          <line x1="10" y1="0" x2="10" y2="20" stroke="#C9A87C" strokeWidth="0.8"/>
+          <circle cx="7" cy="11" r="1" fill="#C9A87C"/>
+          <circle cx="13" cy="11" r="1" fill="#C9A87C"/>
+        </svg>
+      </button></div>
       )}
 
       {openDrawer === "page" && (
@@ -622,9 +718,11 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       {openDrawer === "shape" && (
         <ShapeDrawer
           onClose={closeDrawer}
-          onPickTool={(kind) => { setDrawTool(kind); closeDrawer(); }}
+          onPickTool={(kind) => { setDrawTool(kind); }}
           onInsertText={(text) => { insertTextAtCenter(text); closeDrawer(); }}
           onInsertShape={(kind) => { insertShapeAtCenter(kind); closeDrawer(); }}
+          brush={brush}
+          onBrushChange={(patch) => setBrush((b) => ({ ...b, ...patch }))}
         />
       )}
       {openDrawer === "color" && (
