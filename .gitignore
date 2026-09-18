@@ -35,3 +35,15 @@ _tmp_*.mjs
 _verify_*.cjs
 
 .env*
+# temp debug scripts
+_tmp_*.mjs
+_verify_*.cjs
+scripts/v*.mjs
+scripts/patch-*.mjs
+
+# local editor backups & scratch files (never commit these)
+*.bak
+*.bak[0-9]
+*.bak-*
+*.orig
+_y1.txt

@@ -1,4 +1,4 @@
-﻿// name=src/components/creation/Editor.tsx
+// name=src/components/creation/Editor.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
@@ -483,7 +483,6 @@ export default function Editor({
   const [playingIdx, setPlayingIdx] = useState(-1);
   const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number } | null>(null);
   const [textPanel, setTextPanel] = useState<{ x: number; y: number } | null>(null);
-  const [redoStack, setRedoStack] = useState<any[]>([]);
   const [selectedEl, setSelectedEl] = useState<{
     type: "shape" | "image" | "note" | "table" | "link";
     id: string;
@@ -2418,24 +2417,10 @@ export default function Editor({
 
   useEffect(() => {
     (window as any).__ranjingCommands = {
-      undo: () => {
-        const stack = shapeHistoryRef.current;
-        if (!stack.length) return;
-        const cur = JSON.parse(JSON.stringify(pageRef.current.shapes || []));
-        setRedoStack((prev) => [...prev, cur]);
-        const prev = stack.pop()!;
-        onUpdateRef.current({ shapes: prev });
-        setUndoTick((t) => t + 1);
-      },
-      redo: () => {
-        if (!redoStack.length) return;
-        const cur = JSON.parse(JSON.stringify(pageRef.current.shapes || []));
-        shapeHistoryRef.current.push(cur);
-        const next = redoStack[redoStack.length - 1];
-        setRedoStack((prev) => prev.slice(0, -1));
-        onUpdateRef.current({ shapes: next });
-        setUndoTick((t) => t + 1);
-      },
+      // ★ 统一走 undoShape / redoShape，与 ranjing:cmd 事件共用同一套历史栈，
+      //   避免出现两套 redo 栈互不同步（右键菜单撤销后无法重做）的问题。
+      undo: () => undoShape(),
+      redo: () => redoShape(),
       delete: () => deleteSelection(),
       copy: () => {
         const sel = getSelectedRefs();
@@ -2453,8 +2438,6 @@ export default function Editor({
       },
       eraser: () => onDrawToolChangeRef.current?.("eraser"),
       selectAll: () => {
-        const list = (pageRef.current.shapes || []).map((s) => ({ type: "shape" as const, id: s.id }));
-        if (list.length === 0) return;
         const sr = stageRef.current?.getBoundingClientRect();
         if (!sr) return;
         const b = { x: 8, y: 8, w: sr.width - 16, h: sr.height - 16 };
@@ -2462,7 +2445,7 @@ export default function Editor({
         setBox(b);
       },
     };
-  }, [redoStack]);
+  }, []);
 
 function handleSheetAction(kind: string) {
     const sel = getSelectedRefs();
