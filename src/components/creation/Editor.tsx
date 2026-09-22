@@ -613,7 +613,11 @@ export default function Editor({
        一次拖动只在 up/cancel 形成一次提交，不在 move 中堆历史。 */
     unitDrag: null as null | {
       unitId: string;
-      memberSnapshots: { type: string; id: string; x: number; y: number }[];
+      /* 完整成员初始快照：shape 含全量字段（x1/y1/x2/y2/points/pressures…），
+         text 含 TextNode、其余含原始节点。pointermove 一律
+         新位置 = 快照 + 总 delta，绝不从当前帧坐标累加。 */
+      members: { type: "text" | "image" | "note" | "table" | "link" | "shape"; id: string; node: any }[];
+      bboxSnapshot: { x: number; y: number } | null;
       start: { x: number; y: number };
       moved: boolean;
     },
@@ -1812,7 +1816,8 @@ export default function Editor({
             g.mode = "dragUnit";
             g.unitDrag = {
               unitId: unitHit.unit.id,
-              memberSnapshots: snapshotUnitMembers(unitHit.unit),
+              members: snapshotUnitMembers(unitHit.unit),
+              bboxSnapshot: unitHit.unit.bbox ? { x: unitHit.unit.bbox.x, y: unitHit.unit.bbox.y } : null,
               start: { x: e.clientX, y: e.clientY },
               moved: false,
             };
@@ -2111,14 +2116,14 @@ export default function Editor({
     }
 
     /* ★ 创作单元整体拖动：屏幕 delta → 纸张局部 delta，统一平移全部成员。
-       相对位置不变、不吸附、不回正、不改 z 层级。bbox 此刻故意不动——
-       up/cancel 时 syncUnitBboxes 一次性最终校准。 */
+       新位置 = pointerdown 快照 + 总 delta（不累加）。
+       text 按 layer 区分坐标空间（paper→纸张局部，background→stage 局部）。 */
     if (g.mode === "dragUnit" && g.unitDrag) {
       const sdx = e.clientX - g.unitDrag.start.x;
       const sdy = e.clientY - g.unitDrag.start.y;
       if (Math.hypot(sdx, sdy) > 2) g.unitDrag.moved = true;
       const { ldx, ldy } = screenDeltaToPaperLocal(sdx, sdy);
-      applyUnitMemberMove(g.unitDrag.unitId, ldx, ldy);
+      applyUnitMemberMove(g.unitDrag.unitId, ldx, ldy, sdx, sdy);
       g.moved = true;
       return;
     }
@@ -2593,7 +2598,8 @@ export default function Editor({
     }
 
     /* ★ 结束创作单元整体拖动：成员位置已逐帧提交（手停哪停哪），
-       这里只做 bbox 最终校准 + 清状态。拖动中不写历史，up 即唯一提交点。 */
+       这里做 bbox 最终校准（以成员当前真实坐标重算，吸收 background 层
+       text 的 stage 坐标差异）+ 清状态。 */
     if (g.mode === "dragUnit") {
       const u = g.unitDrag;
       g.mode = "idle"; g.moved = false;
@@ -2823,15 +2829,16 @@ export default function Editor({
         Math.abs(ly - b.y), Math.abs(ly - (b.y + b.h)),
       );
       if (dist >= bestDist) continue;
-      /* 成员解析：image/note/table/link/shape 可整体平移；
-         text 成员保留在 Unit 内但不参与平移（text 无定位坐标，既有设计） */
+      /* 成员解析：六类（text/image/note/table/link/shape）均可整体平移，
+         text 有真实定位坐标（TextNode.x/y，TextElement 直接 left/top 渲染） */
       const members: { type: string; id: string }[] = [];
       (u.memberIds || []).forEach((mid: string) => {
-        if ((pg.images || []).some((n) => n.id === mid)) members.push({ type: "image", id: mid });
-        else if ((pg.notes || []).some((n) => n.id === mid)) members.push({ type: "note", id: mid });
-        else if ((pg.tables || []).some((n) => n.id === mid)) members.push({ type: "table", id: mid });
-        else if ((pg.links || []).some((n) => n.id === mid)) members.push({ type: "link", id: mid });
-        else if ((pg.shapes || []).some((n) => n.id === mid)) members.push({ type: "shape", id: mid });
+        if ((pg.texts || []).some((n: any) => n.id === mid)) members.push({ type: "text", id: mid });
+        else if ((pg.images || []).some((n: any) => n.id === mid)) members.push({ type: "image", id: mid });
+        else if ((pg.notes || []).some((n: any) => n.id === mid)) members.push({ type: "note", id: mid });
+        else if ((pg.tables || []).some((n: any) => n.id === mid)) members.push({ type: "table", id: mid });
+        else if ((pg.links || []).some((n: any) => n.id === mid)) members.push({ type: "link", id: mid });
+        else if ((pg.shapes || []).some((n: any) => n.id === mid)) members.push({ type: "shape", id: mid });
       });
       if (members.length) { best = { unit: u, members }; bestDist = dist; }
     }
@@ -2846,51 +2853,97 @@ export default function Editor({
     return { ldx: (sdx * cos - sdy * sin) / (p.scale || 1), ldy: (sdx * sin + sdy * cos) / (p.scale || 1) };
   }
 
-  /* 一次 Unit 整体拖动的成员初始坐标快照（type + id + 锚点坐标）。
-     text 成员不入快照（无定位坐标，既有设计），其相对位置由 bbox 重算保证视觉连贯。 */
-  function snapshotUnitMembers(unit: any): { type: string; id: string; x: number; y: number }[] {
+  /* 一次 Unit 整体拖动的完整成员快照（按类型深拷贝当前节点）。
+     - shape：全量字段（x1/y1/x2/y2/points/pressures）
+     - text：TextNode 原样（text 有真实 x/y 定位，TextElement 直接 left/top 渲染，
+             与 image/note 同一坐标体系；paper 层 text 走 updateText 批量平移）
+     其余类型取原始节点。pointermove 一律 新位置 = 快照 + 总 delta。 */
+  function snapshotUnitMembers(unit: any): { type: "text" | "image" | "note" | "table" | "link" | "shape"; id: string; node: any }[] {
     const pg = pageRef.current;
-    const out: { type: string; id: string; x: number; y: number }[] = [];
+    const out: { type: "text" | "image" | "note" | "table" | "link" | "shape"; id: string; node: any }[] = [];
     (unit.memberIds || []).forEach((mid: string) => {
+      const txt = (pg.texts || []).find((n) => n.id === mid);
+      if (txt) { out.push({ type: "text", id: mid, node: { ...txt } }); return; }
       const img = (pg.images || []).find((n) => n.id === mid);
-      if (img) { out.push({ type: "image", id: mid, x: img.x, y: img.y }); return; }
+      if (img) { out.push({ type: "image", id: mid, node: { ...img } }); return; }
       const note = (pg.notes || []).find((n) => n.id === mid);
-      if (note) { out.push({ type: "note", id: mid, x: note.x, y: note.y }); return; }
+      if (note) { out.push({ type: "note", id: mid, node: { ...note } }); return; }
       const table = (pg.tables || []).find((n) => n.id === mid);
-      if (table) { out.push({ type: "table", id: mid, x: table.x, y: table.y }); return; }
+      if (table) { out.push({ type: "table", id: mid, node: { ...table } }); return; }
       const lk = (pg.links || []).find((n) => n.id === mid);
-      if (lk) { out.push({ type: "link", id: mid, x: lk.x, y: lk.y }); return; }
+      if (lk) { out.push({ type: "link", id: mid, node: { ...lk } }); return; }
       const sh = (pg.shapes || []).find((n) => n.id === mid);
-      if (sh) { out.push({ type: "shape", id: mid, x: sh.x1, y: sh.y1 }); return; }
+      if (sh) {
+        out.push({
+          type: "shape", id: mid,
+          node: { ...sh, points: sh.points ? sh.points.map((p: any) => ({ ...p })) : undefined, pressures: sh.pressures ? [...sh.pressures] : undefined },
+        });
+      }
     });
     return out;
   }
 
-  /* 按统一 ldx/ldy 平移 Unit 全部成员（只改成员真实坐标，不新增第二套位移数据）。
-     一次 onUpdate 提交所有类型数组，保证拖动只产生一条改动。 */
-  function applyUnitMemberMove(unitId: string, ldx: number, ldy: number) {
+  /* 按统一 ldx/ldy 平移 Unit 全部成员（text/image/note/table/link/shape 全覆盖）。
+     新位置 = pointerdown 快照 + 当前总 delta（绝不基于当前帧坐标累加）。
+     一次 onUpdate 提交所有类型数组 + bbox，拖动只产生一条文档改动。
+
+     坐标体系区分（与现有文字拖动逻辑一致）：
+     - text 有 layer 字段：
+       layer="paper"  → 坐标为纸张局部，用 ldx/ldy（纸张局部 delta）
+       layer="background" → 坐标为 stage 局部，用屏幕 delta（sdx/sdy）
+     - image/note/table/link/shape 全部在纸张局部坐标，用 ldx/ldy */
+  function applyUnitMemberMove(unitId: string, ldx: number, ldy: number, sdx: number, sdy: number) {
+    const g = gRef.current;
+    const drag = g.unitDrag;
+    if (!drag) return;
     const pg = pageRef.current;
-    const unit = (pg.units || []).find((u: any) => u.id === unitId);
-    if (!unit) return;
-    const memberIds = new Set<string>(unit.memberIds || []);
-    onUpdateRef.current({
-      images: (pg.images || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
-      notes: (pg.notes || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
-      tables: (pg.tables || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
-      links: (pg.links || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
-      shapes: (pg.shapes || []).map((s) => memberIds.has(s.id)
-        ? { ...s, x1: s.x1 + ldx, y1: s.y1 + ldy, x2: s.x2 + ldx, y2: s.y2 + ldy,
-            points: s.points ? s.points.map((p: any) => ({ x: p.x + ldx, y: p.y + ldy })) : undefined }
-        : s),
+    const snap = new Map(drag.members.map((m) => [m.id, m] as const));
+
+    /* text：按 layer 区分坐标空间 */
+    const nextTexts = (pg.texts || []).map((t: any) => {
+      const m = snap.get(t.id);
+      if (!m || m.type !== "text") return t;
+      const o = m.node;
+      const isBg = o.layer === "background";
+      const dx = isBg ? sdx : ldx;
+      const dy = isBg ? sdy : ldy;
+      return { ...o, x: o.x + dx, y: o.y + dy };
     });
-    /* ★ 创作单元整体拖动：bbox 直接按本帧位移平移（而非按 memberIds 重算）。
-       原因：成员在 map 里就地 +dx/+dy，若同帧再按 memberIds 重算，
-       可能因 map 完成顺序差异产生 1 帧偏差，且多一次遍历。
-       直接平移 bbox 与成员位移严格一致，"外框随手实时移动"零延迟。 */
+
+    /* image/note/table/link：纸张局部坐标，统一用 ldx/ldy */
+    const patchPaperXY = (list: any[], type: string) =>
+      list.map((x: any) => {
+        const m = snap.get(x.id);
+        return m && m.type === type ? { ...m.node, x: m.node.x + ldx, y: m.node.y + ldy } : x;
+      });
+
+    const nextShapes = (pg.shapes || []).map((s: any) => {
+      const m = snap.get(s.id);
+      if (!m || m.type !== "shape") return s;
+      const o: any = m.node;
+      return {
+        ...o,
+        x1: o.x1 + ldx, y1: o.y1 + ldy,
+        x2: o.x2 + ldx, y2: o.y2 + ldy,
+        points: o.points ? o.points.map((p: any) => ({ x: p.x + ldx, y: p.y + ldy })) : undefined,
+      };
+    });
+    /* bbox 按快照平移（与成员位移严格一致） */
+    const nextUnits = (pg.units || []).map((u: any) =>
+      u.id === unitId && u.bbox && drag.bboxSnapshot
+        ? { ...u, bbox: { ...u.bbox, x: drag.bboxSnapshot.x + ldx, y: drag.bboxSnapshot.y + ldy } }
+        : u,
+    );
+
+    textsRef.current = nextTexts;
     onUpdateRef.current({
-      units: (pg.units || []).map((u: any) =>
-        u.id === unitId && u.bbox ? { ...u, bbox: { ...u.bbox, x: u.bbox.x + ldx, y: u.bbox.y + ldy } } : u,
-      ),
+      texts: nextTexts,
+      images: patchPaperXY(pg.images || [], "image"),
+      notes: patchPaperXY(pg.notes || [], "note"),
+      tables: patchPaperXY(pg.tables || [], "table"),
+      links: patchPaperXY(pg.links || [], "link"),
+      shapes: nextShapes,
+      units: nextUnits,
     });
   }
 
@@ -2965,6 +3018,14 @@ export default function Editor({
     if (lk) return { x: lk.x, y: lk.y, w: lk.w, h: lk.h };
     const shape = (pg.shapes || []).find((x) => x.id === id);
     if (shape) return { x: Math.min(shape.x1, shape.x2), y: Math.min(shape.y1, shape.y2), w: Math.abs(shape.x2 - shape.x1), h: Math.abs(shape.y2 - shape.y1) };
+    /* ★ 组合活化补充：text 成员入 Unit 后 bbox 也需计入。
+       paper 层 text 坐标为纸张局部（可直接用）；
+       background 层 text 在 stage 坐标，混入纸张 bbox 会失真 → 跳过（仅计纸张局部成员）。 */
+    const txt = (pg.texts || []).find((x) => x.id === id);
+    if (txt && txt.layer === "paper") {
+      const w = Math.max(20, (txt.text || "").length * txt.fontSize * 0.6);
+      return { x: txt.x, y: txt.y, w, h: txt.fontSize * 1.4 };
+    }
     return null;
   }
 
