@@ -100,7 +100,8 @@ type Mode =
   | "resizeBox"
   | "drawing"
   | "dragShape"
-  | "scaleEl";
+  | "scaleEl"
+  | "dragUnit";
 
 type ResizeHandle = "nw" | "ne" | "se" | "sw";
 
@@ -607,6 +608,15 @@ export default function Editor({
     justCommittedEdit: false as boolean,
     suppressNextUp: false as boolean,
     dragShapeStart: { x: 0, y: 0 },
+    /* ★ 创作单元整体拖动：命中 Unit 外框命中带时记录初始成员坐标快照，
+       pointermove 只平移 memberIds 对应成员（复用现有坐标体系，不新增第二套坐标）。
+       一次拖动只在 up/cancel 形成一次提交，不在 move 中堆历史。 */
+    unitDrag: null as null | {
+      unitId: string;
+      memberSnapshots: { type: string; id: string; x: number; y: number }[];
+      start: { x: number; y: number };
+      moved: boolean;
+    },
     dragShapeOrigin: null as ShapeNode | null,
     connectSource: null as { type: string; id: string } | null,
     activePen: false as boolean,
@@ -1791,6 +1801,28 @@ export default function Editor({
         textX: 0, textY: 0,
       };
 
+      /* ★ 创作单元整体拖动：成员全部未命中 + 无进行中框选时，检查 Unit 外框命中带。
+         优先级低于成员（上面各 hit* 分支已全部 return），高于空白操作（框选/双击建字）。 */
+      if (!boxRef.current) {
+        const lx = screenToPaperLocal(e.clientX, e.clientY, stageRef.current, paperStateRef.current);
+        if (lx.inside) {
+          const unitHit = hitUnitBorder(lx.x, lx.y);
+          if (unitHit) {
+            e.preventDefault();
+            g.mode = "dragUnit";
+            g.unitDrag = {
+              unitId: unitHit.unit.id,
+              memberSnapshots: snapshotUnitMembers(unitHit.unit),
+              start: { x: e.clientX, y: e.clientY },
+              moved: false,
+            };
+            g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+            return;
+          }
+        }
+      }
+
       if (boxRef.current) {
         const h = hitBoxHandle(e.clientX, e.clientY);
         if (h) {
@@ -2075,6 +2107,19 @@ export default function Editor({
         setBoxGroupId(null); boxGroupIdRef.current = null;
         g.pendingBox = false;
       }
+      return;
+    }
+
+    /* ★ 创作单元整体拖动：屏幕 delta → 纸张局部 delta，统一平移全部成员。
+       相对位置不变、不吸附、不回正、不改 z 层级。bbox 此刻故意不动——
+       up/cancel 时 syncUnitBboxes 一次性最终校准。 */
+    if (g.mode === "dragUnit" && g.unitDrag) {
+      const sdx = e.clientX - g.unitDrag.start.x;
+      const sdy = e.clientY - g.unitDrag.start.y;
+      if (Math.hypot(sdx, sdy) > 2) g.unitDrag.moved = true;
+      const { ldx, ldy } = screenDeltaToPaperLocal(sdx, sdy);
+      applyUnitMemberMove(g.unitDrag.unitId, ldx, ldy);
+      g.moved = true;
       return;
     }
 
@@ -2547,6 +2592,26 @@ export default function Editor({
       return;
     }
 
+    /* ★ 结束创作单元整体拖动：成员位置已逐帧提交（手停哪停哪），
+       这里只做 bbox 最终校准 + 清状态。拖动中不写历史，up 即唯一提交点。 */
+    if (g.mode === "dragUnit") {
+      const u = g.unitDrag;
+      g.mode = "idle"; g.moved = false;
+      g.unitDrag = null;
+      if (u?.moved) {
+        const pg = pageRef.current;
+        const unit = (pg.units || []).find((x: any) => x.id === u.unitId);
+        if (unit) {
+          /* syncUnitBboxes 是函数声明，下方定义处可见；此处直接调用 */
+          syncUnitBboxes(unit.memberIds || []);
+        }
+      }
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+      g.pointers.delete(e.pointerId);
+      clearTimeout(g.longPressTimer);
+      return;
+    }
+
     if (g.suppressNextUp) {
       g.suppressNextUp = false;
       try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
@@ -2675,6 +2740,19 @@ export default function Editor({
       g.mode = "idle"; g.moved = false;
     }
 
+    /* ★ 创作单元整体拖动：cancel 不还原，保留已移动到的位置（手停哪停哪），
+       同样做 bbox 最终校准。成员坐标已逐帧提交，无撤销需求。 */
+    if (g.mode === "dragUnit") {
+      const u = g.unitDrag;
+      g.unitDrag = null;
+      g.mode = "idle"; g.moved = false;
+      if (u?.moved) {
+        const pg = pageRef.current;
+        const unit = (pg.units || []).find((x: any) => x.id === u.unitId);
+        if (unit) syncUnitBboxes(unit.memberIds || []);
+      }
+    }
+
     if (g.pointers.size === 0) {
       g.mode = "idle";
       g.moved = false;
@@ -2690,8 +2768,7 @@ export default function Editor({
     }
   }
   /** 元素在纸张局部坐标系下的中心点。用于连线渲染与套索命中判定。 */
-  function centerOf(type: string, id: string): { x: number; y: number } | null {
-    const pg = pageRef.current;
+  function centerOf(type: string, id: string): { x: number; y: number } | null {    const pg = pageRef.current;
     if (type === "image") { const n = (pg.images || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
     if (type === "note")  { const n = (pg.notes  || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
     if (type === "table") { const n = (pg.tables || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
@@ -2712,6 +2789,109 @@ export default function Editor({
       return { x: t.x + approxW / 2, y: t.y + t.fontSize * 0.8 };
     }
     return null;
+  }
+
+  /* ★ 创作单元整体拖动 —— 命中检测 / 快照 / 成员平移。
+     坐标真相源唯一：成员在 page 各数组里的真实坐标。
+     Unit 本身不存位置，拖动 = 平移 memberIds 对应成员。 */
+
+  /** 命中 Unit「外框命中带」（bbox 外扩 12px 的环形带，不含内部空白）。
+      内部空白仍走原有空白操作（框选 / 双击建文字），不抢占。 */
+  function hitUnitBorder(lx: number, ly: number): { unit: any; members: { type: string; id: string }[] } | null {
+    const pg = pageRef.current;
+    const units = pg.units || [];
+    if (!units.length) return null;
+    const PAD = 12;
+    const inRing = (u: any) => {
+      const b = u.bbox;
+      if (!b) return false;
+      const outer = { x: b.x - PAD, y: b.y - PAD, w: b.w + PAD * 2, h: b.h + PAD * 2 };
+      const inner = { x: b.x + PAD, y: b.y + PAD, w: Math.max(0, b.w - PAD * 2), h: Math.max(0, b.h - PAD * 2) };
+      const inOuter = lx >= outer.x && lx <= outer.x + outer.w && ly >= outer.y && ly <= outer.y + outer.h;
+      const inInner = inner.w > 0 && inner.h > 0
+        && lx >= inner.x && lx <= inner.x + inner.w && ly >= inner.y && ly <= inner.y + inner.h;
+      return inOuter && !inInner;
+    };
+    /* 多个 Unit 重叠时取落点距外框边缘最近者，判定稳定可预测 */
+    let best: { unit: any; members: { type: string; id: string }[] } | null = null;
+    let bestDist = Infinity;
+    for (const u of units) {
+      if (!inRing(u)) continue;
+      const b = u.bbox!;
+      const dist = Math.min(
+        Math.abs(lx - b.x), Math.abs(lx - (b.x + b.w)),
+        Math.abs(ly - b.y), Math.abs(ly - (b.y + b.h)),
+      );
+      if (dist >= bestDist) continue;
+      /* 成员解析：image/note/table/link/shape 可整体平移；
+         text 成员保留在 Unit 内但不参与平移（text 无定位坐标，既有设计） */
+      const members: { type: string; id: string }[] = [];
+      (u.memberIds || []).forEach((mid: string) => {
+        if ((pg.images || []).some((n) => n.id === mid)) members.push({ type: "image", id: mid });
+        else if ((pg.notes || []).some((n) => n.id === mid)) members.push({ type: "note", id: mid });
+        else if ((pg.tables || []).some((n) => n.id === mid)) members.push({ type: "table", id: mid });
+        else if ((pg.links || []).some((n) => n.id === mid)) members.push({ type: "link", id: mid });
+        else if ((pg.shapes || []).some((n) => n.id === mid)) members.push({ type: "shape", id: mid });
+      });
+      if (members.length) { best = { unit: u, members }; bestDist = dist; }
+    }
+    return best;
+  }
+
+  /* 屏幕 delta → 纸张局部 delta（旋转补偿 + 缩放归一，与 dragShape 分支同款换算） */
+  function screenDeltaToPaperLocal(sdx: number, sdy: number): { ldx: number; ldy: number } {
+    const p = paperStateRef.current;
+    const rad = (-p.rotate * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return { ldx: (sdx * cos - sdy * sin) / (p.scale || 1), ldy: (sdx * sin + sdy * cos) / (p.scale || 1) };
+  }
+
+  /* 一次 Unit 整体拖动的成员初始坐标快照（type + id + 锚点坐标）。
+     text 成员不入快照（无定位坐标，既有设计），其相对位置由 bbox 重算保证视觉连贯。 */
+  function snapshotUnitMembers(unit: any): { type: string; id: string; x: number; y: number }[] {
+    const pg = pageRef.current;
+    const out: { type: string; id: string; x: number; y: number }[] = [];
+    (unit.memberIds || []).forEach((mid: string) => {
+      const img = (pg.images || []).find((n) => n.id === mid);
+      if (img) { out.push({ type: "image", id: mid, x: img.x, y: img.y }); return; }
+      const note = (pg.notes || []).find((n) => n.id === mid);
+      if (note) { out.push({ type: "note", id: mid, x: note.x, y: note.y }); return; }
+      const table = (pg.tables || []).find((n) => n.id === mid);
+      if (table) { out.push({ type: "table", id: mid, x: table.x, y: table.y }); return; }
+      const lk = (pg.links || []).find((n) => n.id === mid);
+      if (lk) { out.push({ type: "link", id: mid, x: lk.x, y: lk.y }); return; }
+      const sh = (pg.shapes || []).find((n) => n.id === mid);
+      if (sh) { out.push({ type: "shape", id: mid, x: sh.x1, y: sh.y1 }); return; }
+    });
+    return out;
+  }
+
+  /* 按统一 ldx/ldy 平移 Unit 全部成员（只改成员真实坐标，不新增第二套位移数据）。
+     一次 onUpdate 提交所有类型数组，保证拖动只产生一条改动。 */
+  function applyUnitMemberMove(unitId: string, ldx: number, ldy: number) {
+    const pg = pageRef.current;
+    const unit = (pg.units || []).find((u: any) => u.id === unitId);
+    if (!unit) return;
+    const memberIds = new Set<string>(unit.memberIds || []);
+    onUpdateRef.current({
+      images: (pg.images || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
+      notes: (pg.notes || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
+      tables: (pg.tables || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
+      links: (pg.links || []).map((x) => memberIds.has(x.id) ? { ...x, x: x.x + ldx, y: x.y + ldy } : x),
+      shapes: (pg.shapes || []).map((s) => memberIds.has(s.id)
+        ? { ...s, x1: s.x1 + ldx, y1: s.y1 + ldy, x2: s.x2 + ldx, y2: s.y2 + ldy,
+            points: s.points ? s.points.map((p: any) => ({ x: p.x + ldx, y: p.y + ldy })) : undefined }
+        : s),
+    });
+    /* ★ 创作单元整体拖动：bbox 直接按本帧位移平移（而非按 memberIds 重算）。
+       原因：成员在 map 里就地 +dx/+dy，若同帧再按 memberIds 重算，
+       可能因 map 完成顺序差异产生 1 帧偏差，且多一次遍历。
+       直接平移 bbox 与成员位移严格一致，"外框随手实时移动"零延迟。 */
+    onUpdateRef.current({
+      units: (pg.units || []).map((u: any) =>
+        u.id === unitId && u.bbox ? { ...u, bbox: { ...u.bbox, x: u.bbox.x + ldx, y: u.bbox.y + ldy } } : u,
+      ),
+    });
   }
 
   function getSelectedRefs(): { type: any; id: string }[] {
@@ -2741,7 +2921,8 @@ export default function Editor({
   }
 
   /* ★ 组合活化：重算所有包含成员 id 的 Unit.bbox（只更新 bbox 字段，不改成员真实坐标）。
-     调用时机：批量 setPos 之后（排列/对齐/分布）。增量修改，老逻辑不动。 */
+     调用时机：批量 setPos 之后（排列/对齐/分布）。增量修改，老逻辑不动。
+     支持传入 unit.id 直接重算该 Unit（创作单元整体拖动时按帧调用）。 */
   function syncUnitBboxes(ids: string[]) {
     const pg = pageRef.current;
     const units = pg.units || [];
@@ -2749,7 +2930,10 @@ export default function Editor({
     const idSet = new Set(ids);
     let changed = false;
     const nextUnits = units.map((u: any) => {
-      if (!u.memberIds?.some((m: string) => idSet.has(m))) return u;
+      /* 直接命中的 unit 自身，或包含成员 id 的 unit，都需要重算 */
+      const isSelf = idSet.has(u.id);
+      const containsMember = u.memberIds?.some((m: string) => idSet.has(m));
+      if (!isSelf && !containsMember) return u;
       /* 成员在 page 中可能已移动：逐个取当前 bounds，取外接包围盒 */
       const boxes = u.memberIds
         .map((mid: string) => boundsOfForSync(mid))
@@ -3605,22 +3789,29 @@ function handleSheetAction(kind: string) {
           );
         })()}
 
-        {/* 创作单元外框 —— 组从此在画布上可辨识：浅色包围框 + 名字小标 */}
-        {(page.units || []).map((u: any) => (
+        {/* 创作单元外框 —— 组从此在画布上可辨识：浅色包围框 + 名字小标。
+            ★ 整体拖动时（gRef.unitDrag）该 Unit 外框高亮，命中带视觉提示 */}
+        {(page.units || []).map((u: any) => {
+          const isDragging = gRef.current.unitDrag?.unitId === u.id;
+          return (
           <g key={u.id}>
             <rect
               x={u.bbox?.x ?? 0} y={u.bbox?.y ?? 0}
               width={u.bbox?.w ?? 0} height={u.bbox?.h ?? 0}
-              fill="none" stroke="rgba(201,168,124,0.4)" strokeWidth={1}
+              fill={isDragging ? "rgba(201,168,124,0.12)" : "none"}
+              stroke={isDragging ? "rgba(201,168,124,0.9)" : "rgba(201,168,124,0.4)"}
+              strokeWidth={isDragging ? 2 : 1}
               strokeDasharray="4 3" rx={3}
+              style={isDragging ? { transition: "stroke .1s, fill .1s" } : undefined}
             />
             <text x={(u.bbox?.x ?? 0) + 4} y={(u.bbox?.y ?? 0) - 4} fontSize={9}
-              fill="rgba(122,90,52,0.75)" fontFamily="serif"
+              fill={isDragging ? "rgba(122,90,52,1)" : "rgba(122,90,52,0.75)"} fontFamily="serif"
               style={{ pointerEvents: "none" }}>
               {u.name || ({ card: "卡片", label: "图签", sticky: "贴签", zone: "区域" } as Record<string, string>)[u.kind]}
             </text>
           </g>
-        ))}
+          );
+        })}
 
         {/* 镜渲染：按叙事顺序（order）排布 + 编号可点（点镜 = 与上一镜交换故事顺序） */}
         {[...comicFrames].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0)).map((f: any, idx: number) => {
