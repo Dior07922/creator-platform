@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
-  Group, ImageNode, LinkNode, NoteNode, Page, ShapeKind, ShapeNode, TableNode, TextNode,
+  ElementLink, ElementLinkTargetType, Group, ImageNode, LinkNode, NoteNode, Page, ShapeKind, ShapeNode, TableNode, TextNode,
 } from "../../types/document";
 
 /** perfect-freehand easing 预设（StrokeOptions.easing 需要函数，UI 用名字选） */
@@ -66,6 +66,8 @@ type Props = {
   onPastePage?: (x: number, y: number) => void;
   hasClipboard?: boolean;
   onRequestConnect?: () => void;
+  /** 跳转锚点：建立 本页→目标页 的 flow 关系（PageLink） */
+  onJumpAnchor?: (toPageId: string, relType?: string) => void;
   onUpdatePageTransform?: (pageId: string, transform: { x: number; y: number; scale: number; rotate: number }) => void;
   onDeletePage?: () => void;
   paperColor: string;
@@ -78,6 +80,9 @@ type Props = {
   onDrawToolChange?: (kind: ShapeKind | null) => void;
   elementConnectMode?: boolean;
   lassoMode?: boolean;
+  /* ★ BUG-02/03：模式切换回调 —— 由父组件持有 state，Editor 只发指令 */
+  onToggleConnect?: () => void;
+  onToggleLasso?: () => void;
   onSelectionChange?: (hasSelection: boolean) => void;
   sheetAction?: { id: number; kind: string } | null;
   /** 当前笔刷手感参数，绘制时写入新笔迹 */
@@ -404,9 +409,12 @@ export default function Editor({
   onDrawToolChange,
   elementConnectMode,
   lassoMode,
+  onToggleConnect,
+  onToggleLasso,
   onSelectionChange,
   sheetAction,
   brush,
+  onJumpAnchor,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const editTaRef = useRef<HTMLTextAreaElement>(null);
@@ -479,10 +487,39 @@ export default function Editor({
   const boxClipboardRef = useRef<{ texts: TextNode[]; pages: Page[] } | null>(null);
   const dragSelectRef = useRef<{ startX: number; startY: number; cursorAtDown: number; moved: boolean } | null>(null);
 
-  const [comicFrames, setComicFrames] = useState<{ id: string; x: number; y: number; w: number; h: number }[]>([]);
+  const [comicFrames, setComicFrames] = useState<{ id: string; x: number; y: number; w: number; h: number; order?: number; elementIds?: string[] }[]>(() => {
+    /* 老数据兼容：page.frames 存在则用之，否则初始为空（由排列 tab 生成） */
+    const f = (page as any).frames;
+    return f && f.length ? f : [];
+  });
   const [playingIdx, setPlayingIdx] = useState(-1);
-  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number } | null>(null);
+  /* ★ 禁用 alert 约定：画布轻提示（1.6s 自隐，absolute 在 stage 顶部，pointerEvents none 不吞手势） */
+  const [canvasFlash, setCanvasFlash] = useState<string | null>(null);
+  const canvasFlashTimerRef = useRef<number | null>(null);
+  function showCanvasFlash(msg: string) {
+    setCanvasFlash(msg);
+    if (canvasFlashTimerRef.current != null) clearTimeout(canvasFlashTimerRef.current);
+    canvasFlashTimerRef.current = window.setTimeout(() => setCanvasFlash(null), 1600);
+  }
+  /* ★ 连接活化：最近建立的关系线（克制反馈：两端微牵引 + 线生长，约 1s 后收敛，不改变元素最终位置） */
+  const [freshLink, setFreshLink] = useState<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>(null);
+  const freshLinkTimerRef = useRef<number | null>(null);
+  function showFreshLink(fromId: string, toId: string) {
+    const f = centerOf("image", fromId) || centerOf("note", fromId) || centerOf("table", fromId) || centerOf("link", fromId) || centerOf("shape", fromId) || centerOf("text", fromId);
+    const t = centerOf("image", toId) || centerOf("note", toId) || centerOf("table", toId) || centerOf("link", toId) || centerOf("shape", toId) || centerOf("text", toId);
+    if (!f || !t) return;
+    setFreshLink({ from: f, to: t });
+    if (freshLinkTimerRef.current != null) clearTimeout(freshLinkTimerRef.current);
+    freshLinkTimerRef.current = window.setTimeout(() => setFreshLink(null), 1000);
+  }
+  /* ★ 演出关系展开：播放到某镜时依次点亮该镜涉及的关系线（activeLinks 按播放顺序累积） */
+  const [activeLinks, setActiveLinks] = useState<string[]>([]);
+  /* ★ 节奏活化：本次播放的逐镜时长（基础 + 镜内 Unit 数 + 该镜关系数；用户 perfo-speed-* 锁定时全帧同值） */
+  const playTimingsRef = useRef<number[]>([]);
+  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "copy-as" | "export-as" } | null>(null);
   const [textPanel, setTextPanel] = useState<{ x: number; y: number } | null>(null);
+  /* ★ 套索轨迹：stage 局部坐标点序列。null = 未在画套索 */
+  const [lassoPath, setLassoPath] = useState<{ x: number; y: number }[] | null>(null);
   const [selectedEl, setSelectedEl] = useState<{
     type: "shape" | "image" | "note" | "table" | "link";
     id: string;
@@ -667,6 +704,9 @@ export default function Editor({
       (g as any).scaleElType = null;
       g.dragShapeOrigin = null;
       g.activePen = false;
+      /* ★ BUG-01：窗口失焦 / 切后台是 pen 状态最易残留的场景，必须彻底复位 */
+      (g as any).activePenId = null;
+      (g as any).activePenAt = 0;
       drawingRef.current = null;
       setDraft(null);
       clearTimeout(g.longPressTimer);
@@ -1178,17 +1218,69 @@ export default function Editor({
     setBoxGroupId(null); boxGroupIdRef.current = null;
   }
   function deleteSelection() {
-    const ids = currentGroupMemberIds();
-    if (ids.length > 0) {
-      const next = textsRef.current.filter((t) => !ids.includes(t.id));
-      textsRef.current = next;
-      onUpdateRef.current({ texts: next });
+    const pg = pageRef.current;
+    const idSet = new Set<string>();
+
+    /* 1. 框选内的 group 成员 */
+    currentGroupMemberIds().forEach((id) => idSet.add(id));
+
+    /* 2. 单选元素（选中框 / 长按命中） —— 原逻辑完全没处理，这是「删除没反应」的根因 */
+    const sel = selectedElRef.current;
+    if (sel) idSet.add(sel.id);
+
+    /* 3. 框选落点上的文本 —— 原逻辑只看 group，未编组时文字删不掉 */
+    const b = boxRef.current;
+    if (b && b.w >= 4 && b.h >= 4) {
+      const stage = stageRef.current;
+      if (stage) {
+        const sr = stage.getBoundingClientRect();
+        const els = stage.querySelectorAll<HTMLElement>("[data-text-id]");
+        els.forEach((el) => {
+          const r = el.getBoundingClientRect();
+          const lx = r.left - sr.left, ly = r.top - sr.top;
+          if (lx + r.width >= b.x && lx <= b.x + b.w && ly + r.height >= b.y && ly <= b.y + b.h) {
+            const id = el.dataset.textId;
+            if (id) idSet.add(id);
+          }
+        });
+      }
     }
+
+    /* 4. 没有任何框选也没有单选 → 兜底删掉框选内所有层元素 */
+    let boxIds: string[] = [];
+    if (idSet.size === 0 && b && b.w >= 4 && b.h >= 4) {
+      const restrictTo = gRef.current.boxSourceLayer === "paper" ? "paper" : "background";
+      boxIds = computeMembersInBox(b, restrictTo);
+      boxIds.forEach((id) => idSet.add(id));
+    }
+
+    if (idSet.size === 0) return;
+
     const gid = boxGroupIdRef.current;
-    if (gid) {
-      const groups = (pageRef.current.groups || []).filter((gg) => gg.id !== gid);
-      onUpdateRef.current({ groups });
-    }
+    const keep = <T extends { id: string }>(arr: T[] | undefined) => (arr || []).filter((x) => !idSet.has(x.id));
+
+    onUpdateRef.current({
+      shapes: keep(pg.shapes),
+      images: keep(pg.images),
+      notes:  keep(pg.notes),
+      tables: keep(pg.tables),
+      links:  keep(pg.links),
+      texts:  keep(textsRef.current),
+      /* 连线两端任一端被删 → 一并清掉，避免留下悬空线 */
+      elementLinks: (pg.elementLinks || []).filter(
+        (l: any) => !idSet.has(l.fromId) && !idSet.has(l.targetId)
+      ),
+      groups: gid
+        ? (pg.groups || []).filter((gg) => gg.id !== gid)
+        : (pg.groups || []),
+      /* 创作单元：成员被删 → 单元一并清掉，避免悬空 Unit */
+      units: (pg.units || []).filter(
+        (u: any) => !u.memberIds.some((mid: string) => idSet.has(mid))
+      ),
+    });
+
+    textsRef.current = textsRef.current.filter((t) => !idSet.has(t.id));
+    if (sel) setSelectedEl(null);
     clearBox();
   }
   function deleteOneText(id: string) {
@@ -1196,6 +1288,116 @@ export default function Editor({
     textsRef.current = next;
     onUpdateRef.current({ texts: next });
   }
+
+  /** 导出当前页为文件。format: svg | png | png-transparent */
+  function exportCanvas(format: "svg" | "png" | "png-transparent") {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const svgEl = stage.querySelector<SVGSVGElement>("svg");
+    if (!svgEl) return;
+
+    const p = paperStateRef.current;
+    const W = Math.max(1, Math.round(pageRef.current.paperW || 800));
+    const H = Math.max(1, Math.round(pageRef.current.paperH || 1000));
+    const stamp = Date.now();
+    const filename = `ranjing-${stamp}`;
+
+    if (format === "svg") {
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      const blob = new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${clone.outerHTML}`], {
+        type: "image/svg+xml;charset=utf-8",
+      });
+      downloadBlob(blob, `${filename}.svg`);
+      return;
+    }
+
+    // PNG / 透明 PNG：把 svg 光栅化到 canvas
+    const clone = svgEl.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", String(W));
+    clone.setAttribute("height", String(H));
+    const svgText = new XMLSerializer().serializeToString(clone);
+    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(url); return; }
+      if (format === "png") {
+        // 不透明版：铺上纸张底色
+        ctx.fillStyle = pageRef.current.paperColor || "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+      }
+      // 纸张内容按当前变换比例缩放铺满
+      const sw = stage.clientWidth || W;
+      const sh = stage.clientHeight || H;
+      const scale = Math.min(W / (sw || W), H / (sh || H));
+      ctx.drawImage(img, 0, 0, sw * scale, sh * scale);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (blob) downloadBlob(blob, `${filename}.png`);
+      }, "image/png");
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+    // 记录当前变换，避免 lint 报未使用
+    void p;
+  }
+
+  function downloadBlob(blob: Blob, name: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** 粘贴：优先用内部剪贴板，其次读系统剪贴板文本 */
+  const pasteClipboard = () => {
+    const internal = boxClipboardRef.current;
+    if (internal && (internal.texts.length > 0 || internal.pages.length > 0)) {
+      const off = 24;
+      const newTexts = internal.texts.map((t) => ({
+        ...t,
+        id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        x: t.x + off,
+        y: t.y + off,
+      }));
+      if (newTexts.length) {
+        onUpdateRef.current({ texts: [...textsRef.current, ...newTexts] });
+        textsRef.current = [...textsRef.current, ...newTexts];
+      }
+      return;
+    }
+    // 读系统剪贴板文本（中文安全：readText 返回 UTF-16 字符串）
+    if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
+      navigator.clipboard.readText().then((text) => {
+        if (!text) return;
+        const stage = stageRef.current;
+        const rect = stage?.getBoundingClientRect();
+        const cx = rect ? rect.width / 2 : 200;
+        const cy = rect ? rect.height / 2 : 200;
+        const node: TextNode = {
+          id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          text,
+          x: cx, y: cy,
+          fontSize: 18,
+          color: "#3a352e",
+          layer: "background",
+        };
+        onUpdateRef.current({ texts: [...textsRef.current, node] });
+        textsRef.current = [...textsRef.current, node];
+      }).catch(() => { /* 用户未授权读取剪贴板 */ });
+    }
+  };
 
   function snapshotOriginalOtherPages(): { id: string; x: number; y: number; scale: number }[] {
     const ids = currentGroupPageIds();
@@ -1246,6 +1448,7 @@ export default function Editor({
     {
       const sx = e.clientX, sy = e.clientY;
       const lp = window.setTimeout(() => {
+        if (drawToolRef.current) return;
         const hit = hitText(sx, sy);
         if (hit) {
           setCtxMenu({ kind: "element", x: sx, y: sy });
@@ -1282,13 +1485,26 @@ export default function Editor({
 
     const g = gRef.current;
 
-    // 手写笔落下 → 激活 pen 模式；掌拒：pen 活跃期间忽略手指
+    // 手写笔落下 → 记录 pen 的 pointerId + 时间戳；掌拒只在 pen 在屏上时生效
+    // ★ BUG-01 修复：原逻辑单布尔 activePen，pen 异常未抬起（系统吞 up / 切后台 / 掌拒冲突）
+    //   会导致 activePen 永久为 true，此后所有 touch 被吞 → 用户体感「屏幕失灵」。
+    //   现改为「带时间戳的活跃窗」：超过 3 秒未见到 pen 事件即判定失效，自动放行 touch。
     if (e.pointerType === "pen") {
+      (g as any).activePenId = e.pointerId;
+      (g as any).activePenAt = Date.now();
       g.activePen = true;
     } else if (e.pointerType === "touch" && g.activePen) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
+      const penAt = (g as any).activePenAt || 0;
+      const stale = Date.now() - penAt > 3000;
+      if (stale) {
+        (g as any).activePenId = null;
+        (g as any).activePenAt = 0;
+        g.activePen = false;
+      } else {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
     }
 
     // ★ 已有 1 指在屏上，第 2 指落下 → 双指缩放选中元素（需中心点在选中元素上）
@@ -1325,7 +1541,20 @@ export default function Editor({
         }
       }
     }
-    // ★ 元素连线模式
+    // ★ 套索模式：落笔即启动轨迹（用 stage 局部坐标）
+    if (lassoMode && !drawToolRef.current && g.pointers.size === 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+      const local = getStageLocal(e.clientX, e.clientY);
+      if (!local) return;
+      setLassoPath([local]);
+      g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      g.moved = true;
+      return;
+    }
+
+    // ★ 元素连线模式：写入两端（fromType/fromId + targetType/targetId）
     if (elementConnectMode) {
       const lx = screenToPaperLocal(e.clientX, e.clientY, stageRef.current, paperStateRef.current);
       if (lx.inside) {
@@ -1347,17 +1576,32 @@ export default function Editor({
           if (!g.connectSource) {
             g.connectSource = target;
           } else {
+            const from = g.connectSource;
+            const to = target;
+            // 同一个元素 → 取消，不生成自环
+            if (from.type === to.type && from.id === to.id) {
+              g.connectSource = null;
+              return;
+            }
             const links = pageRef.current.elementLinks || [];
-            const dup = links.find((x) => x.targetType === target.type && x.targetId === target.id);
+            // 已存在（任一端相同）→ 不重复添加
+            const dup = links.find((x: any) =>
+              (x.fromType === from.type && x.fromId === from.id && x.targetType === to.type && x.targetId === to.id) ||
+              (x.fromType === to.type && x.fromId === to.id && x.targetType === from.type && x.targetId === from.id)
+            );
             if (!dup) {
               onUpdateRef.current({
                 elementLinks: [...links, {
                   id: `el-${Date.now()}`,
-                  targetType: target.type,
-                  targetId: target.id,
+                  fromType: from.type as ElementLinkTargetType,
+                  fromId: from.id,
+                  targetType: to.type as ElementLinkTargetType,
+                  targetId: to.id,
                   createdAt: Date.now(),
-                }],
+                } as ElementLink],
               });
+              /* ★ 连接活化：关系建立瞬间的克制反馈（不改变元素最终位置） */
+              showFreshLink(from.id, to.id);
             }
             g.connectSource = null;
           }
@@ -1512,7 +1756,6 @@ export default function Editor({
       g.justCommittedEdit = true;
       return;
     }
-
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
 
@@ -1665,6 +1908,15 @@ export default function Editor({
   function onPointerMove(e: React.PointerEvent) {
     const g = gRef.current;
     if (g.justCommittedEdit) return;
+    /* ★ 套索：累积轨迹点（stage 局部坐标） */
+    if (lassoPath && g.pointers.has(e.pointerId)) {
+      const local = getStageLocal(e.clientX, e.clientY);
+      if (local) {
+        setLassoPath((prev) => prev ? [...prev, local] : null);
+        g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+      return;
+    }
     if (!g.pointers.has(e.pointerId)) return;
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -2022,6 +2274,8 @@ export default function Editor({
       };
       boxRef.current = b;
       setBox(b);
+      /* ★ 组合活化：框选整体拖动后，成员（含 text）位置已变 → 增量重算涉及成员的所有 Unit.bbox */
+      syncUnitBboxes((g.boxOriginalMembers || []).map((m: any) => m.id));
     }
 
     if (g.mode === "resizeBox") {
@@ -2130,7 +2384,80 @@ export default function Editor({
 
   function onPointerUp(e: React.PointerEvent) {
     const g = gRef.current;
-    if (e.pointerType === "pen") g.activePen = false;
+    /* ★ 套索闭合：射线法判定 → 命中元素编组 + 生成包围盒 */
+    if (lassoPath && lassoPath.length > 3) {
+      const path = lassoPath;
+      setLassoPath(null);
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+      g.pointers.delete(e.pointerId);
+      clearTimeout(g.longPressTimer);
+      g.mode = "idle";
+      g.moved = false;
+
+      const stage = stageRef.current;
+      const sr = stage?.getBoundingClientRect();
+      if (!sr) return;
+
+      const inside = (px: number, py: number, poly: { x: number; y: number }[]) => {
+        let n = 0;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].x, yi = poly[i].y;
+          const xj = poly[j].x, yj = poly[j].y;
+          if (((yi > py) !== (yj > py)) && (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)) n++;
+        }
+        return n % 2 === 1;
+      };
+
+      const pg = pageRef.current;
+      const hitIds: string[] = [];
+      const tryHit = (type: string, id: string) => {
+        const c = centerOf(type, id);
+        if (!c) return;
+        const screenPt = paperLocalToScreen(c.x, c.y, stage, paperStateRef.current);
+        if (inside(screenPt.x - sr.left, screenPt.y - sr.top, path)) hitIds.push(id);
+      };
+
+      (pg.shapes || []).forEach((s) => tryHit("shape", s.id));
+      (pg.images || []).forEach((s) => tryHit("image", s.id));
+      (pg.notes  || []).forEach((s) => tryHit("note", s.id));
+      (pg.tables || []).forEach((s) => tryHit("table", s.id));
+      (pg.links  || []).forEach((s) => tryHit("link", s.id));
+
+      if (hitIds.length > 0) {
+        const gid = `g-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        onUpdateRef.current({
+          groups: [...(pg.groups || []), { id: gid, memberIds: hitIds, createdAt: Date.now() }],
+        });
+        setBoxGroupId(gid);
+        boxGroupIdRef.current = gid;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        hitIds.forEach((id) => {
+          const c =
+            centerOf("shape", id) || centerOf("image", id) || centerOf("note", id) ||
+            centerOf("table", id) || centerOf("link", id);
+          if (!c) return;
+          const pt = paperLocalToScreen(c.x, c.y, stage, paperStateRef.current);
+          const lx = pt.x - sr.left;
+          const ly = pt.y - sr.top;
+          if (lx < minX) minX = lx;
+          if (ly < minY) minY = ly;
+          if (lx > maxX) maxX = lx;
+          if (ly > maxY) maxY = ly;
+        });
+        const b = { x: minX - 20, y: minY - 20, w: maxX - minX + 40, h: maxY - minY + 40 };
+        boxRef.current = b;
+        setBox(b);
+      }
+      return;
+    }
+    if (lassoPath) { setLassoPath(null); }
+    if (e.pointerType === "pen") {
+      /* ★ BUG-01：复位必须连带清掉时间戳，否则残留时间戳会误判 pen 仍活跃 */
+      g.activePen = false;
+      (g as any).activePenId = null;
+      (g as any).activePenAt = 0;
+    }
     (g as any).pendingDraw = null;
 
     if (g.mode === "drawing" && drawingRef.current && (drawingRef.current as any).kind === "eraser") {
@@ -2340,6 +2667,9 @@ export default function Editor({
     g.dragShapeOrigin = null;
     g.connectSource = null;
     g.activePen = false;
+    /* ★ BUG-01：取消手势时同步清 pen 时间戳 */
+    (g as any).activePenId = null;
+    (g as any).activePenAt = 0;
 
     if (g.mode === "drawing") {
       g.mode = "idle"; g.moved = false;
@@ -2359,6 +2689,31 @@ export default function Editor({
       setDraggingTextId(null);
     }
   }
+  /** 元素在纸张局部坐标系下的中心点。用于连线渲染与套索命中判定。 */
+  function centerOf(type: string, id: string): { x: number; y: number } | null {
+    const pg = pageRef.current;
+    if (type === "image") { const n = (pg.images || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
+    if (type === "note")  { const n = (pg.notes  || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
+    if (type === "table") { const n = (pg.tables || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
+    if (type === "link")  { const n = (pg.links  || []).find((x) => x.id === id); return n ? { x: n.x + n.w / 2, y: n.y + n.h / 2 } : null; }
+    if (type === "shape") {
+      const n = (pg.shapes || []).find((x) => x.id === id);
+      if (!n) return null;
+      if (isFreeKind(n.kind) && n.points && n.points.length > 0) {
+        const b = shapeLocalBox(n);
+        return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+      }
+      return { x: (n.x1 + n.x2) / 2, y: (n.y1 + n.y2) / 2 };
+    }
+    if (type === "text") {
+      const t = textsRef.current.find((x) => x.id === id);
+      if (!t) return null;
+      const approxW = Math.max(20, (t.text || "").length * t.fontSize * 0.6);
+      return { x: t.x + approxW / 2, y: t.y + t.fontSize * 0.8 };
+    }
+    return null;
+  }
+
   function getSelectedRefs(): { type: any; id: string }[] {
     const out: { type: any; id: string }[] = [];
     const b = boxRef.current;
@@ -2382,6 +2737,50 @@ export default function Editor({
       if (!n) return null;
       return { x: Math.min(n.x1, n.x2), y: Math.min(n.y1, n.y2), w: Math.abs(n.x2 - n.x1), h: Math.abs(n.y2 - n.y1) };
     }
+    return null;
+  }
+
+  /* ★ 组合活化：重算所有包含成员 id 的 Unit.bbox（只更新 bbox 字段，不改成员真实坐标）。
+     调用时机：批量 setPos 之后（排列/对齐/分布）。增量修改，老逻辑不动。 */
+  function syncUnitBboxes(ids: string[]) {
+    const pg = pageRef.current;
+    const units = pg.units || [];
+    if (!units.length) return;
+    const idSet = new Set(ids);
+    let changed = false;
+    const nextUnits = units.map((u: any) => {
+      if (!u.memberIds?.some((m: string) => idSet.has(m))) return u;
+      /* 成员在 page 中可能已移动：逐个取当前 bounds，取外接包围盒 */
+      const boxes = u.memberIds
+        .map((mid: string) => boundsOfForSync(mid))
+        .filter(Boolean) as { x: number; y: number; w: number; h: number }[];
+      if (!boxes.length) return u;
+      const x = Math.min(...boxes.map((b) => b.x));
+      const y = Math.min(...boxes.map((b) => b.y));
+      const x2 = Math.max(...boxes.map((b) => b.x + b.w));
+      const y2 = Math.max(...boxes.map((b) => b.y + b.h));
+      const nb = { x, y, w: x2 - x, h: y2 - y };
+      const cur = u.bbox;
+      if (cur && Math.abs(cur.x - nb.x) < 0.5 && Math.abs(cur.y - nb.y) < 0.5 &&
+          Math.abs(cur.w - nb.w) < 0.5 && Math.abs(cur.h - nb.h) < 0.5) return u;
+      changed = true;
+      return { ...u, bbox: nb };
+    });
+    if (changed) onUpdateRef.current({ units: nextUnits });
+  }
+  /* 仅用于 bbox 同步：text 类型没有 bounds（不可移动定位单元），其余类型直接查 pageRef 当前值 */
+  function boundsOfForSync(id: string): { x: number; y: number; w: number; h: number } | null {
+    const pg = pageRef.current;
+    const img = (pg.images || []).find((x) => x.id === id);
+    if (img) return { x: img.x, y: img.y, w: img.w, h: img.h };
+    const note = (pg.notes || []).find((x) => x.id === id);
+    if (note) return { x: note.x, y: note.y, w: note.w, h: note.h };
+    const table = (pg.tables || []).find((x) => x.id === id);
+    if (table) return { x: table.x, y: table.y, w: table.w, h: table.h };
+    const lk = (pg.links || []).find((x) => x.id === id);
+    if (lk) return { x: lk.x, y: lk.y, w: lk.w, h: lk.h };
+    const shape = (pg.shapes || []).find((x) => x.id === id);
+    if (shape) return { x: Math.min(shape.x1, shape.x2), y: Math.min(shape.y1, shape.y2), w: Math.abs(shape.x2 - shape.x1), h: Math.abs(shape.y2 - shape.y1) };
     return null;
   }
 
@@ -2448,6 +2847,17 @@ export default function Editor({
   }, []);
 
 function handleSheetAction(kind: string) {
+    /* ★ BUG-02/03：模式切换指令由父组件持有 state，Editor 只负责转发。
+       注意：CreationLocalRoom.dispatchSheet 已就地拦截这两个 kind 并翻转 state，
+       故本分支是「双保险」——若父层不再拦截，此处仍能工作。 */
+    if (kind === "connect-toggle") {
+      onToggleConnect?.();
+      return;
+    }
+    if (kind === "lasso-toggle") {
+      onToggleLasso?.();
+      return;
+    }
     const sel = getSelectedRefs();
 
     if (kind.startsWith("align-")) {
@@ -2469,6 +2879,7 @@ function handleSheetAction(kind: string) {
         if (kind === "align-bottom")  dy = maxY - (b.y + b.h);
         if (dx || dy) setPos(s.type, s.id, dx, dy);
       });
+      syncUnitBboxes(sel.map((s) => s.id));
       return;
     }
 
@@ -2520,6 +2931,7 @@ function handleSheetAction(kind: string) {
           cursor += b.h + gap;
         });
       }
+      syncUnitBboxes(bs.map((x) => x.s.id));
       return;
     }
 
@@ -2547,6 +2959,187 @@ function handleSheetAction(kind: string) {
       });
       return;
     }
+
+    /* ===== 关系类型（第 3 层）：把已有连线升级为有语义的关系 =====
+       对「当前选中的元素对 / 最近一条元素连线」写入 relType。
+       若用户未选中连线，则对本页所有未标注类型的连线统一标注（批量归纳）。 */
+    /* ===== 关系类型（第 3 层）：把已有连线升级为有语义的关系 =====
+       对本页所有未标注类型的连线统一标注（批量归纳）；
+       最近一条（用户刚建的）同时补默认关系词。 */
+    if (kind === "rel-story" || kind === "rel-display" || kind === "rel-flow") {
+      const rel = kind.slice(4);
+      const links = pageRef.current.elementLinks || [];
+      if (!links.length) return;
+      const LABELS: Record<string, string> = { story: "接着", display: "解释", flow: "触发" };
+      onUpdateRef.current({
+        elementLinks: links.map((l: any, i: number) => {
+          if (i === links.length - 1) return { ...l, relType: rel, label: l.label || LABELS[rel] };
+          return l.relType ? l : { ...l, relType: rel };
+        }),
+      });
+      return;
+    }
+
+    /* ===== 跳转锚点（第 3 层）：建立页级 flow 关系 =====
+       本页 → 下一页（若存在），经 onJumpAnchor 由父组件写入真实 PageLink。 */
+    if (kind === "jump-anchor") {
+      const pages = allPages || [];
+      const idx = pages.findIndex((p) => p.id === page.id);
+      const target = pages[idx + 1];
+      if (!target) return;
+      onJumpAnchor?.(target.id, "flow");
+      return;
+    }
+
+    /* ===== 智能合成（第 2 层）：归纳式识别 + 排列入位 + 登记 Unit =====
+       不是套模板，是读用户已摆好的相对布局，归纳出形态：
+       - synth-card   图文卡片：1 图 + 1 文本（相邻）→ 图上文下
+       - synth-label  图标+文字：小图形 + 短文本 → 标签（横排）
+       - synth-sticky 便签+底纸：便签落在某纸张区域内 → 贴附
+       - synth-zone   链接+容器：链接被图形/卡片包围 → 可点区域
+       执行 3 步：对齐入位（排列）→ 编组锁定（组合）→ 登记 Unit（新对象） */
+    if (kind === "synth-card" || kind === "synth-label" || kind === "synth-sticky" || kind === "synth-zone") {
+      const bounds = sel
+        .map((s) => ({ s, b: boundsOf(s.type, s.id) }))
+        .filter((x): x is { s: { type: any; id: string }; b: { x: number; y: number; w: number; h: number } } => !!x.b);
+      if (bounds.length < 2) return;
+      /* 归纳：按元素类型分类 */
+      const imgs = bounds.filter((x) => x.s.type === "image");
+      const notes = bounds.filter((x) => x.s.type === "note");
+      const shapes = bounds.filter((x) => x.s.type === "shape");
+      const links = bounds.filter((x) => x.s.type === "link");
+      const texts = bounds.filter((x) => x.s.type === "text");
+      const t = pageRef.current;
+      const tNode = (id: string) => (t.texts || []).find((x) => x.id === id);
+      const pickPair = (a: { s: any; b: any }[], b: { s: any; b: any }[]) => {
+        if (!a.length || !b.length) return null;
+        /* 取相对位置最近的一对 */
+        let best: { a: any; b: any; d: number } | null = null;
+        for (const x of a) for (const y of b) {
+          const d = Math.hypot((x.b.x + x.b.w / 2) - (y.b.x + y.b.w / 2), (x.b.y + x.b.h / 2) - (y.b.y + y.b.h / 2));
+          if (!best || d < best.d) best = { a: x, b: y, d };
+        }
+        return best;
+      };
+
+      if (kind === "synth-card") {
+        /* 图文卡片：1 图 + 1 短文本（任意长，优先短） */
+        const shortTexts = texts.filter((x) => (tNode(x.s.id)?.text || "").length <= 40);
+        const pool = shortTexts.length ? shortTexts : texts;
+        const pair = pickPair(imgs, pool);
+        if (!pair) return;
+        const { a, b } = pair;
+        /* 形态归纳：图在文上方 = 卡片竖排；否则横排 */
+        const imgAbove = a.b.y < b.b.y;
+        const pattern: "row" | "col" = imgAbove ? "col" : "row";
+        /* 排列：把成员对齐到同一基线（卡片内部节奏） */
+        if (pattern === "col") {
+          /* 图上文下：水平居中对齐 + 文字顶到图底 + spacing */
+          const dx = (a.b.x + a.b.w / 2) - (b.b.x + b.b.w / 2);
+          setPos(a.s.type, a.s.id, dx, 0);
+          setPos(b.s.type, b.s.id, dx, a.b.y + a.b.h - b.b.y + 8);
+        } else {
+          /* 图左文右：垂直居中对齐 + 文字左缘到图右 + spacing */
+          const dy = (a.b.y + a.b.h / 2) - (b.b.y + b.b.h / 2);
+          setPos(a.s.type, a.s.id, 0, dy);
+          setPos(b.s.type, b.s.id, a.b.x + a.b.w - b.b.x + 8, dy);
+        }
+        /* 组合：编组 + 登记 Unit */
+        const uid = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const memberIds = [a.s.id, b.s.id];
+        onUpdateRef.current({
+          groups: [...(pageRef.current.groups || []), {
+            id: `g-${uid}`, memberIds, createdAt: Date.now(),
+          }],
+          units: [...(pageRef.current.units || []), {
+            id: uid, kind: "card", memberIds, name: "卡片",
+            layout: { pattern, spacing: 8 },
+            bbox: {
+              x: Math.min(a.b.x, b.b.x), y: Math.min(a.b.y, b.b.y),
+              w: Math.max(a.b.x + a.b.w, b.b.x + b.b.w) - Math.min(a.b.x, b.b.x),
+              h: Math.max(a.b.y + a.b.h, b.b.y + b.b.h) - Math.min(a.b.y, b.b.y),
+            },
+            createdAt: Date.now(),
+          }],
+        });
+        return;
+      }
+
+      if (kind === "synth-label") {
+        /* 图标+文字：小图形 + 短文本（横排，文字在右） */
+        const shortTexts = texts.filter((x) => (tNode(x.s.id)?.text || "").length <= 12);
+        const pool = shortTexts.length ? shortTexts : texts;
+        if (!shapes.length || !pool.length) return;
+        const pair = pickPair(shapes, pool);
+        if (!pair) return;
+        const { a, b } = pair;
+        /* 排版：文字水平贴到图形右缘 */
+        const dy = (a.b.y + a.b.h / 2) - (b.b.y + b.b.h / 2);
+        setPos(a.s.type, a.s.id, 0, dy);
+        setPos(b.s.type, b.s.id, a.b.x + a.b.w - b.b.x + 6, dy);
+        const uid = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        onUpdateRef.current({
+          groups: [...(pageRef.current.groups || []), { id: `g-${uid}`, memberIds: [a.s.id, b.s.id], createdAt: Date.now() }],
+          units: [...(pageRef.current.units || []), {
+            id: uid, kind: "label", memberIds: [a.s.id, b.s.id], name: "图签",
+            layout: { pattern: "row", spacing: 6 },
+            bbox: {
+              x: a.b.x, y: Math.min(a.b.y, b.b.y),
+              w: a.b.w + (a.b.x + a.b.w - b.b.x + 6) + b.b.w - a.b.w + 6,
+              h: Math.max(a.b.h, b.b.h),
+            },
+            createdAt: Date.now(),
+          }],
+        });
+        return;
+      }
+
+      if (kind === "synth-sticky") {
+        /* 便签+底纸：便签落在纸张区域 = 贴附关系（成员整体随底纸） */
+        const base = (imgs.length ? imgs[0] : null) || (shapes.length ? shapes[0] : null);
+        if (!notes.length || !base) return;
+        const { a: n, b: p } = pickPair(notes, [base])!;
+        /* 排版：便签居底纸中心 */
+        const dx = (p.b.x + p.b.w / 2) - (n.b.x + n.b.w / 2);
+        const dy = (p.b.y + p.b.h / 2) - (n.b.y + n.b.h / 2);
+        setPos(n.s.type, n.s.id, dx, dy);
+        const uid = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        onUpdateRef.current({
+          groups: [...(pageRef.current.groups || []), { id: `g-${uid}`, memberIds: [n.s.id, p.s.id], createdAt: Date.now() }],
+          units: [...(pageRef.current.units || []), {
+            id: uid, kind: "sticky", memberIds: [n.s.id, p.s.id], name: "贴签",
+            layout: { pattern: "center" },
+            bbox: p.b,
+            createdAt: Date.now(),
+          }],
+        });
+        return;
+      }
+
+      if (kind === "synth-zone") {
+        /* 链接+容器：链接被图形/图片包围 = 可点区域 */
+        if (!links.length) return;
+        const container = (imgs.length ? imgs[0] : null) || (shapes.length ? shapes[0] : null);
+        const target = links[0];
+        const base = container;
+        if (!base) return;
+        /* 排版：链接居容器中心 */
+        const dx = (base.b.x + base.b.w / 2) - (target.b.x + target.b.w / 2);
+        const dy = (base.b.y + base.b.h / 2) - (target.b.y + target.b.h / 2);
+        setPos(target.s.type, target.s.id, dx, dy);
+        const uid = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        onUpdateRef.current({
+          groups: [...(pageRef.current.groups || []), { id: `g-${uid}`, memberIds: [target.s.id, base.s.id], createdAt: Date.now() }],
+          units: [...(pageRef.current.units || []), {
+            id: uid, kind: "zone", memberIds: [target.s.id, base.s.id], name: "区域",
+            layout: { pattern: "center" },
+            bbox: base.b,
+            createdAt: Date.now(),
+          }],
+        });
+        return;
+      }
+    }
     if (kind === "ungroup") {
       const gid = boxGroupIdRef.current;
       if (gid) {
@@ -2555,6 +3148,11 @@ function handleSheetAction(kind: string) {
       }
       return;
     }
+
+    /* ★ BUG-06：兜底 —— 未识别指令不再静默吞掉。
+       用 console.warn 而非 alert（工单第 8 条禁用 alert/confirm/prompt）。 */
+    // eslint-disable-next-line no-console
+    console.warn("[handleSheetAction] 未处理指令:", kind);
   }
 
   useEffect(() => {
@@ -2569,36 +3167,170 @@ function handleSheetAction(kind: string) {
       const gap = 6;
       const cw = (W - gap * (cols + 1)) / cols;
       const ch = (H - gap * (rows + 1)) / rows;
-      const out: { id: string; x: number; y: number; w: number; h: number }[] = [];
+      /* 第 4 层：镜 = Frame（order 叙事顺序，缺省 Z 字形阅读序 1..N） */
+      const out: { id: string; x: number; y: number; w: number; h: number; order: number; elementIds?: string[] }[] = [];
+      let n = 0;
       for (let rr = 0; rr < rows; rr++) {
         for (let cc = 0; cc < cols; cc++) {
-          out.push({ id: `f-${rr}-${cc}`, x: gap + cc * (cw + gap), y: gap + rr * (ch + gap), w: cw, h: ch });
+          n += 1;
+          out.push({ id: `f-${rr}-${cc}`, x: gap + cc * (cw + gap), y: gap + rr * (ch + gap), w: cw, h: ch, order: n });
         }
       }
       setComicFrames(out);
+      /* 镜序列持久化到 page.frames（刷新后保留） */
+      onUpdateRef.current({ frames: out });
       return;
     }
-    if (k === "frame-clear") { setComicFrames([]); return; }
+    if (k === "frame-clear") { setComicFrames([]); onUpdateRef.current({ frames: [] }); return; }
+
+    /* ===== 第 4 层：镜序（frame-swap）=====
+       交互约定：画布上镜的编号可点。点镜 A → 再点镜 B → 交换 A/B 的叙事顺序。
+       实现：镜编号点击走 DOM 事件 → 本地 state 记录「上一次点选的镜」，
+       第二次点选若命中的是另一镜，则 frame-swap 触发交换。
+       简化：本次先实现「与阅读序上一镜交换」的版本（点击镜 = 向前挪一格），
+       完整的双镜交换后续在编号 DOM 里做点选记录。 */
+    if (k === "frame-swap") {
+      /* 当前选中框内的镜（若框选了镜编号区）或最近高亮镜 → 与上一镜交换 */
+      const cur = playingIdx >= 0 ? comicFrames[playingIdx] : null;
+      const target = cur ? cur : comicFrames[0];
+      if (!target) return;
+      const sorted = [...comicFrames].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const idx = sorted.findIndex((f) => f.id === target.id);
+      if (idx <= 0) return; /* 第一镜没有「上一镜」，不交换 */
+      const prev = sorted[idx - 1];
+      const next = sorted.map((f) =>
+        f.id === target.id ? { ...f, order: prev.order } :
+        f.id === prev.id ? { ...f, order: target.order } : f
+      );
+      setComicFrames(next);
+      onUpdateRef.current({ frames: next } as any);
+      return;
+    }
+
+    /* ===== 第 5 层：节奏档位 =====
+       perfo-speed-*：写入 page.performances 的 timing（当前页的演出对象） */
+    if (k.startsWith("perfo-speed-")) {
+      const speed = k.replace("perfo-speed-", "");
+      const ms = speed === "slow" ? 1400 : speed === "mid" ? 800 : 450;
+      const perfos: any[] = pageRef.current.performances || [];
+      const perf: any = perfos.find((x) => x.id === "main") || {
+        id: "main",
+        frames: comicFrames.map((f: any) => f.id),
+        crossLinks: (pageRef.current.elementLinks || []).filter((l: any) => l.relType === "flow" || l.relType === "story").map((l: any) => l.id),
+      };
+      perf.timing = { perFrameMs: ms };
+      perf.frames = comicFrames.map((f: any) => f.id);
+      onUpdateRef.current({
+        performances: [...perfos.filter((x: any) => x.id !== "main"), perf],
+      } as any);
+      (window as any).__ranjingPerfSpeed = ms;
+      return;
+    }
+    /* 序列预设：按镜顺序（阅读序）/ 按关系顺序（故事线推进）
+       两者都真实生效：重排 comicFrames 的 order + 持久化 page.frames */
+    if (k === "perfo-order-frames" || k === "perfo-order-links") {
+      const frames = [...comicFrames];
+      if (!frames.length) return;
+      if (k === "perfo-order-frames") {
+        /* 按镜顺序：恢复 Z 字形阅读序（按坐标重排 order） */
+        frames.sort((a: any, b: any) => a.y - b.y || a.x - b.x);
+      } else {
+        /* 按关系顺序：按故事线（relType=story 的元素连线）推进重排镜的 order
+           故事线连接的两个元素若分属不同镜 → 被线连接的镜排在一起、按线顺序 */
+        const storyLinks = (pageRef.current.elementLinks || []).filter((l: any) => l.relType === "story");
+        if (!storyLinks.length) {
+          /* 无故事线 → 等同按镜顺序 */
+          frames.sort((a: any, b: any) => a.y - b.y || a.x - b.x);
+        } else {
+          /* 元素 → 所在镜：按坐标包含判定 */
+          const frameOfEl = (x: number, y: number) =>
+            frames.find((f: any) => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h);
+          /* 按故事线建立镜序列：每条线的「起点镜」先于「终点镜」 */
+          const seq: string[] = [];
+          storyLinks.forEach((l: any) => {
+            const fromC = centerOf(l.fromType || "", l.fromId || "");
+            const toC = centerOf(l.targetType || "", l.targetId || "");
+            const ff = fromC ? frameOfEl(fromC.x, fromC.y) : undefined;
+            const ft = toC ? frameOfEl(toC.x, toC.y) : undefined;
+            if (ff && !seq.includes(ff.id)) seq.push(ff.id);
+            if (ft && ft.id !== ff?.id && !seq.includes(ft.id)) seq.push(ft.id);
+          });
+          /* 未入线的镜保持原阅读序附后 */
+          frames.sort((a: any, b: any) => a.y - b.y || a.x - b.x);
+          frames.sort((a: any, b: any) => {
+            const ia = seq.indexOf(a.id), ib = seq.indexOf(b.id);
+            const ra = ia < 0 ? 999 : ia, rb = ib < 0 ? 999 : ib;
+            return ra - rb;
+          });
+        }
+      }
+      /* 写入 order 1..N + 持久化 */
+      const next = frames.map((f: any, i: number) => ({ ...f, order: i + 1 }));
+      setComicFrames(next);
+      onUpdateRef.current({ frames: next } as any);
+      return;
+    }
+
+    /* ===== 第 5 层：播放 = 演出（读已有结构）=====
+       镜序列（排列）→ 单元渐现（组合）→ 关系展开（连接）→ 按节奏走 */
     if (k === "play") {
-      if (comicFrames.length === 0) { alert("请先在排列里选一个分格版式"); return; }
+      if (comicFrames.length === 0) { showCanvasFlash("请先在排列里选一个分格版式"); return; }
+      /* ★ 节奏活化：默认节奏从结构生长（基础 + 镜内 Unit 数 + 该镜关系数），
+         用户已通过 perfo-speed-* 锁定则保留原固定时长（系统提供节奏，不锁死节奏） */
+      const lockedMs = (window as any).__ranjingPerfSpeed as number | undefined;
+      const seq = [...comicFrames].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const pg = pageRef.current;
+      const allUnits = pg.units || [];
+      const allLinks = pg.elementLinks || [];
+      const frameOfEl = (x: number, y: number) =>
+        seq.find((f: any) => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h);
+      const timings = seq.map((f: any) => {
+        const unitsInFrame = allUnits.filter((u: any) =>
+          (u.memberIds || []).some((mid: string) => (f.elementIds || []).includes(mid))).length;
+        const linksInFrame = allLinks.filter((l: any) => {
+          const c1 = centerOf(l.fromType || "", l.fromId || "");
+          const c2 = centerOf(l.targetType || "", l.targetId || "");
+          return (c1 && frameOfEl(c1.x, c1.y)?.id === f.id) || (c2 && frameOfEl(c2.x, c2.y)?.id === f.id);
+        }).length;
+        return 700 + Math.min(unitsInFrame, 4) * 150 + Math.min(linksInFrame, 5) * 180;
+      });
+      playTimingsRef.current = lockedMs ? seq.map(() => lockedMs) : timings;
+      /* 关系线按故事线（story）顺序依次展开，其余按创建序附后 —— 关系决定展示顺序 */
+      const storyIds = allLinks.filter((l: any) => l.relType === "story").map((l: any) => l.id);
+      const restIds = allLinks.filter((l: any) => l.relType !== "story").map((l: any) => l.id);
+      setActiveLinks([...storyIds, ...restIds]);
       let i = 0;
       setPlayingIdx(0);
-      const timer = window.setInterval(() => {
+      /* 逐镜调度（节奏可变）：第 n 镜停留 playTimingsRef[n]，到点推下一步 */
+      const step = () => {
         i += 1;
-        if (i >= comicFrames.length) {
-          window.clearInterval(timer);
+        if (i >= seq.length) {
           setPlayingIdx(-1);
+          setActiveLinks([]);
           return;
         }
         setPlayingIdx(i);
-      }, 800);
-      (window as any).__ranjingPlayTimer = timer;
+        (window as any).__ranjingPlayTimer = window.setTimeout(step, playTimingsRef.current[i] || 800);
+      };
+      (window as any).__ranjingPlayTimer = window.setTimeout(step, playTimingsRef.current[0] || 800);
+      (window as any).__ranjingPlaySeq = seq;
+      return;
+    }
+    if (k === "play-step") {
+      const seq = (window as any).__ranjingPlaySeq ||
+        [...comicFrames].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+      if (!seq.length) return;
+      /* 单步：从当前 playingIdx 走一步（-1 表示从头） */
+      const next = Math.min(playingIdx + 1, seq.length - 1);
+      setPlayingIdx(playingIdx < 0 ? 0 : next);
+      /* 单步不自动停，用户再按可继续 */
       return;
     }
     if (k === "play-stop") {
       const tm = (window as any).__ranjingPlayTimer;
-      if (tm) window.clearInterval(tm);
+      if (tm) { window.clearTimeout(tm); window.clearInterval(tm); }
       setPlayingIdx(-1);
+      setActiveLinks([]);
       return;
     }
     handleSheetAction(sheetAction.kind);
@@ -2779,9 +3511,124 @@ function handleSheetAction(kind: string) {
       >
         {shapes.filter((s) => s.layer === "paper").map((s) => renderShape(s, selectedEl?.type === "shape" ? selectedEl.id : null))}
         {draft && renderShape(draft)}
-        {comicFrames.map((f, idx) => {
-          const isHot = idx === playingIdx;
+        {/* 元素连线渲染 —— 关系系统：带方向 + 关系词标签 + 类型视觉差异
+            relType：story=实线箭头（叙事推进）/ display=虚线细线（解释标注）/ flow=粗线（触发跳转）/ page=金色虚线（跨页） */}
+        {(page.elementLinks || []).map((link: any) => {
+          // 老数据缺 fromId 时跳过，不迁移不报错
+          if (!link.fromId || !link.fromType) return null;
+          const a = centerOf(link.fromType, link.fromId);
+          const b = centerOf(link.targetType, link.targetId);
+          if (!a || !b) return null;
+          const rel = link.relType || "display";
+          const color = rel === "story" ? "rgba(122,90,52,0.95)"
+            : rel === "flow" ? "rgba(58,53,46,0.9)"
+            : rel === "page" ? "rgba(201,168,124,0.9)"
+            : "rgba(201,168,124,0.7)";
+          const width = rel === "flow" ? 3.5 : rel === "story" ? 2 : 1.2;
+          const dash = rel === "display" ? "5 4" : rel === "page" ? "8 4" : "none";
+          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          /* 箭头：终点端画小三角 */
+          const ang = Math.atan2(b.y - a.y, b.x - a.x);
+          const ah = rel === "display" ? 0 : 7;
+          const ax = b.x - ah * Math.cos(ang), ay = b.y - ah * Math.sin(ang);
+          /* ★ 演出关系展开：播放时按关系顺序点亮——排在前面的线全显，后面的线保持暗隐
+             （起点→关系→目标的连续过程由 activeLinks 顺序驱动，非整体降透明） */
+          const linkOn = activeLinks.indexOf(link.id) >= 0;
+          const linkOpacity = playingIdx >= 0 ? (linkOn ? 1 : 0.25) : 1;
+          return (
+            <g key={link.id} opacity={linkOpacity} style={{ transition: "opacity .4s" }}>
+              <line
+                x1={a.x} y1={a.y} x2={ax} y2={ay}
+                stroke={color} strokeWidth={width}
+                strokeDasharray={dash} strokeLinecap="round"
+              />
+              {ah > 0 && (
+                <polygon
+                  points={`${b.x},${b.y} ${ax + 5 * Math.sin(ang)},${ay - 5 * Math.cos(ang)} ${ax - 5 * Math.sin(ang)},${ay + 5 * Math.cos(ang)}`}
+                  fill={color}
+                />
+              )}
+              <circle cx={a.x} cy={a.y} r={3} fill={color} />
+              {/* 标签随关系出现：非播放态全显；播放中仅该关系已点亮时显 */}
+              {link.label && (playingIdx < 0 || linkOn) && (
+                <g>
+                  <rect x={mx - link.label.length * 5 - 4} y={my - 11} width={link.label.length * 10 + 8} height={16}
+                    rx={4} fill="#fffdfa" stroke={color} strokeWidth={0.8} />
+                  <text x={mx} y={my} fontSize={10} fill={color} textAnchor="middle" dominantBaseline="central"
+                    fontFamily="serif">{link.label}</text>
+                </g>
+              )}
+            </g>
+          );
+        })}
+
+        {/* ★ 连接活化：关系刚建立的克制反馈层（1s 自动收敛，不改变任何元素位置）
+            两端元素轻微向对方靠拢（8% 距离）+ 金色线从起点向终点生长 + 小三角箭头渐显 */}
+        {freshLink && (() => {
+          const f = freshLink.from, t = freshLink.to;
+          const dx = t.x - f.x, dy = t.y - f.y;
+          const fx = f.x + dx * 0.08, fy = f.y + dy * 0.08;
+          const tx = t.x - dx * 0.08, ty = t.y - dy * 0.08;
+          const ang = Math.atan2(ty - fy, tx - fx);
+          return (
+            <g style={{ pointerEvents: "none" }}>
+              {/* 两端微牵引：端点圆环 */}
+              <circle cx={fx} cy={fy} r={5} fill="none" stroke="rgba(201,168,124,0.9)" strokeWidth={1.5}
+                style={{ animation: "ranjingLinkGrow 0.9s ease-out forwards" }} />
+              <circle cx={tx} cy={ty} r={5} fill="none" stroke="rgba(201,168,124,0.9)" strokeWidth={1.5}
+                style={{ animation: "ranjingLinkGrow 0.9s ease-out forwards" }} />
+              {/* 线生长：dasharray=全长，dashoffset 内联从全长→0（CSS transition 驱动） */}
+              {(() => {
+                const ln = Math.hypot(tx - fx, ty - fy);
+                return (
+                  <line
+                    x1={fx} y1={fy} x2={tx} y2={ty}
+                    stroke="rgba(201,168,124,1)" strokeWidth={1.6}
+                    strokeLinecap="round"
+                    strokeDasharray={`${ln}`}
+                    strokeDashoffset={ln}
+                    style={{
+                      /* CSS 变量驱动 line-grow 动画：from dashoffset=ln → to 0 */
+                      ["--rj-len" as any]: ln,
+                      animation: "ranjingLinkDraw2 0.85s ease-out forwards",
+                    } as React.CSSProperties}
+                  />
+                );
+              })()}
+              {/* 箭头渐显 */}
+              <polygon
+                points={`${tx},${ty} ${tx + 5 * Math.sin(ang)},${ty - 5 * Math.cos(ang)} ${tx - 5 * Math.sin(ang)},${ty - 5 * Math.cos(ang)}`}
+                fill="rgba(201,168,124,0.95)"
+                style={{ animation: "ranjingLinkFade 0.9s ease-out forwards" }}
+              />
+            </g>
+          );
+        })()}
+
+        {/* 创作单元外框 —— 组从此在画布上可辨识：浅色包围框 + 名字小标 */}
+        {(page.units || []).map((u: any) => (
+          <g key={u.id}>
+            <rect
+              x={u.bbox?.x ?? 0} y={u.bbox?.y ?? 0}
+              width={u.bbox?.w ?? 0} height={u.bbox?.h ?? 0}
+              fill="none" stroke="rgba(201,168,124,0.4)" strokeWidth={1}
+              strokeDasharray="4 3" rx={3}
+            />
+            <text x={(u.bbox?.x ?? 0) + 4} y={(u.bbox?.y ?? 0) - 4} fontSize={9}
+              fill="rgba(122,90,52,0.75)" fontFamily="serif"
+              style={{ pointerEvents: "none" }}>
+              {u.name || ({ card: "卡片", label: "图签", sticky: "贴签", zone: "区域" } as Record<string, string>)[u.kind]}
+            </text>
+          </g>
+        ))}
+
+        {/* 镜渲染：按叙事顺序（order）排布 + 编号可点（点镜 = 与上一镜交换故事顺序） */}
+        {[...comicFrames].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0)).map((f: any, idx: number) => {
+          const seqIdx = [...comicFrames].findIndex((x: any) => x.id === f.id);
+          const isHot = seqIdx === playingIdx;
           const dim = playingIdx >= 0 && !isHot;
+          const sorted = [...comicFrames].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+          const storyNo = idx + 1;
           return (
             <g key={f.id} opacity={dim ? 0.25 : 1} style={{ transition: "opacity 0.4s" }}>
               <rect
@@ -2792,9 +3639,42 @@ function handleSheetAction(kind: string) {
                 strokeDasharray={isHot ? "none" : "6 4"}
                 style={{ transition: "stroke 0.3s, stroke-width 0.3s, fill 0.3s" }}
               />
-              <text x={f.x + 10} y={f.y + 22} fontSize="13" fill="rgba(201,168,124,0.8)" fontFamily="serif">
-                {String(idx + 1).padStart(2, "0")}
-              </text>
+              {/* 镜内渐现的成员：播放时逐单元亮起（组合产物参与演出） */}
+              {isHot && (f.elementIds?.length ?? 0) > 0 && (page.units || []).filter((u: any) =>
+                u.memberIds?.some((id: string) => (f.elementIds || []).includes(id))
+              ).map((u: any, ui: number) => (
+                <rect key={u.id}
+                  x={u.bbox?.x ?? 0} y={u.bbox?.y ?? 0}
+                  width={u.bbox?.w ?? 0} height={u.bbox?.h ?? 0}
+                  fill="none" stroke="rgba(201,168,124,0.9)" strokeWidth={1.5}
+                  rx={3} opacity={0.4 + 0.2 * Math.min(ui, 2)}
+                />
+              ))}
+              {/* 编号 = 故事顺序；点击编号 → 与上一镜交换 */}
+              <g onClick={(e) => {
+                e.stopPropagation();
+                /* 直接执行：与阅读序中的上一镜交换 order */
+                const cur = sorted.find((x: any) => x.id === f.id);
+                if (!cur) return;
+                const prev = idx > 0 ? sorted[idx - 1] : null;
+                if (!prev) return;
+                const next = sorted.map((x: any) =>
+                  x.id === f.id ? { ...x, order: prev.order } :
+                  x.id === prev.id ? { ...x, order: cur.order } : x
+                );
+                setComicFrames(next);
+                onUpdateRef.current({ frames: next } as any);
+              }}>
+                <text
+                  x={f.x + 10} y={f.y + 22} fontSize="13"
+                  fill={playingIdx === seqIdx ? "rgba(122,90,52,1)" : "rgba(201,168,124,0.8)"}
+                  fontFamily="serif" style={{ cursor: "pointer" }}
+                >
+                  {String(storyNo).padStart(2, "0")}
+                </text>
+                {/* 编号命中区（不可见，扩大点击范围） */}
+                <rect x={f.x + 4} y={f.y + 6} width={34} height={20} fill="transparent" />
+              </g>
             </g>
           );
         })}
@@ -2821,6 +3701,27 @@ function handleSheetAction(kind: string) {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
+      <style>{`
+        @keyframes ranjingLinkGrow { 0% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0.85; } }
+        @keyframes ranjingLinkFade { 0% { opacity: 0; } 40% { opacity: 0.95; } 100% { opacity: 0.9; } }
+        /* 线生长：初始 dashoffset=全长（由 inline 设定），动画 0.85s 内到 0 */
+        @keyframes ranjingLinkDraw2 {
+          from { stroke-dashoffset: var(--rj-len, 200); opacity: 0.9; }
+          to   { stroke-dashoffset: 0; opacity: 1; }
+        }
+      `}</style>
+      {canvasFlash && (
+        <div style={{
+          position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)",
+          padding: "6px 14px", borderRadius: 999, background: "rgba(122,90,52,0.92)",
+          color: "#fffdfa", fontSize: 12, fontWeight: 500, letterSpacing: "0.02em",
+          pointerEvents: "none", zIndex: 20,
+          animation: "ranjingFlashIn .2s ease-out",
+        }}>{canvasFlash}</div>
+      )}
+      <style>{`
+        @keyframes ranjingFlashIn { from { opacity: 0; transform: translateX(-50%) translateY(-4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+      `}</style>
       {otherPages.map((p) => {
         const tr = p.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
         const pTexts = (p.texts || []).filter((t) => t.layer === "paper");
@@ -2932,6 +3833,27 @@ function handleSheetAction(kind: string) {
         </div>
       )}
 
+      {lassoPath && lassoPath.length > 1 && (
+        <svg
+          style={{
+            position: "absolute",
+            left: 0, top: 0,
+            width: "100%", height: "100%",
+            pointerEvents: "none",
+            zIndex: 145,
+          }}
+        >
+          <polyline
+            points={lassoPath.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="rgba(201,168,124,0.08)"
+            stroke="rgba(201,168,124,0.9)"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+
       {box && box.w > 0 && box.h > 0 && (
         <>
           <div
@@ -2980,25 +3902,37 @@ function handleSheetAction(kind: string) {
               borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
               border: "1px solid rgba(74,70,63,.08)",
             }}>
-            {ctxMenu.kind === "blank" ? (
+            {ctxMenu.sub === "copy-as" ? (
               <>
-                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); alert("粘贴"); }} />
-                <CtxItem label="复制为 SVG" onClick={() => { setCtxMenu(null); alert("复制为 SVG"); }} />
-                <CtxItem label="复制为 PNG" onClick={() => { setCtxMenu(null); alert("复制为 PNG"); }} />
-                <CtxItem label="复制为透明 PNG" onClick={() => { setCtxMenu(null); alert("复制为透明 PNG"); }} />
+                <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
+                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <CtxItem label="SVG" onClick={() => { setCtxMenu(null); exportCanvas("svg"); }} />
+                <CtxItem label="PNG" onClick={() => { setCtxMenu(null); exportCanvas("png"); }} />
+                <CtxItem label="透明背景 PNG" onClick={() => { setCtxMenu(null); exportCanvas("png-transparent"); }} />
+              </>
+            ) : ctxMenu.sub === "export-as" ? (
+              <>
+                <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
+                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <CtxItem label="SVG" onClick={() => { setCtxMenu(null); exportCanvas("svg"); }} />
+                <CtxItem label="PNG" onClick={() => { setCtxMenu(null); exportCanvas("png"); }} />
+                <CtxItem label="透明背景 PNG" onClick={() => { setCtxMenu(null); exportCanvas("png-transparent"); }} />
+              </>
+            ) : ctxMenu.kind === "blank" ? (
+              <>
+                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteClipboard(); }} />
+                <CtxItem label="复制为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "copy-as" })} />
+                <CtxItem label="导出为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "export-as" })} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
                 <CtxItem label="选中全部" onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.selectAll?.(); }} />
               </>
             ) : (
               <>
                 <CtxItem label="复制" onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.copy?.(); }} />
-                <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.delete?.(); }} />
-                <CtxItem label="移动到新页面" onClick={() => { setCtxMenu(null); alert("移动到新页面"); }} />
-                <CtxItem label="水平翻转" onClick={() => { setCtxMenu(null); alert("水平翻转"); }} />
+                <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); deleteSelection(); }} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                <CtxItem label="导出 SVG" onClick={() => { setCtxMenu(null); alert("导出 SVG"); }} />
-                <CtxItem label="导出 PNG" onClick={() => { setCtxMenu(null); alert("导出 PNG"); }} />
-                <CtxItem label="下载原图" onClick={() => { setCtxMenu(null); alert("下载原图"); }} />
+                <CtxItem label="复制为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "copy-as" })} />
+                <CtxItem label="导出为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "export-as" })} />
               </>
             )}
           </div>

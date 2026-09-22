@@ -541,6 +541,16 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     setConnectMode({ from: fromPageId });
     setOpenDrawer("page");
   }
+  /* 跳转锚点（第 3 层）：本页 → 目标页 的 flow 关系 */
+  function onJumpAnchor(toPageId: string, relType?: string) {
+    if (toPageId === currentPageId) return;
+    applyDoc((prev) => {
+      const exists = prev.links.find((l) => l.from === currentPageId && l.to === toPageId);
+      if (exists) return prev;
+      const link: PageLink = { from: currentPageId, to: toPageId, createdAt: Date.now(), relType: relType as any };
+      return { ...prev, links: [...prev.links, link] };
+    });
+  }
   function completeConnect(toPageId: string): boolean {
     if (!connectMode) return false;
     if (connectMode.from === toPageId) { alert("不能连接到自己"); setConnectMode(null); return false; }
@@ -631,9 +641,12 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             onDrawToolChange={(k) => setDrawTool(k)}
             elementConnectMode={elementConnectMode}
             lassoMode={lassoMode}
+            onToggleConnect={() => setElementConnectMode((v) => !v)}
+            onToggleLasso={() => setLassoMode((v) => !v)}
             onSelectionChange={setEditorHasSelection}
             sheetAction={sheetAction}
             brush={brush}
+            onJumpAnchor={onJumpAnchor}
           />
         )}
       </main>
@@ -712,6 +725,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           connectModeActive={elementConnectMode}
           lassoModeActive={lassoMode}
           hasSelection={editorHasSelection}
+          framesCount={(currentPage as any)?.frames?.length || 0}
+          speedActive={(window as any).__ranjingPerfSpeed === 1400 ? "slow"
+            : (window as any).__ranjingPerfSpeed === 450 ? "fast"
+            : (window as any).__ranjingPerfSpeed === 800 ? "mid" : null}
         />
       )}
       {openDrawer === "object" && <ObjectDrawer onClose={closeDrawer} />}

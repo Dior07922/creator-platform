@@ -19,12 +19,17 @@ type Props = {
   connectModeActive?: boolean;
   lassoModeActive?: boolean;
   hasSelection?: boolean;
+  /** 当前页已有分镜数（节奏 tab 提示用） */
+  framesCount?: number;
+  /** 当前节奏档位（慢/中/快），节奏 tab 显示选中态 */
+  speedActive?: "slow" | "mid" | "fast" | null;
 };
 
-type Tab = "page" | "arrange" | "combine" | "connect";
+type Tab = "page" | "arrange" | "combine" | "connect" | "rhythm";
 
 export default function PageSheet({
   pages,
+  links,
   currentPageId,
   onSelectPage,
   onAddPage,
@@ -37,6 +42,8 @@ export default function PageSheet({
   connectModeActive,
   lassoModeActive,
   hasSelection,
+  framesCount,
+  speedActive,
 }: Props) {
   const [tab, setTab] = useState<Tab>("page");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,6 +70,14 @@ export default function PageSheet({
   const [clipboard, setClipboard] = useState<Page | null>(null);
   // 最近一次删除的页（撤回用）
   const [lastDeleted, setLastDeleted] = useState<Page | null>(null);
+  /* ★ 禁用 alert 约定：轻提示（1.6s 自隐，不影响手势） */
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  function showFlash(msg: string) {
+    setFlash(msg);
+    if (flashTimerRef.current != null) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = window.setTimeout(() => setFlash(null), 1600);
+  }
 
   useEffect(() => {
     if (editingId && inputRef.current) {
@@ -137,7 +152,7 @@ export default function PageSheet({
     setMenuFor(null);
   }
   function actionPaste() {
-    if (!clipboard) { alert("剪贴板为空"); setMenuFor(null); return; }
+    if (!clipboard) { showFlash("剪贴板为空"); setMenuFor(null); return; }
     // 用剪贴板内容复制一份（父组件负责添加带内容的页面）
     // 由于 PageSheet 只能触发 onAddPage，我们用 localStorage 中转
     try {
@@ -147,7 +162,7 @@ export default function PageSheet({
     setMenuFor(null);
   }
   function actionRestore() {
-    if (!lastDeleted) { alert("没有可撤回的操作"); setMenuFor(null); return; }
+    if (!lastDeleted) { showFlash("没有可撤回的操作"); setMenuFor(null); return; }
     try {
       localStorage.setItem("ranjing.pendingPastePage", JSON.stringify(lastDeleted));
     } catch {}
@@ -225,11 +240,21 @@ export default function PageSheet({
           <div style={{ width: 40, height: 4, borderRadius: 2, background: dragging ? "rgba(74,70,63,.45)" : "rgba(74,70,63,.22)", transition: "background 0.15s" }} />
         </div>
 
+        {flash && (
+          <div style={{
+            flex: "none", margin: "6px 12px 0", padding: "8px 12px",
+            borderRadius: 10, background: "rgba(122,90,52,0.12)",
+            color: "#7a5a34", fontSize: 12, textAlign: "center",
+            transition: "opacity 0.2s",
+          }}>{flash}</div>
+        )}
+
         <div style={{ flex: "none", display: "flex", padding: "6px 8px 0", borderBottom: "1px solid rgba(74,70,63,.06)" }}>
           <button type="button" style={tabBtnStyle("page")} onClick={() => setTab("page")}>页面</button>
           <button type="button" style={tabBtnStyle("arrange")} onClick={() => setTab("arrange")}>排列</button>
           <button type="button" style={tabBtnStyle("combine")} onClick={() => setTab("combine")}>组合</button>
           <button type="button" style={tabBtnStyle("connect")} onClick={() => setTab("connect")}>连接</button>
+          <button type="button" style={tabBtnStyle("rhythm")} onClick={() => setTab("rhythm")}>节奏</button>
           <button
             type="button"
             onClick={onClose}
@@ -348,8 +373,12 @@ export default function PageSheet({
                 <ActBtn label="2×3" onClick={() => dispatchAction("frame-2x3")} />
                 <ActBtn label="3×3" onClick={() => dispatchAction("frame-3x3")} />
               </BtnGrid>
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
                 <ActBtn label="清空格子" onClick={() => dispatchAction("frame-clear")} />
+                <ActBtn label="⇆ 交换镜序" onClick={() => dispatchAction("frame-swap")} />
+              </div>
+              <div style={{ marginTop: 6, fontSize: 10, color: "#a49a8f", lineHeight: 1.5 }}>
+                镜序 = 故事顺序。分镜后，画布上镜编号可按「⇆ 交换镜序」与上一镜交换位置；播放按此顺序讲述。
               </div>
               <SectionLabel>对齐</SectionLabel>
               <BtnGrid>
@@ -386,12 +415,15 @@ export default function PageSheet({
                 <ActBtn label="解组" onClick={() => dispatchAction("ungroup")} />
                 <ActBtn label="绑定笔迹" onClick={() => dispatchAction("bind-strokes")} />
               </BtnGrid>
-              <SectionLabel>智能合成（占位）</SectionLabel>
+              <SectionLabel>智能合成（归纳已有布局）</SectionLabel>
+              <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
+                先在画布上选好要合成的元素，再按已有摆放方式归纳成形：
+              </div>
               <BtnGrid>
-                <ActBtn label="图文卡片" onClick={() => alert("下一版")} />
-                <ActBtn label="图标+文字" onClick={() => alert("下一版")} />
-                <ActBtn label="便签+底纸" onClick={() => alert("下一版")} />
-                <ActBtn label="链接+容器" onClick={() => alert("下一版")} />
+                <ActBtn label="图文卡片" onClick={() => dispatchAction("synth-card")} />
+                <ActBtn label="图标+文字" onClick={() => dispatchAction("synth-label")} />
+                <ActBtn label="便签+底纸" onClick={() => dispatchAction("synth-sticky")} />
+                <ActBtn label="链接+容器" onClick={() => dispatchAction("synth-zone")} />
               </BtnGrid>
               {!hasSelection && (
                 <div style={{ marginTop: 16, fontSize: 11, color: "#a49a8f", textAlign: "center" }}>先在画布上框选或点选元素</div>
@@ -410,22 +442,52 @@ export default function PageSheet({
                 · 连线：进模式后，点第一个元素 → 再点第二个元素，生成连线<br />
                 · 套索：进模式后，手指画圈，圈内元素自动绑定
               </div>
-              <SectionLabel>连环画播放</SectionLabel>
+              <SectionLabel>关系类型（标注连线）</SectionLabel>
+              <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
+                对本页已有连线批量标注关系：<br />· 故事＝叙事推进（实线箭头）· 展示＝解释标注（虚线）· 流程＝触发跳转（粗线）
+              </div>
+              <BtnGrid>
+                <ActBtn label="故事" onClick={() => dispatchAction("rel-story")} />
+                <ActBtn label="展示" onClick={() => dispatchAction("rel-display")} />
+                <ActBtn label="流程" onClick={() => dispatchAction("rel-flow")} />
+              </BtnGrid>
+              <SectionLabel>跳转锚点</SectionLabel>
+              <BtnGrid>
+                <ActBtn label="下一页·跳转" onClick={() => dispatchAction("jump-anchor")} />
+              </BtnGrid>
+              <div style={{ marginTop: 6, fontSize: 11, color: "#8a8178", lineHeight: 1.7 }}>
+                · 本页已有 {links.length} 条页间关系（页面 tab 可见跳转）
+              </div>
+            </>
+          )}
+
+          {tab === "rhythm" && (
+            <>
+              <SectionLabel>序列</SectionLabel>
+              <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
+                播放读已有结构：镜的叙事顺序（排列）→ 单元渐现（组合）→ 关系展开（连接）→ 跨页跳转（跳转锚点）
+              </div>
+              <BtnGrid>
+                <ActBtn label="按镜顺序" onClick={() => dispatchAction("perfo-order-frames")} />
+                <ActBtn label="按关系顺序" onClick={() => dispatchAction("perfo-order-links")} />
+              </BtnGrid>
+              <SectionLabel>节奏</SectionLabel>
+              <BtnGrid>
+                <ActBtn label="慢" active={speedActive === "slow"} onClick={() => dispatchAction("perfo-speed-slow")} />
+                <ActBtn label="中" active={speedActive === "mid"} onClick={() => dispatchAction("perfo-speed-mid")} />
+                <ActBtn label="快" active={speedActive === "fast"} onClick={() => dispatchAction("perfo-speed-fast")} />
+              </BtnGrid>
+              <SectionLabel>演出</SectionLabel>
               <BtnGrid>
                 <ActBtn label="▶ 播放" onClick={() => dispatchAction("play")} />
+                <ActBtn label="⏭ 单步" onClick={() => dispatchAction("play-step")} />
                 <ActBtn label="■ 停止" onClick={() => dispatchAction("play-stop")} />
               </BtnGrid>
-              <SectionLabel>线条样式（占位）</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="直线" onClick={() => alert("下一版")} />
-                <ActBtn label="曲线" onClick={() => alert("下一版")} />
-                <ActBtn label="虚线" onClick={() => alert("下一版")} />
-                <ActBtn label="藤蔓" onClick={() => alert("下一版")} />
-              </BtnGrid>
-              <SectionLabel>跳转锚点（占位）</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="选目标页…" onClick={() => alert("下一版")} />
-              </BtnGrid>
+              {!framesCount && (
+                <div style={{ marginTop: 16, fontSize: 11, color: "#a49a8f", textAlign: "center" }}>
+                  先在排列里选一个分镜版式，节奏才有画面可讲
+                </div>
+              )}
             </>
           )}
         </div>
