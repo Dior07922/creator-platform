@@ -126,71 +126,72 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     return () => { ScreenOrientation.unlock().catch(() => {}); };
   }, []);
 
-  // 侧栏 Drawer 通用手势：往左滑回去
+  // 侧栏 Drawer 通用手势：跟手左滑收起 / 右滑展开（状态直接驱动 openDrawer，
+  // 不靠 220ms 延迟合成点击 .cd-collapse-handle —— 那是 desync 的根源）。
+  // 收起 = 面板完全滑出（translateX -110% + opacity 0），只露左侧收起把手。
+  /* P0-10：侧抽屉拖动中的视觉反馈（面板跟随手指位移），拖动结束清空 */
+  const [panelDrag, setPanelDrag] = useState<{ dx: number; closing: boolean } | null>(null);
+  void panelDrag; /* 视觉位移由 DOM 直接驱动，state 仅作占位避免未用变量 */
   useEffect(() => {
     let dragging = false;
     let startX = 0;
     let panel: HTMLElement | null = null;
     let pid = -1;
     let moved = false;
-    let curDx = 0;
 
     const onDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement;
-      // 只排除输入框，其余都能拖
+      // 展开态面板才允许拖；收起态（把手）是点击入口，不走拖动
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
       const p = target.closest(".cd-panel") as HTMLElement | null;
       if (!p) return;
       dragging = true;
       moved = false;
-      curDx = 0;
-      panel = p;
       startX = e.clientX;
       pid = e.pointerId;
+      panel = p;
     };
-
     const onMove = (e: PointerEvent) => {
       if (!dragging || !panel || e.pointerId !== pid) return;
       const dx = e.clientX - startX;
       if (!moved) {
-        if (Math.abs(dx) < 6) return;
+        if (Math.abs(dx) < 8) return;
         moved = true;
         panel.style.transition = "none";
         try { panel.setPointerCapture(e.pointerId); } catch {}
       }
       e.preventDefault();
-      // 只允许向左（dx < 0），向右不动
-      const clamped = Math.min(0, dx);
-      curDx = clamped;
+      // 左右都跟手：向左滑(dx<0)→收起；向右滑(dx>0)→展开
+      const clamped = Math.min(0, Math.max(-400, dx)); // 只允许向左（收起方向）跟手
       panel.style.transform = `translateX(${clamped}px)`;
-      panel.style.opacity = String(Math.max(0.3, 1 - Math.abs(clamped) / 400));
+      panel.style.opacity = String(Math.max(0.25, 1 - Math.abs(clamped) / 400));
+      setPanelDrag({ dx: clamped, closing: true });
     };
-
     const onUp = (e: PointerEvent) => {
       if (!dragging || !panel || e.pointerId !== pid) return;
       const p = panel;
-      const closed = moved && curDx < -60;
-      p.style.transition = "transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.24s";
+      const dx = e.clientX - startX;
+      const closed = dx < -60; // 简单阈值：向左超过 60px → 收起
+      p.style.transition = "transform 0.24s cubic-bezier(0.32,0.72,0,1), opacity 0.24s";
       if (closed) {
         p.style.transform = "translateX(-110%)";
         p.style.opacity = "0";
-        const closeBtn = p.querySelector(".cd-collapse-handle") as HTMLElement | null;
         setTimeout(() => {
-          closeBtn?.click();
+          // 直接驱动 React 状态收起，不靠合成点击（避免 openDrawer 与 DOM desync）
+          setOpenDrawer(null);
           p.style.transform = "";
           p.style.opacity = "";
+          setPanelDrag(null);
         }, 220);
       } else {
         p.style.transform = "";
         p.style.opacity = "";
+        setPanelDrag(null);
       }
       dragging = false;
-      moved = false;
-      curDx = 0;
       panel = null;
       pid = -1;
     };
-
     document.addEventListener("pointerdown", onDown);
     document.addEventListener("pointermove", onMove, { passive: false });
     document.addEventListener("pointerup", onUp);

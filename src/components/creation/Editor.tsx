@@ -555,7 +555,10 @@ export default function Editor({
   const [activeLinks, setActiveLinks] = useState<string[]>([]);
   /* ★ 节奏活化：本次播放的逐镜时长（基础 + 镜内 Unit 数 + 该镜关系数；用户 perfo-speed-* 锁定时全帧同值） */
   const playTimingsRef = useRef<number[]>([]);
-  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "copy-as" | "export-as" } | null>(null);
+  /* ★ 框选轻弹窗：长按/框选完成后在画布上出现的操作入口（组合/连接/排列），
+     替代原来被全透明层锁死画布的 ctxMenu 结构。 */
+  const [boxPopup, setBoxPopup] = useState<{ x: number; y: number; count: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "copy-as" | "export-as" | "align" } | null>(null);
   const [textPanel, setTextPanel] = useState<{ x: number; y: number } | null>(null);
   /* ★ 套索轨迹：stage 局部坐标点序列。null = 未在画套索 */
   const [lassoPath, setLassoPath] = useState<{ x: number; y: number }[] | null>(null);
@@ -570,6 +573,11 @@ export default function Editor({
   const shapeHistoryRef = useRef<ShapeNode[][]>([]);
   const redoStackRef = useRef<ShapeNode[][]>([]);
   const [undoTick, setUndoTick] = useState(0);
+  /* ★ P0-9：内部元素剪贴板（复制整个选择集合，保留各元素真实类型 + 相对位置） */
+  const elClipboardRef = useRef<{
+    images?: ImageNode[]; notes?: NoteNode[]; tables?: TableNode[];
+    links?: LinkNode[]; shapes?: ShapeNode[]; texts?: TextNode[];
+  } | null>(null);
 
   function pushShapeHistory() {
     const stack = shapeHistoryRef.current;
@@ -588,19 +596,67 @@ export default function Editor({
     setUndoTick((t) => t + 1);
   }
 
+  /* ★ P0-9：复制/粘贴命令（画布级）—— 走内部元素剪贴板，不 alert，粘贴错位。
+     保留旧 shape 复制兜底：没有框选/点选时退化成复制 shape。 */
   function copySelection() {
     const sel = getSelectedRefs();
-    if (!sel.length) return;
-    const pg = pageRef.current;
-    const newShapes = (pg.shapes || [])
-      .filter((s) => sel.some((x: any) => x.type === "shape" && x.id === s.id))
-      .map((s) => ({
+    if (!sel.length) {
+      /* 兜底：无选择 → 复制本页所有 shape（旧行为） */
+      const pg = pageRef.current;
+      const newShapes = (pg.shapes || []).map((s) => ({
         ...s,
         id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         x1: s.x1 + 20, y1: s.y1 + 20, x2: s.x2 + 20, y2: s.y2 + 20,
         points: s.points ? s.points.map((p: any) => ({ x: p.x + 20, y: p.y + 20 })) : undefined,
       }));
-    if (newShapes.length) onUpdateRef.current({ shapes: [...(pg.shapes || []), ...newShapes] });
+      if (newShapes.length) onUpdateRef.current({ shapes: [...(pg.shapes || []), ...newShapes] });
+      return;
+    }
+    /* 有选择 → 进内部元素剪贴板（保留各元素真实类型 + 相对位置） */
+    const ids = new Set(sel.map((s) => s.id));
+    const pg = pageRef.current;
+    const byType = (arr: any[] | undefined) => (arr || []).filter((x) => x.id && ids.has(x.id));
+    elClipboardRef.current = {
+      images: byType(pg.images || []),
+      notes: byType(pg.notes || []),
+      tables: byType(pg.tables || []),
+      links: byType(pg.links || []),
+      shapes: byType(pg.shapes || []),
+      texts: textsRef.current.filter((t) => ids.has(t.id)),
+    };
+    const total = Object.values(elClipboardRef.current).reduce((n, a) => n + ((a as any[])?.length || 0), 0);
+    showCanvasFlash(`已复制 ${total} 个对象`);
+  }
+
+  /** 粘贴：从内部剪贴板生成新元素，整体 +32 错位，保留各元素真实类型与相对位置 */
+  function pasteSelection() {
+    const clip = elClipboardRef.current;
+    if (!clip) { showCanvasFlash("剪贴板为空"); return; }
+    const now = Date.now();
+    const rid = () => `${now}-${Math.random().toString(36).slice(2, 6)}`;
+    const off = 32;
+    const pg = pageRef.current;
+    const patch: any = {};
+    if (clip.images?.length) patch.images = [...(pg.images || []), ...clip.images.map((x: any) => ({ ...x, id: `i-${rid()}`, x: x.x + off, y: x.y + off }))];
+    if (clip.notes?.length)  patch.notes  = [...(pg.notes  || []), ...clip.notes.map((x: any) => ({ ...x, id: `n-${rid()}`, x: x.x + off, y: x.y + off }))];
+    if (clip.tables?.length) patch.tables = [...(pg.tables || []), ...clip.tables.map((x: any) => ({ ...x, id: `tb-${rid()}`, x: x.x + off, y: x.y + off }))];
+    if (clip.links?.length)  patch.links  = [...(pg.links  || []), ...clip.links.map((x: any) => ({ ...x, id: `lk-${rid()}`, x: x.x + off, y: x.y + off }))];
+    if (clip.shapes?.length) {
+      patch.shapes = [...(pg.shapes || []), ...clip.shapes.map((s: any) => ({
+        ...s, id: `s-${rid()}`,
+        x1: s.x1 + off, y1: s.y1 + off, x2: s.x2 + off, y2: s.y2 + off,
+        points: s.points ? s.points.map((p: any) => ({ x: p.x + off, y: p.y + off })) : undefined,
+        pressures: s.pressures ? [...s.pressures] : undefined,
+      }))];
+    }
+    if (clip.texts?.length) {
+      const nextTexts = [...textsRef.current, ...clip.texts.map((t: any) => ({ ...t, id: `t-${rid()}`, x: t.x + off, y: t.y + off }))];
+      textsRef.current = nextTexts;
+      patch.texts = nextTexts;
+    }
+    onUpdateRef.current(patch);
+    const total = Object.values(clip).reduce((n, a) => n + ((a as any[])?.length || 0), 0);
+    showCanvasFlash(`已粘贴 ${total} 个对象`);
   }
 
   function undoShape() {
@@ -1494,6 +1550,30 @@ export default function Editor({
     return lx.x >= b.x - pad && lx.x <= b.x + b.w + pad && lx.y >= b.y - pad && lx.y <= b.y + b.h + pad;
   }
 
+  /* 长按点下的位置命中哪个元素（不限 text）：返回 {type,id} 或 null。
+     用于单对象长按 → 弹出针对该对象的菜单（P0-4 单对象长按）。 */
+  function hitAnyElement(sx: number, sy: number): { type: string; id: string } | null {
+    const t = hitText(sx, sy);
+    if (t) return { type: "text", id: t.id };
+    const lx = screenToPaperLocal(sx, sy, stageRef.current, paperStateRef.current);
+    if (!lx.inside) return null;
+    const pg = pageRef.current;
+    const img = hitImageAt(lx.x, lx.y, pg.images || []);
+    if (img) return { type: "image", id: img.id };
+    const note = hitNoteAt(lx.x, lx.y, pg.notes || []);
+    if (note) return { type: "note", id: note.id };
+    const table = hitTableAt(lx.x, lx.y, pg.tables || []);
+    if (table) return { type: "table", id: table.id };
+    const link = hitLinkAt(lx.x, lx.y, pg.links || []);
+    if (link) return { type: "link", id: link.id };
+    const shape = hitShapeAt(lx.x, lx.y, pg.shapes || []);
+    if (shape) return { type: "shape", id: shape.id };
+    /* Unit 外框命中带也算对象命中（P0-4 单对象长按里的 Unit） */
+    const unit = hitUnitBorder(lx.x, lx.y);
+    if (unit) return { type: "unit", id: unit.unit.id };
+    return null;
+  }
+
   function onPointerDown(e: React.PointerEvent) {
     const __tgt = e.target as HTMLElement;
     if (__tgt.closest("[data-ctx-menu]")) return;
@@ -1501,8 +1581,10 @@ export default function Editor({
       const sx = e.clientX, sy = e.clientY;
       const lp = window.setTimeout(() => {
         if (drawToolRef.current) return;
-        const hit = hitText(sx, sy);
-        if (hit) {
+        /* ★ 单对象长按：识别实际按住的元素（六类 + Unit），弹出该对象菜单；
+           只有真正按在空白上才弹空白菜单。长按+拖动已在 move 里取消（>10px）。 */
+        const hitEl = hitAnyElement(sx, sy);
+        if (hitEl) {
           setCtxMenu({ kind: "element", x: sx, y: sy });
         } else {
           const local = screenToPaperLocal(sx, sy, stageRef.current, paperStateRef.current);
@@ -2702,6 +2784,19 @@ export default function Editor({
         createTextAndEdit(e.clientX, e.clientY, layer);
       } else {
         commitBoxAsGroup();
+        /* ★ P0-4：框选完成后立刻弹出画布级轻操作弹窗（组合/连接/排列/复制/删除），
+           位置 = 框选框（stage 局部 → 屏幕坐标），不放全透明层锁画布。 */
+        const count = currentGroupMemberIds().length;
+        if (count > 0) {
+          const sr = stageRef.current?.getBoundingClientRect();
+          if (sr) {
+            setBoxPopup({
+              x: Math.min(sr.left + b.x + b.w, sr.right - 190),
+              y: Math.min(sr.top + b.y + b.h + 8, sr.bottom - 200),
+              count,
+            });
+          }
+        }
       }
       g.mode = "idle"; g.moved = false; g.dragTextId = null;
       g.pendingBox = false; g.boxIncludePaper = false;
@@ -2987,14 +3082,29 @@ export default function Editor({
 
   function getSelectedRefs(): { type: any; id: string }[] {
     const out: { type: any; id: string }[] = [];
+    /* 框选：收集框内所有可定位成员（text/image/note/table/link/shape），
+       不再只看文字 —— 这是排列/组合/连接能作用到「框选对象」的真相来源。 */
     const b = boxRef.current;
     if (b && b.w >= 4 && b.h >= 4) {
-      const restrictTo = gRef.current.boxSourceLayer === "paper" ? "paper" : "background";
-      computeMembersInBox(b, restrictTo).forEach((id) => out.push({ type: "text", id }));
+      computeMembersInBox(b).forEach((id) => {
+        const ref = resolveMemberRef(id);
+        out.push(ref || { type: "text", id });
+      });
     }
     const sel = selectedElRef.current;
     if (sel) out.push({ type: sel.type, id: sel.id });
     return out;
+  }
+
+  /** 按 id 解析成员真实类型（图片/便签/表格/链接/图形），找不到再按 text 兜底 */
+  function resolveMemberRef(id: string): { type: string; id: string } | null {
+    const pg = pageRef.current;
+    if ((pg.images || []).some((n) => n.id === id)) return { type: "image", id };
+    if ((pg.notes || []).some((n) => n.id === id)) return { type: "note", id };
+    if ((pg.tables || []).some((n) => n.id === id)) return { type: "table", id };
+    if ((pg.links || []).some((n) => n.id === id)) return { type: "link", id };
+    if ((pg.shapes || []).some((n) => n.id === id)) return { type: "shape", id };
+    return null;
   }
 
   function boundsOf(type: string, id: string): { x: number; y: number; w: number; h: number } | null {
@@ -3105,18 +3215,12 @@ export default function Editor({
       redo: () => redoShape(),
       delete: () => deleteSelection(),
       copy: () => {
-        const sel = getSelectedRefs();
-        if (!sel.length) return;
-        const pg = pageRef.current;
-        const newShapes = (pg.shapes || [])
-          .filter((s) => sel.some((x: any) => x.type === "shape" && x.id === s.id))
-          .map((s) => ({
-            ...s,
-            id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            x1: s.x1 + 20, y1: s.y1 + 20, x2: s.x2 + 20, y2: s.y2 + 20,
-            points: s.points ? s.points.map((p: any) => ({ x: p.x + 20, y: p.y + 20 })) : undefined,
-          }));
-        if (newShapes.length) onUpdateRef.current({ shapes: [...(pg.shapes || []), ...newShapes] });
+        /* ★ P0-9：复制走内部元素剪贴板（框选/点选多类型，保留类型+相对位置） */
+        copySelection();
+      },
+      paste: () => {
+        /* ★ P0-9：粘贴错位 +32，保留各元素真实类型与相对位置 */
+        pasteSelection();
       },
       eraser: () => onDrawToolChangeRef.current?.("eraser"),
       selectAll: () => {
@@ -3218,7 +3322,80 @@ function handleSheetAction(kind: string) {
       return;
     }
 
+    /* ===== 框选弹窗：组合（选中成员 → 登记 Unit，成员仍独立可编辑，整体可移动）===== */
+    if (kind === "box-compose") {
+      const ids = sel.map((s) => s.id);
+      if (ids.length < 2) { showCanvasFlash("至少框选 2 个对象才能组合"); return; }
+      const uid = `u-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      /* 成员当前真实坐标 → 外接包围盒（text 用近似宽高） */
+      const boxes = sel
+        .map((s) => { const b = boundsOfForSync(s.id); return b ? { b, t: s.type } : null; })
+        .filter(Boolean) as { b: { x: number; y: number; w: number; h: number }; t: string }[];
+      let bbox: { x: number; y: number; w: number; h: number } | undefined;
+      if (boxes.length) {
+        const x = Math.min(...boxes.map((v) => v.b.x));
+        const y = Math.min(...boxes.map((v) => v.b.y));
+        const x2 = Math.max(...boxes.map((v) => v.b.x + v.b.w));
+        const y2 = Math.max(...boxes.map((v) => v.b.y + v.b.h));
+        bbox = { x, y, w: x2 - x, h: y2 - y };
+      }
+      const gid = `g-${uid}`;
+      onUpdateRef.current({
+        groups: [...(pageRef.current.groups || []), { id: gid, memberIds: ids, createdAt: Date.now() }],
+        units: [...(pageRef.current.units || []), {
+          id: uid, kind: "card", memberIds: ids, name: "组合",
+          bbox, createdAt: Date.now(),
+        }],
+      });
+      showCanvasFlash("已组合，成员仍可单独编辑");
+      return;
+    }
+
+    /* ===== 框选弹窗：关系链（按选择顺序 A→B→C→D 建 elementLinks，非全互连）===== */
+    if (kind === "box-chain-story" || kind === "box-chain-display" || kind === "box-chain-flow") {
+      const relType: "story" | "display" | "flow" = kind.slice("box-chain-".length) as any;
+      const LABELS: Record<string, string> = { story: "接着", display: "解释", flow: "触发" };
+      const chain = sel.filter((s) => s.type !== "text"); /* text 无稳定连线端点，跳过 */
+      if (chain.length < 2) { showCanvasFlash("至少选择 2 个对象建立关系链"); return; }
+      const links = pageRef.current.elementLinks || [];
+      const now = Date.now();
+      const newLinks: ElementLink[] = [];
+      for (let i = 0; i < chain.length - 1; i++) {
+        const a = chain[i], b = chain[i + 1];
+        /* 已存在同向关系则跳过，避免重复 */
+        const dup = links.some((l: any) =>
+          l.fromId === a.id && l.targetId === b.id) ||
+          newLinks.some((l) => l.fromId === a.id && l.targetId === b.id);
+        if (dup) continue;
+        newLinks.push({
+          id: `el-${now}-${i}`,
+          fromType: a.type as ElementLinkTargetType, fromId: a.id,
+          targetType: b.type as ElementLinkTargetType, targetId: b.id,
+          createdAt: now, relType, label: LABELS[relType],
+        });
+      }
+      if (newLinks.length) {
+        onUpdateRef.current({ elementLinks: [...links, ...newLinks] });
+        showCanvasFlash(`已建立 ${newLinks.length} 段「${LABELS[relType]}」关系`);
+      }
+      return;
+    }
+
+    /* ===== 框选弹窗：复制/删除（画布级，不 alert，删后清框选）===== */
+    if (kind === "box-copy") {
+      copySelection();
+      setBoxPopup(null);
+      return;
+    }
+    if (kind === "box-delete") {
+      deleteSelection();
+      clearBox();
+      setBoxPopup(null);
+      return;
+    }
+
     if (kind === "bind-strokes") {
+
       // 简易实现：把当前框选内的所有 shape 打成一个 group
       const ids = (pageRef.current.shapes || [])
         .filter((s) => selectedElRef.current?.type === "shape"
@@ -4212,6 +4389,50 @@ function handleSheetAction(kind: string) {
         </>
       )}
 
+      {/* ★ P0-4：框选完成后的画布级轻操作弹窗（组合/连接/排列/复制/删除）。
+          不放全透明层锁画布；只在本弹窗打开时用一个极小透明层点外即关，
+          且 z-index 低于所有画布层，不挡后续手势。 */}
+      {boxPopup && (
+        <>
+          <div data-box-popup-bg onClick={() => setBoxPopup(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 2490, background: "transparent", pointerEvents: "auto" }} />
+          <div data-box-popup
+            onPointerDown={(ev) => ev.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: Math.max(8, Math.min(boxPopup.x, window.innerWidth - 220)),
+              top: Math.max(8, Math.min(boxPopup.y, window.innerHeight - 120)),
+              zIndex: 2491,
+              display: "flex", gap: 6, padding: 6,
+              background: "rgba(251,250,247,.97)",
+              backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              borderRadius: 12, boxShadow: "0 8px 28px rgba(58,53,46,.2)",
+              border: "1px solid rgba(74,70,63,.08)",
+              maxWidth: 220,
+            }}>
+            <div style={{ flex: "none", padding: "4px 8px", fontSize: 10, color: "#8a8178", alignSelf: "center", whiteSpace: "nowrap" }}>
+              {boxPopup.count} 个
+            </div>
+            <button type="button" onClick={() => { handleSheetAction("box-compose"); setBoxPopup(null); }}
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "#3a352e", color: "#fff", fontSize: 12, cursor: "pointer" }}>
+              组合
+            </button>
+            <button type="button" onClick={() => { handleSheetAction("box-chain-story"); setBoxPopup(null); }}
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(122,90,52,.12)", color: "#7a5a34", fontSize: 12, cursor: "pointer" }}>
+              接着
+            </button>
+            <button type="button" onClick={() => { handleSheetAction("box-copy"); }}
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(74,70,63,.06)", color: "#57524c", fontSize: 12, cursor: "pointer" }}>
+              复制
+            </button>
+            <button type="button" onClick={() => { handleSheetAction("box-delete"); }}
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(192,57,43,.1)", color: "#c0392b", fontSize: 12, cursor: "pointer" }}>
+              删除
+            </button>
+          </div>
+        </>
+      )}
+
       {ctxMenu && (
         <>
           <div data-ctx-menu onClick={() => setCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 2499, background: "transparent" }} />
@@ -4228,6 +4449,7 @@ function handleSheetAction(kind: string) {
               border: "1px solid rgba(74,70,63,.08)",
             }}>
             {ctxMenu.sub === "copy-as" ? (
+
               <>
                 <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
@@ -4243,9 +4465,23 @@ function handleSheetAction(kind: string) {
                 <CtxItem label="PNG" onClick={() => { setCtxMenu(null); exportCanvas("png"); }} />
                 <CtxItem label="透明背景 PNG" onClick={() => { setCtxMenu(null); exportCanvas("png-transparent"); }} />
               </>
+            ) : ctxMenu.sub === "align" ? (
+              /* ★ P0-7：排列从「页」移入长按菜单（单对象长按也可用），只作用于当前被选对象 */
+              <>
+                <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
+                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <CtxItem label="左对齐" onClick={() => { setCtxMenu(null); handleSheetAction("align-left"); }} />
+                <CtxItem label="水平居中" onClick={() => { setCtxMenu(null); handleSheetAction("align-hcenter"); }} />
+                <CtxItem label="右对齐" onClick={() => { setCtxMenu(null); handleSheetAction("align-right"); }} />
+                <CtxItem label="顶对齐" onClick={() => { setCtxMenu(null); handleSheetAction("align-top"); }} />
+                <CtxItem label="垂直居中" onClick={() => { setCtxMenu(null); handleSheetAction("align-vcenter"); }} />
+                <CtxItem label="底对齐" onClick={() => { setCtxMenu(null); handleSheetAction("align-bottom"); }} />
+                <CtxItem label="水平等距" onClick={() => { setCtxMenu(null); handleSheetAction("distribute-h"); }} />
+                <CtxItem label="垂直等距" onClick={() => { setCtxMenu(null); handleSheetAction("distribute-v"); }} />
+              </>
             ) : ctxMenu.kind === "blank" ? (
               <>
-                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteClipboard(); }} />
+                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteSelection(); }} />
                 <CtxItem label="复制为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "copy-as" })} />
                 <CtxItem label="导出为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "export-as" })} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
@@ -4253,8 +4489,12 @@ function handleSheetAction(kind: string) {
               </>
             ) : (
               <>
-                <CtxItem label="复制" onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.copy?.(); }} />
-                <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); deleteSelection(); }} />
+                <CtxItem label="复制" onClick={() => { setCtxMenu(null); copySelection(); }} />
+                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteSelection(); }} />
+                <CtxItem label="组合" onClick={() => { setCtxMenu(null); handleSheetAction("box-compose"); }} />
+                <CtxItem label="连接(接着)" onClick={() => { setCtxMenu(null); handleSheetAction("box-chain-story"); }} />
+                <CtxItem label="对齐 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "align" })} />
+                <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); deleteSelection(); clearBox(); }} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
                 <CtxItem label="复制为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "copy-as" })} />
                 <CtxItem label="导出为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "export-as" })} />

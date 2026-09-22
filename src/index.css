@@ -447,6 +447,7 @@ button { -webkit-tap-highlight-color: transparent; }
   flex-direction: column;
   padding-top: calc(env(safe-area-inset-top) + 8px);
   box-shadow: 2px 0 16px rgba(0, 0, 0, .08);
+  touch-action: none; /* 拖动关闭手势不被浏览器原生滚动拦截 */
 }
 .cd-tabs {
   flex: none;

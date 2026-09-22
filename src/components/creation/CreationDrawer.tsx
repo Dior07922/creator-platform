@@ -442,7 +442,7 @@ export function ShapeDrawer({
   };
 
   return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130, paddingTop: 80, top: 0 }}>
+    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130, paddingTop: "calc(env(safe-area-inset-top) + 8px)", top: 0 }}>
       <div className="cd-body" style={{ paddingTop: 0 }}>
 
         {/* 撤销 / 重做 / 复制 */}

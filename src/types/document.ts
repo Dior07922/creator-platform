@@ -230,5 +230,9 @@ export type SheetAction = {
     | "jump-anchor"
     | "perfo-order-frames" | "perfo-order-links"
     | "perfo-speed-slow" | "perfo-speed-mid" | "perfo-speed-fast"
-    | "play" | "play-step" | "play-stop";
+    | "play" | "play-step" | "play-stop"
+    /* ★ 框选/长按弹窗（画布级操作入口）：组合 / 关系链 / 复制 / 删除 */
+    | "box-compose"
+    | "box-chain-story" | "box-chain-display" | "box-chain-flow"
+    | "box-copy" | "box-delete";
 };

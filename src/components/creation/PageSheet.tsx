@@ -25,7 +25,7 @@ type Props = {
   speedActive?: "slow" | "mid" | "fast" | null;
 };
 
-type Tab = "page" | "arrange" | "combine" | "connect" | "rhythm";
+type Tab = "page" | "connect";
 
 export default function PageSheet({
   pages,
@@ -86,6 +86,16 @@ export default function PageSheet({
     }
   }, [editingId]);
 
+  /* ★ P0-11：组件卸载时强制清掉所有按压/长按菜单状态，
+     避免 z-index-1100 透明层残留锁死画布。 */
+  useEffect(() => {
+    return () => {
+      clearPress();
+      // 卸载时 menuFor/pressedId 会随组件一起销毁，这里只清 timer
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function setAlignPersist(v: "left" | "center" | "right") {
     setAlign(v);
     try { localStorage.setItem("ranjing.pageAlign", v); } catch {}
@@ -126,7 +136,7 @@ export default function PageSheet({
   function handlePointerUp(p: Page) {
     if (editingId === p.id) return;
     setPressedId(null);
-    if (longPressedRef.current) return;
+    if (longPressedRef.current) { longPressedRef.current = false; clearPress(); return; }
     clearPress();
     if (clickTimerRef.current != null) {
       clearTimeout(clickTimerRef.current);
@@ -139,6 +149,14 @@ export default function PageSheet({
       onSelectPage(p.id);
       onClose();
     }, 180);
+  }
+  /* ★ P0-11：pointercancel（手势被打断）也必须清掉长按菜单与按压态，
+     否则 z-index-1100 透明层残留锁死整个画布。 */
+  function handlePointerCancel(p: Page) {
+    setPressedId(null);
+    clearPress();
+    if (longPressedRef.current) setMenuFor(null);
+    longPressedRef.current = false;
   }
 
   // 长按菜单里的动作
@@ -251,10 +269,7 @@ export default function PageSheet({
 
         <div style={{ flex: "none", display: "flex", padding: "6px 8px 0", borderBottom: "1px solid rgba(74,70,63,.06)" }}>
           <button type="button" style={tabBtnStyle("page")} onClick={() => setTab("page")}>页面</button>
-          <button type="button" style={tabBtnStyle("arrange")} onClick={() => setTab("arrange")}>排列</button>
-          <button type="button" style={tabBtnStyle("combine")} onClick={() => setTab("combine")}>组合</button>
           <button type="button" style={tabBtnStyle("connect")} onClick={() => setTab("connect")}>连接</button>
-          <button type="button" style={tabBtnStyle("rhythm")} onClick={() => setTab("rhythm")}>节奏</button>
           <button
             type="button"
             onClick={onClose}
@@ -301,7 +316,7 @@ export default function PageSheet({
                       onPointerDown={() => handlePointerDown(p)}
                       onPointerUp={() => handlePointerUp(p)}
                       onPointerLeave={() => { setPressedId(null); clearPress(); }}
-                      onPointerCancel={() => { setPressedId(null); clearPress(); }}
+                      onPointerCancel={() => { handlePointerCancel(p); }}
                       style={{
                         width: 160,
                         display: "flex", alignItems: "center", gap: 8,
@@ -365,72 +380,6 @@ export default function PageSheet({
             </>
           )}
 
-          {tab === "arrange" && (
-            <>
-              <SectionLabel>版式 · 连环画</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="2×2" onClick={() => dispatchAction("frame-2x2")} />
-                <ActBtn label="2×3" onClick={() => dispatchAction("frame-2x3")} />
-                <ActBtn label="3×3" onClick={() => dispatchAction("frame-3x3")} />
-              </BtnGrid>
-              <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
-                <ActBtn label="清空格子" onClick={() => dispatchAction("frame-clear")} />
-                <ActBtn label="⇆ 交换镜序" onClick={() => dispatchAction("frame-swap")} />
-              </div>
-              <div style={{ marginTop: 6, fontSize: 10, color: "#a49a8f", lineHeight: 1.5 }}>
-                镜序 = 故事顺序。分镜后，画布上镜编号可按「⇆ 交换镜序」与上一镜交换位置；播放按此顺序讲述。
-              </div>
-              <SectionLabel>对齐</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="⇤ 左" onClick={() => dispatchAction("align-left")} />
-                <ActBtn label="⇹ 中" onClick={() => dispatchAction("align-hcenter")} />
-                <ActBtn label="⇥ 右" onClick={() => dispatchAction("align-right")} />
-                <ActBtn label="⤒ 上" onClick={() => dispatchAction("align-top")} />
-                <ActBtn label="↕ 中" onClick={() => dispatchAction("align-vcenter")} />
-                <ActBtn label="⤓ 下" onClick={() => dispatchAction("align-bottom")} />
-              </BtnGrid>
-              <SectionLabel>分布</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="↔ 水平等距" onClick={() => dispatchAction("distribute-h")} />
-                <ActBtn label="↕ 垂直等距" onClick={() => dispatchAction("distribute-v")} />
-              </BtnGrid>
-              <SectionLabel>图层</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="置顶" onClick={() => dispatchAction("bring-front")} />
-                <ActBtn label="上移" onClick={() => dispatchAction("bring-forward")} />
-                <ActBtn label="下移" onClick={() => dispatchAction("send-backward")} />
-                <ActBtn label="置底" onClick={() => dispatchAction("send-back")} />
-              </BtnGrid>
-              {!hasSelection && (
-                <div style={{ marginTop: 16, fontSize: 11, color: "#a49a8f", textAlign: "center" }}>先在画布上框选或点选元素</div>
-              )}
-            </>
-          )}
-
-          {tab === "combine" && (
-            <>
-              <SectionLabel>元素编组</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="编组" onClick={() => dispatchAction("group")} />
-                <ActBtn label="解组" onClick={() => dispatchAction("ungroup")} />
-                <ActBtn label="绑定笔迹" onClick={() => dispatchAction("bind-strokes")} />
-              </BtnGrid>
-              <SectionLabel>智能合成（归纳已有布局）</SectionLabel>
-              <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
-                先在画布上选好要合成的元素，再按已有摆放方式归纳成形：
-              </div>
-              <BtnGrid>
-                <ActBtn label="图文卡片" onClick={() => dispatchAction("synth-card")} />
-                <ActBtn label="图标+文字" onClick={() => dispatchAction("synth-label")} />
-                <ActBtn label="便签+底纸" onClick={() => dispatchAction("synth-sticky")} />
-                <ActBtn label="链接+容器" onClick={() => dispatchAction("synth-zone")} />
-              </BtnGrid>
-              {!hasSelection && (
-                <div style={{ marginTop: 16, fontSize: 11, color: "#a49a8f", textAlign: "center" }}>先在画布上框选或点选元素</div>
-              )}
-            </>
-          )}
-
           {tab === "connect" && (
             <>
               <SectionLabel>连线模式</SectionLabel>
@@ -458,36 +407,6 @@ export default function PageSheet({
               <div style={{ marginTop: 6, fontSize: 11, color: "#8a8178", lineHeight: 1.7 }}>
                 · 本页已有 {links.length} 条页间关系（页面 tab 可见跳转）
               </div>
-            </>
-          )}
-
-          {tab === "rhythm" && (
-            <>
-              <SectionLabel>序列</SectionLabel>
-              <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
-                播放读已有结构：镜的叙事顺序（排列）→ 单元渐现（组合）→ 关系展开（连接）→ 跨页跳转（跳转锚点）
-              </div>
-              <BtnGrid>
-                <ActBtn label="按镜顺序" onClick={() => dispatchAction("perfo-order-frames")} />
-                <ActBtn label="按关系顺序" onClick={() => dispatchAction("perfo-order-links")} />
-              </BtnGrid>
-              <SectionLabel>节奏</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="慢" active={speedActive === "slow"} onClick={() => dispatchAction("perfo-speed-slow")} />
-                <ActBtn label="中" active={speedActive === "mid"} onClick={() => dispatchAction("perfo-speed-mid")} />
-                <ActBtn label="快" active={speedActive === "fast"} onClick={() => dispatchAction("perfo-speed-fast")} />
-              </BtnGrid>
-              <SectionLabel>演出</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="▶ 播放" onClick={() => dispatchAction("play")} />
-                <ActBtn label="⏭ 单步" onClick={() => dispatchAction("play-step")} />
-                <ActBtn label="■ 停止" onClick={() => dispatchAction("play-stop")} />
-              </BtnGrid>
-              {!framesCount && (
-                <div style={{ marginTop: 16, fontSize: 11, color: "#a49a8f", textAlign: "center" }}>
-                  先在排列里选一个分镜版式，节奏才有画面可讲
-                </div>
-              )}
             </>
           )}
         </div>
