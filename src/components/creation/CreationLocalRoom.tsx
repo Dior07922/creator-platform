@@ -609,6 +609,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             key={editorKey}
             page={currentPage}
             allPages={doc.pages}
+            pageLinks={doc.links}
             onUpdate={(patch) => {
               applyDoc((prev) => ({
                 ...prev,

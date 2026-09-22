@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
-  ElementLink, ElementLinkTargetType, Group, ImageNode, LinkNode, NoteNode, Page, ShapeKind, ShapeNode, TableNode, TextNode,
+  ElementLink, ElementLinkTargetType, Group, ImageNode, LinkNode, NoteNode, Page, PageLink, ShapeKind, ShapeNode, TableNode, TextNode,
 } from "../../types/document";
 
 /** perfect-freehand easing 预设（StrokeOptions.easing 需要函数，UI 用名字选） */
@@ -60,6 +60,8 @@ function brushToShapePatch(b?: BrushParams): Partial<ShapeNode> {
 type Props = {
   page: Page;
   allPages?: Page[];
+  /** 文档级 PageLink 数组（doc.links），供跨页演出按 flow 关系定位下一页 */
+  pageLinks?: PageLink[];
   onUpdate: (patch: Partial<Page>) => void;
   onSelectPage?: (id: string) => void;
   onCopyPage?: () => void;
@@ -392,6 +394,7 @@ function renderShape(s: ShapeNode, selectedShapeId?: string | null) {
 export default function Editor({
   page,
   allPages,
+  pageLinks,
   onUpdate,
   onSelectPage,
   onCopyPage,
@@ -424,11 +427,14 @@ export default function Editor({
   const onUpdateRef = useRef(onUpdate);
   const pageRef = useRef(page);
   const allPagesRef = useRef<Page[]>([]);
+  const pageLinksRef = useRef<PageLink[]>([]);
   const onUpdatePageTransformRef = useRef(onUpdatePageTransform);
   const drawToolRef = useRef<ShapeKind | null>(null);
   const brushRef = useRef<BrushParams | undefined>(undefined);
   const onDrawToolConsumedRef = useRef(onDrawToolConsumed);
   const onDrawToolChangeRef = useRef(onDrawToolChange);
+  const onSelectPageRef = useRef(onSelectPage);
+  onSelectPageRef.current = onSelectPage;
   onDrawToolChangeRef.current = onDrawToolChange;
 
   const texts = page.texts || [];
@@ -437,6 +443,7 @@ export default function Editor({
   onUpdateRef.current = onUpdate;
   pageRef.current = page;
   allPagesRef.current = allPages || [];
+  pageLinksRef.current = pageLinks || [];
   onUpdatePageTransformRef.current = onUpdatePageTransform;
   drawToolRef.current = drawTool ?? null;
   brushRef.current = brush;
@@ -468,6 +475,37 @@ export default function Editor({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page.id, page.paperW, page.paperH]);
+
+  /* ★ 跨页演出续播：window.__ranjingCrossPage 标记本页在多页演出链中时，
+     本页 Editor remount 后自动起播（直接调 handleSheetAction("play")，
+     完整复用节奏/关系/Unit 逻辑）。用户中途 play-stop 已清标记，不会误续。 */
+  useEffect(() => {
+    const cross = (window as any).__ranjingCrossPage;
+    if (!cross || !cross.active || !cross.pageIds?.includes(page.id)) return;
+    /* 续播页：等 comicFrames 初始化完成后起播。若续播页没有镜 → 直接查它的 flow 下一页（链式续跳） */
+    const timer = window.setTimeout(() => {
+      const c2 = (window as any).__ranjingCrossPage;
+      if (!c2 || !c2.active) return;
+      const f = (pageRef.current as any).frames;
+      if (f && f.length) {
+        handleSheetAction("play");
+      } else {
+        /* 本页无镜：跳过播放，直接按 flow 关系继续查下一页（链式续跳） */
+        const flowLink = pageLinksRef.current.find((l: any) => l.from === page.id && l.relType === "flow");
+        const nextId: string | undefined = flowLink?.to;
+        const nextPage = nextId ? (allPagesRef.current || []).find((p: any) => p.id === nextId) : null;
+        if (nextPage && nextId && !c2.pageIds.includes(nextId)) {
+          c2.pageIds = [...c2.pageIds, nextId];
+          onSelectPageRef.current?.(nextId);
+        } else {
+          /* 无下一页 / 循环 / 目标不存在 → 整条跨页演出正常结束 */
+          (window as any).__ranjingCrossPage = null;
+        }
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page.id]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
@@ -3517,7 +3555,10 @@ function handleSheetAction(kind: string) {
     }
 
     /* ===== 第 5 层：播放 = 演出（读已有结构）=====
-       镜序列（排列）→ 单元渐现（组合）→ 关系展开（连接）→ 按节奏走 */
+       镜序列（排列）→ 单元渐现（组合）→ 关系展开（连接）→ 按节奏走
+       ★ 跨页演出：本页所有镜播完后，按 PageLink(relType="flow") 找下一页 →
+         切换页面 → 新页 Editor remount 时检测 window.__ranjingCrossPage 自动续播。
+         循环保护：visited 栈防止 A→B→A 无限跳。无下一页 / 目标页不存在 → 正常结束。 */
     if (k === "play") {
       if (comicFrames.length === 0) { showCanvasFlash("请先在排列里选一个分格版式"); return; }
       /* ★ 节奏活化：默认节奏从结构生长（基础 + 镜内 Unit 数 + 该镜关系数），
@@ -3544,14 +3585,44 @@ function handleSheetAction(kind: string) {
       const storyIds = allLinks.filter((l: any) => l.relType === "story").map((l: any) => l.id);
       const restIds = allLinks.filter((l: any) => l.relType !== "story").map((l: any) => l.id);
       setActiveLinks([...storyIds, ...restIds]);
+
+      /* ★ 跨页状态：记录演出是否跨页 + 已访问页栈（循环保护）+ 本页是否为首页。
+         首帧播放时初始化（用户主动触发）；续播时沿用已有 visited。 */
+      const cross = (window as any).__ranjingCrossPage;
+      const isContinuation = cross && cross.active && cross.pageIds.includes(page.id);
+      const visited: string[] = isContinuation ? cross.pageIds : [page.id];
+
       let i = 0;
       setPlayingIdx(0);
-      /* 逐镜调度（节奏可变）：第 n 镜停留 playTimingsRef[n]，到点推下一步 */
+      /* 逐镜调度（节奏可变）：第 n 镜停留 playTimingsRef[n]，到点推下一步。
+         stop 语义：play-stop 分支会 clearTimeout(__ranjingPlayTimer) 使 pending 回调
+         不再触发，同时清 __ranjingCrossPage，续播 effect 检测标记为 null 不会误续。 */
       const step = () => {
         i += 1;
         if (i >= seq.length) {
+          /* 本页末镜完成 → 查 PageLink 里 relType="flow" 且 from=本页 的下一条页 */
+          const links = pageLinksRef.current;
+          const flowLink = links.find((l: any) => l.from === page.id && l.relType === "flow");
+          const nextId: string | undefined = flowLink?.to;
+          /* 目标页必须真实存在，否则安全停止 */
+          const nextPage = nextId
+            ? (allPagesRef.current || []).find((p: any) => p.id === nextId)
+            : null;
+          if (nextPage && nextId && !visited.includes(nextId)) {
+            /* 有下一页且未访问过 → 记录跨页状态后切页，新 Editor remount 时自动续播 */
+            (window as any).__ranjingCrossPage = {
+              active: true,
+              pageIds: [...visited, nextId],
+            };
+            setPlayingIdx(-1);
+            setActiveLinks([]);
+            onSelectPageRef.current?.(nextId);
+            return;
+          }
+          /* 无 flow 关系 / 目标已访问过（循环）/ 目标不存在 → 正常结束整条演出 */
           setPlayingIdx(-1);
           setActiveLinks([]);
+          (window as any).__ranjingCrossPage = null;
           return;
         }
         setPlayingIdx(i);
@@ -3576,6 +3647,8 @@ function handleSheetAction(kind: string) {
       if (tm) { window.clearTimeout(tm); window.clearInterval(tm); }
       setPlayingIdx(-1);
       setActiveLinks([]);
+      /* ★ 跨页演出：停止时同步清除跨页状态，防止新 Editor remount 时误续播 */
+      (window as any).__ranjingCrossPage = null;
       return;
     }
     handleSheetAction(sheetAction.kind);
