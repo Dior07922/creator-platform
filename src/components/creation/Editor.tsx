@@ -4627,46 +4627,10 @@ function handleSheetAction(kind: string) {
     </>
   );
 
-  /* ── 连接模式：把纸竖着排开 ─────────────────────────────
-     连接是「眼前的几张纸之间点出来」的动作，纸重叠在一起就点不到。
-     这里只改显示用的 transform，不写进文档；退出连接模式即恢复。
-     当前纸在上，其余纸依次往下，整摞垂直居中。 */
   const connArrangeOn = !!connectArrange;
-  const arrPaperW = paper.w > 0 ? paper.w : 390;
   const arrPaperH = paper.h > 0 ? paper.h : 844;
-  const ARR_SCALE = 0.42;
-  const ARR_GAP = 16;
-  const arrStep = arrPaperH * ARR_SCALE + ARR_GAP;
-  const arrCount = (allPages || []).length || 1;
-  const arrTop = -((arrCount - 1) * arrStep) / 2;
-  /* ★ 格子是固定的：起点纸永远在第一格（最上），其余纸按文档顺序往下。
-     这样点延伸物时只有「谁是当前纸」变，纸本身不会跳位置 ——
-     否则用户刚点的那张会突然窜到顶上，看着像出了 bug。 */
-  const arrOrder = [
-    ...(connectDraft?.fromPageId && (allPages || []).some((x) => x.id === connectDraft.fromPageId)
-      ? [connectDraft.fromPageId] : []),
-    ...(allPages || []).map((x) => x.id).filter((id) => id !== connectDraft?.fromPageId),
-  ];
-  const slotOf = (pgId: string) => Math.max(0, arrOrder.indexOf(pgId));
-  const slotY = (k: number) => arrTop + k * arrStep;
-  const arrMainY = slotY(slotOf(page.id));
-
-  /* 命中测试（screenToPaperLocal）读的是 paperStateRef。
-     连接模式下纸被排开，显示值和文档里存的不一样，
-     必须把显示值同步进去，否则点延伸物里的对象永远点不中。 */
-  if (connArrangeOn) paperStateRef.current = { ...paper, x: 0, y: arrMainY, scale: ARR_SCALE, rotate: 0 };
-  else paperStateRef.current = paper;
-
-  /* 连接模式下其他纸可点：由上层决定何时传 onPaperPick */
-  const papersPickable = connArrangeOn && !!onPaperPick;
-  papersPickableRef.current = papersPickable;
-  const mainPaperTransform = connArrangeOn
-    ? `translate(0px, ${arrMainY}px) scale(${ARR_SCALE}) rotate(0deg)`
-    : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
-
-  /* ── 连接线：闭环的可见证据 ─────────────────────────────
-     连接不是一条记录，是一条看得见的线：起点对象 → 延伸物那张纸 → 延伸物里的对象 → 回到起点。
-     两端元素中心都换算到画布坐标，所以在排开模式下两张纸之间的线是真实可画、可看的。 */
+  /* 画布实测尺寸：排开的缩放要按它算，所以必须在排开之前就拿到。
+     首帧 ref 还没挂上 → 先用兜底值，挂上后 ResizeObserver 会立刻纠正。 */
   const [stageBox, setStageBox] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const el = stageRef.current;
@@ -4677,6 +4641,57 @@ function handleSheetAction(kind: string) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  /* ── 连接模式：把纸并排排开 ─────────────────────────────
+     纸是竖的。竖着摞两张会顶出屏幕、又窄又长，看不出「左→右承接」的关系；
+     并排反而省地方，横向关系也更像「这边点一下、那边接住」。 */
+  const ARR_GAP = 14;
+  const ARR_EDGE = 18;
+  const arrAll = (allPages || []);
+  const arrMaxW = Math.max(
+    paper.w > 0 ? paper.w : 390,
+    ...arrAll.map((p) => (p.paperW && p.paperW > 0 ? p.paperW : 390)),
+  );
+  const arrMaxH = Math.max(
+    paper.h > 0 ? paper.h : 844,
+    ...arrAll.map((p) => (p.paperH && p.paperH > 0 ? p.paperH : 844)),
+  );
+  const arrCount = arrAll.length || 1;
+  const arrAvailW = (stageBox.w > 0 ? stageBox.w : 390) - ARR_EDGE * 2;
+  const arrAvailH = (stageBox.h > 0 ? stageBox.h : 700) - ARR_EDGE * 2;
+  const ARR_SCALE = Math.max(
+    0.08,
+    Math.min(1, (arrAvailW - ARR_GAP * (arrCount - 1)) / (arrMaxW * arrCount), arrAvailH / arrMaxH),
+  );
+  const arrStepX = arrMaxW * ARR_SCALE + ARR_GAP;
+  const arrLeft = -((arrCount - 1) * arrStepX) / 2;
+  /* ★ 格子是固定的：起点纸永远在第一格（最左），其余纸按文档顺序往右。
+     这样点延伸物时只有「谁是当前纸」变，纸本身不会跳位置 ——
+     否则用户刚点的那张会突然窜到左边，看着像出了 bug。 */
+  const arrOrder = [
+    ...(connectDraft?.fromPageId && arrAll.some((x) => x.id === connectDraft.fromPageId)
+      ? [connectDraft.fromPageId] : []),
+    ...arrAll.map((x) => x.id).filter((id) => id !== connectDraft?.fromPageId),
+  ];
+  const slotOf = (pgId: string) => Math.max(0, arrOrder.indexOf(pgId));
+  const slotX = (k: number) => arrLeft + k * arrStepX;
+  const arrMainX = slotX(slotOf(page.id));
+
+  /* 命中测试（screenToPaperLocal）读的是 paperStateRef。
+     连接模式下纸被排开，显示值和文档里存的不一样，
+     必须把显示值同步进去，否则点延伸物里的对象永远点不中。 */
+  if (connArrangeOn) paperStateRef.current = { ...paper, x: arrMainX, y: 0, scale: ARR_SCALE, rotate: 0 };
+  else paperStateRef.current = paper;
+
+  /* 连接模式下其他纸可点：由上层决定何时传 onPaperPick */
+  const papersPickable = connArrangeOn && !!onPaperPick;
+  papersPickableRef.current = papersPickable;
+  const mainPaperTransform = connArrangeOn
+    ? `translate(${arrMainX}px, 0px) scale(${ARR_SCALE}) rotate(0deg)`
+    : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
+
+  /* ── 连接线：闭环的可见证据 ─────────────────────────────
+     连接不是一条记录，是一条看得见的线：起点对象 → 延伸物那张纸 → 延伸物里的对象 → 回到起点。
+     两端元素中心都换算到画布坐标，所以在排开模式下两张纸之间的线是真实可画、可看的。 */
 
   /** 元素在纸张局部坐标里的包围盒（任意页面，不只是当前页） */
   function elemBoxIn(pg: Page, type: string, id: string) {
@@ -4707,9 +4722,9 @@ function handleSheetAction(kind: string) {
       const tr = (allPages || []).find((x) => x.id === pgId)?.transform || { x: 0, y: 0, scale: 1 };
       return { tx: tr.x, ty: tr.y, s: tr.scale };
     }
-    if (pgId === page.id) return { tx: 0, ty: arrMainY, s: ARR_SCALE };
+    if (pgId === page.id) return { tx: arrMainX, ty: 0, s: ARR_SCALE };
     if (!(allPages || []).some((x) => x.id === pgId)) return null;
-    return { tx: 0, ty: slotY(slotOf(pgId)), s: ARR_SCALE };
+    return { tx: slotX(slotOf(pgId)), ty: 0, s: ARR_SCALE };
   }
 
   /** 某张纸里某个元素的中心，换算到画布坐标 */
@@ -4745,7 +4760,7 @@ function handleSheetAction(kind: string) {
         : null;
       const toPageId = connectDraft.toPageId;
       const pb = toPageId
-        ? { x: stageBox.w / 2, y: stageBox.h / 2 + slotY(slotOf(toPageId)) }
+        ? { x: stageBox.w / 2 + slotX(slotOf(toPageId)), y: stageBox.h / 2 }
         : null;
       const s1 = seg("draft1", a, c || pb, false);
       if (s1) out.push(s1);
@@ -4836,7 +4851,7 @@ function handleSheetAction(kind: string) {
           ? `0 0 0 3px ${SELECT_BLUE}, 0 4px 24px rgba(0,0,0,.1)`
           : "0 4px 24px rgba(0,0,0,.1)";
         const transform = connArrangeOn
-          ? `translate(0px, ${slotY(slotOf(p.id))}px) scale(${ARR_SCALE}) rotate(0deg)`
+          ? `translate(${slotX(slotOf(p.id))}px, 0px) scale(${ARR_SCALE}) rotate(0deg)`
           : `translate(${tr.x}px, ${tr.y}px) scale(${tr.scale}) rotate(${tr.rotate}deg)`;
         const base: React.CSSProperties = {
           position: "absolute",
@@ -4875,8 +4890,8 @@ function handleSheetAction(kind: string) {
               <div style={{
                 position: "absolute", left: "50%", top: "50%",
                 width: (p.paperW || 390) * ARR_SCALE, height: arrPaperH * ARR_SCALE,
-                marginLeft: -((p.paperW || 390) * ARR_SCALE) / 2,
-                marginTop: -(arrPaperH * ARR_SCALE) / 2 + slotY(slotOf(p.id)),
+                marginLeft: -((p.paperW || 390) * ARR_SCALE) / 2 + slotX(slotOf(p.id)),
+                marginTop: -(arrPaperH * ARR_SCALE) / 2,
                 borderRadius: 10,
                 pointerEvents: "none",
                 display: "flex", alignItems: "center", justifyContent: "center",
