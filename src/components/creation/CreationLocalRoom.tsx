@@ -2,7 +2,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { makeEmptyDoc } from "../../lib/documents";
 import { loadLocalDoc, saveLocalDoc } from "../../lib/localDocuments";
-import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode, Interaction } from "../../types/document";
+import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode, Interaction, RigJoint } from "../../types/document";
+import {
+  isLooseLeaf, looseLeafIndices, resolveJoints, inheritFrom,
+  hasOwnPose, withJoints, makeStack, distinctPoseCount,
+} from "../../lib/rigPages";
+import { defaultRadius } from "../../lib/rigWarp";
 import Editor from "./Editor";
 import type { BrushParams } from "./Editor";
 import {
@@ -266,6 +271,88 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     connTipTimer.current = window.setTimeout(() => { connTipTimer.current = null; setConnTip(""); }, 1800);
   }
   useEffect(() => () => { if (connTipTimer.current != null) window.clearTimeout(connTipTimer.current); }, []);
+
+  /* ══ 骨钉（线条骨钉）═════════════════════════════════════════
+     选对象 → 点「线条骨钉」→ 当前页复制成 10 张叠放。
+     每隔 2 张有 1 张活页（第 3、6、9 张）；活页存自己的关节姿势，
+     其余纸不存，用【往前找最近一张有姿势的纸】的结果 ——
+     所以改一张活页，后面自动跟上，是算法天然的结果而不是同步逻辑。 */
+  const [rigOn, setRigOn] = useState(false);
+  const [rigBase, setRigBase] = useState<{ baseId: string; ids: string[] } | null>(null);
+  const [rigPlaying, setRigPlaying] = useState(false);
+  const [rigFrame, setRigFrame] = useState(0);
+  const [rigRadius, setRigRadius] = useState(0);
+
+  /** 自动布点：用户不知道点哪时先给打个样。
+      按纸张尺寸放 6 个关节在「双手」该在的位置：左右各 肩/肘/手。 */
+  function autoPlaceJoints(w: number, h: number): RigJoint[] {
+    const W = w > 0 ? w : 390;
+    const H = h > 0 ? h : 844;
+    const mk = (id: string, fx: number, fy: number): RigJoint => ({
+      id, sx: W * fx, sy: H * fy, x: W * fx, y: H * fy,
+    });
+    return [
+      mk("sh-L", 0.42, 0.36), mk("el-L", 0.32, 0.45), mk("hd-L", 0.24, 0.52),
+      mk("sh-R", 0.58, 0.36), mk("el-R", 0.68, 0.45), mk("hd-R", 0.76, 0.52),
+    ];
+  }
+
+  /** 开始线条骨钉：把当前页复制成 10 张叠放 */
+  function startRig() {
+    if (rigBase) { setRigOn(true); closeDrawer(); return; }
+    const base = doc.pages.find((p) => p.id === currentPageId);
+    if (!base) return;
+    const joints = autoPlaceJoints(base.paperW || 0, base.paperH || 0);
+    const stack = makeStack(base, 10, joints);
+    applyDoc((prev) => ({ ...prev, pages: [...prev.pages, ...stack] }));
+    setRigBase({ baseId: base.id, ids: stack.map((p) => p.id) });
+    setRigRadius(defaultRadius(base.paperW || 390, base.paperH || 844));
+    setRigOn(true);
+    setRigFrame(0);
+    setCurrentPageId(stack[0].id);
+    closeDrawer();
+  }
+
+  function exitRig() {
+    setRigOn(false);
+    setRigPlaying(false);
+    if (rigBase) setCurrentPageId(rigBase.baseId);
+  }
+
+  /** 当前纸在叠放里的第几格（-1 = 不在叠放里） */
+  const rigIdx = rigBase ? rigBase.ids.indexOf(currentPageId) : -1;
+  /** 当前纸实际用的关节（活页继承解算的结果） */
+  const rigJoints = rigIdx >= 0 ? resolveJoints(doc.pages, doc.pages.findIndex((p) => p.id === currentPageId)) : null;
+  /** 这一格能不能改：活页、或第 1 张（起始页）才能改 */
+  const rigEditable = rigIdx >= 0 && (rigIdx === 0 || isLooseLeaf(rigIdx));
+
+  /** 拖关节：写到当前这张纸上（它就成了活页）。第一次拖会自动把继承来的姿势落地。 */
+  function onRigJointMove(id: string, x: number, y: number) {
+    const idx = doc.pages.findIndex((p) => p.id === currentPageId);
+    if (idx < 0) return;
+    applyDoc((prev) => {
+      const cur = prev.pages[idx];
+      const own = cur?.rig?.joints;
+      const src = own && own.length ? own : (resolveJoints(prev.pages, idx) || []);
+      if (!src.length) return prev;
+      const next = src.map((j) => (j.id === id ? { ...j, x, y } : { ...j }));
+      return { ...prev, pages: withJoints(prev.pages, idx, next) };
+    });
+  }
+
+  /* 播放：按顺序快速翻这 10 张 */
+  useEffect(() => {
+    if (!rigPlaying || !rigBase) return;
+    const t = window.setInterval(() => {
+      setRigFrame((f) => {
+        const n = (f + 1) % rigBase.ids.length;
+        setCurrentPageId(rigBase.ids[n]);
+        return n;
+      });
+    }, 180);
+    return () => window.clearInterval(t);
+  }, [rigPlaying, rigBase]);
+
 
   /* 闭环完成：亮一下「✓ 闭环完成」，然后自动退出连接模式 */
   useEffect(() => {
@@ -755,6 +842,11 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             interactions={doc.interactions || []}
             connectDraft={connDraft}
             connectDone={connStage === "done"}
+            /* 骨钉：只在开启时挂载那一层，平时一行不动 */
+            rigMode={rigOn}
+            rigJoints={rigJoints || undefined}
+            rigRadius={rigRadius}
+            onRigJointMove={rigEditable ? onRigJointMove : undefined}
             onDeletePage={() => { if (doc.pages.length > 1) deletePage(currentPageId); }}
             paperColor={paperColor}
             paperAlpha={paperAlpha}
@@ -853,6 +945,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           connectStepText={connStepText}
           connectDone={connStage === "done"}
           onConnectCancel={cancelConnect}
+          onStartRig={startRig}
           onConnectPickPage={onConnectPickPage}
           hasSelection={editorHasSelection}
           framesCount={(currentPage as any)?.frames?.length || 0}
@@ -950,6 +1043,88 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           boxShadow: "0 6px 20px rgba(0,0,0,.22)",
           pointerEvents: "none",
         }}>{connTip}</div>
+      )}
+
+      {/* ── 骨钉胶片条 ─────────────────────────────────────────
+          10 格。活页（第 3、6、9 张 + 第 1 张）标出来 —— 只有活页能改。
+          点一格切到那张纸；非活页显示「跟第N张」，告诉你它跟着谁走。 */}
+      {rigOn && rigBase && (
+        <>
+          <div style={{
+            position: "absolute", left: "50%", top: 14, transform: "translateX(-50%)",
+            zIndex: 3001, display: "flex", alignItems: "center", gap: 10,
+            padding: "9px 10px 9px 16px", borderRadius: 999,
+            background: "rgba(58,53,46,.94)", color: "#fffdfa",
+            fontSize: 12.5, letterSpacing: ".03em",
+            boxShadow: "0 6px 22px rgba(0,0,0,.24)", whiteSpace: "nowrap",
+          }} data-no-canvas-gesture>
+            <span>
+              {rigEditable
+                ? `第 ${rigIdx + 1} 张 · 活页，拖 6 个关节`
+                : (() => {
+                    /* 注意：继承解算是在 doc.pages 上走的，那里面还含着一张原始页，
+                       所以拿到的下标不能直接 +1 显示 —— 必须映射回胶片条的格子号，
+                       否则会整整差 1（实测标成「跟第4张走」，其实跟的是第3张）。 */
+                    const pg = doc.pages.find((p) => p.id === currentPageId);
+                    const owner = pg ? inheritFrom(doc.pages, doc.pages.indexOf(pg)) : -1;
+                    const ownerId = owner >= 0 ? doc.pages[owner]?.id : "";
+                    const cell = rigBase.ids.indexOf(ownerId);
+                    return `第 ${rigIdx + 1} 张 · 保持（跟第 ${cell + 1} 张走）`;
+                  })()}
+            </span>
+            <button type="button" onClick={exitRig}
+              style={{
+                border: 0, borderRadius: 999, padding: "4px 10px",
+                background: "rgba(255,255,255,.16)", color: "#fffdfa",
+                fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+              }}>退出骨钉</button>
+          </div>
+
+          <div style={{
+            position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 3001,
+            padding: "10px 12px 14px",
+            background: "linear-gradient(to top, rgba(28,25,22,.92), rgba(28,25,22,.72))",
+            display: "flex", flexDirection: "column", gap: 8,
+          }} data-no-canvas-gesture>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button type="button" onClick={() => setRigPlaying((v) => !v)}
+                style={{
+                  border: 0, borderRadius: 8, padding: "7px 14px",
+                  background: rigPlaying ? "#c98a3c" : "#fffdfa", color: rigPlaying ? "#fffdfa" : "#3a352e",
+                  fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                }}>{rigPlaying ? "■ 停" : "▶ 快速播放"}</button>
+              <span style={{ fontSize: 11.5, color: "rgba(255,253,250,.72)" }}>
+                共 {rigBase.ids.length} 张 · 真姿势 {distinctPoseCount(doc.pages.filter((p) => rigBase.ids.includes(p.id)))} 个
+                （A 计划 3 个，B 计划 10 个）
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+              {rigBase.ids.map((pid, i) => {
+                const loose = i === 0 || isLooseLeaf(i);
+                const own = hasOwnPose(doc.pages.find((p) => p.id === pid));
+                const here = pid === currentPageId;
+                return (
+                  <button key={pid} type="button"
+                    data-rig-cell={i}
+                    onClick={() => { setRigPlaying(false); setCurrentPageId(pid); setRigFrame(i); }}
+                    style={{
+                      flex: "0 0 auto", width: 44, height: 56, borderRadius: 7,
+                      border: here ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.28)",
+                      background: loose ? "rgba(255,253,250,.94)" : "rgba(255,253,250,.5)",
+                      color: "#3a352e", fontSize: 10, lineHeight: 1.15,
+                      cursor: "pointer", fontFamily: "inherit",
+                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                    }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{i + 1}</span>
+                    <span style={{ color: loose ? "#7a5a34" : "#8a8178" }}>
+                      {loose ? (own ? "活页•有姿势" : "活页") : "保持"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
 
       {confirmState && (

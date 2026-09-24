@@ -2,8 +2,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
-  ElementLink, ElementLinkTargetType, Group, ImageNode, Interaction, LinkNode, NoteNode, Page, PageLink, ShapeKind, ShapeNode, TableNode, TextNode,
+  ElementLink, ElementLinkTargetType, Group, ImageNode, Interaction, LinkNode, NoteNode, Page, PageLink, RigJoint, ShapeKind, ShapeNode, TableNode, TextNode,
 } from "../../types/document";
+import { warpTo, makeArmBones, defaultRadius } from "../../lib/rigWarp";
 
 /** perfect-freehand easing 预设（StrokeOptions.easing 需要函数，UI 用名字选） */
 export type EasingName =
@@ -75,6 +76,15 @@ type Props = {
   onStartConnect?: (el: { type: string; id: string }) => void;
   /** 连接模式：把纸排开、其他纸变成可点（连接是在眼前的几张纸之间点出来的） */
   connectArrange?: boolean;
+  /** 骨钉模式：把当前纸拍平成位图 → 按 6 个关节形变 → 铺在纸上，
+      再叠一层可拖的关节把手。只在开启时挂载，平时一行不动。 */
+  rigMode?: boolean;
+  /** 当前纸实际要用的关节（已经过活页继承解算，可能是从前面某张继承来的） */
+  rigJoints?: RigJoint[];
+  /** 影响半径 */
+  rigRadius?: number;
+  /** 用户拖了某个关节 */
+  onRigJointMove?: (id: string, x: number, y: number) => void;
   /** 连接模式下点了某一张纸（不是纸里的对象，是纸本身） */
   onPaperPick?: (pageId: string) => void;
   /** 文档里已成立的连接（用来画线） */
@@ -454,6 +464,10 @@ export default function Editor({
   interactions,
   connectDraft,
   connectDone,
+  rigMode,
+  rigJoints,
+  rigRadius,
+  onRigJointMove,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const editTaRef = useRef<HTMLTextAreaElement>(null);
@@ -1787,6 +1801,13 @@ export default function Editor({
        纸盒上的 onClick 永远收不到，点纸就点不动。
        实测事件序列：BOX:pointerdown,BOX:mousedown → STAGE:pointerup,STAGE:click。 */
     if (__tgt.closest("[data-other-page]") && papersPickableRef.current) return;
+    /* ★ 骨钉把手同理：按在关节上必须直接放行，
+       否则 stage 一 setPointerCapture，pointermove 就全改派到 stage，
+       把手拖不动。 */
+    if (__tgt.closest("[data-rig-handle]")) return;
+    /* ★ 盖在画布上的界面（胶片条这类）同理：它们要自己收点击。
+       不排除的话 stage 一捕获指针，按钮的 onClick 就永远收不到。 */
+    if (__tgt.closest("[data-no-canvas-gesture]")) return;
     {
       const sx = e.clientX, sy = e.clientY;
       const lp = window.setTimeout(() => {
@@ -4325,7 +4346,156 @@ function handleSheetAction(kind: string) {
     );
   }
 
-  const paperInner = (
+  /* ══ 骨钉层 ══════════════════════════════════════════════════════
+     把当前纸拍平成一张位图（复用导出用的 buildPageSvg），
+     再按 6 个关节做骨架蒙皮形变，铺在纸上。
+     位图只在「进骨钉模式 / 换纸 / 换规格」时重拍一次；
+     拖关节时只重跑形变，不重拍 —— 这是能实时拖的关键。 */
+  const rigCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [rigSrc, setRigSrc] = useState<HTMLCanvasElement | null>(null);
+  const [rigDragId, setRigDragId] = useState<string | null>(null);
+  const rigDragRef = useRef<string | null>(null);
+  const buildPageSvgRef = useRef(buildPageSvg);
+  buildPageSvgRef.current = buildPageSvg;
+
+  const rigW = paper.w > 0 ? paper.w : 390;
+  const rigH = paper.h > 0 ? paper.h : 844;
+
+  /** 从关节 id 推出骨架。id 约定：sh/el/hd + -L/-R */
+  function bonesOf(js: RigJoint[] | undefined) {
+    const ids = new Set((js || []).map((j) => j.id));
+    const groups: { sh: string; el: string; hd: string }[] = [];
+    for (const suf of ["L", "R"]) {
+      if (ids.has(`sh-${suf}`) && ids.has(`el-${suf}`) && ids.has(`hd-${suf}`)) {
+        groups.push({ sh: `sh-${suf}`, el: `el-${suf}`, hd: `hd-${suf}` });
+      }
+    }
+    return makeArmBones(groups);
+  }
+  const rigBones = bonesOf(rigJoints);
+
+  useEffect(() => {
+    if (!rigMode) { setRigSrc(null); return; }
+    let dead = false;
+    const W = rigW;
+    const H = rigH;
+    const svgText = buildPageSvgRef.current(W, H, true);
+    const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = W;
+      c.height = H;
+      const g = c.getContext("2d");
+      if (g && !dead) { g.drawImage(img, 0, 0, W, H); setRigSrc(c); }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rigMode, page.id, rigW, rigH]);
+
+  useEffect(() => {
+    if (!rigMode || !rigSrc) return;
+    const out = rigCanvasRef.current;
+    const g = out?.getContext("2d");
+    if (!out || !g) return;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, out.width, out.height);
+    const R = rigRadius && rigRadius > 0 ? rigRadius : defaultRadius(out.width, out.height);
+    warpTo(g, rigSrc, out.width, out.height, rigJoints || [], bonesOf(rigJoints), R, 16, 32);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rigMode, rigSrc, rigJoints, rigRadius]);
+
+  /* 拖关节：屏幕坐标 → 纸张局部坐标，报给上层 */
+  function rigLocal(e: React.PointerEvent) {
+    return screenToPaperLocal(e.clientX, e.clientY, stageRef.current, paperStateRef.current);
+  }
+  function onRigDown(e: React.PointerEvent, id: string) {
+    e.stopPropagation();
+    e.preventDefault();
+    rigDragRef.current = id;
+    setRigDragId(id);
+    try { (e.currentTarget as unknown as HTMLElement).setPointerCapture(e.pointerId); } catch { /* 捕获失败不影响拖动 */ }
+  }
+  function onRigMove(e: React.PointerEvent) {
+    const id = rigDragRef.current;
+    if (!id) return;
+    e.stopPropagation();
+    const p = rigLocal(e);
+    onRigJointMove?.(id, p.x, p.y);
+  }
+  function onRigUp(e: React.PointerEvent) {
+    if (!rigDragRef.current) return;
+    e.stopPropagation();
+    rigDragRef.current = null;
+    setRigDragId(null);
+    try { (e.currentTarget as unknown as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* 已经释放过就算了 */ }
+  }
+
+  const paperInner = rigMode ? (
+    /* ── 骨钉模式下的纸 ────────────────────────────────────────
+       骨钉是「把整张画面拍平再扯动」，所以这里不画原本那套 DOM 元素，
+       改画一张【已被骨架形变的位图】。位图来自 buildPageSvg（导出用的同一套），
+       所以画面内容和平时的渲染是一致的，只是变成了一张图。
+       退出骨钉模式立刻换回原本那套，一行没动。 */
+    <>
+      <canvas
+        ref={rigCanvasRef}
+        width={rigW}
+        height={rigH}
+        data-rig-canvas
+        style={{
+          position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
+          pointerEvents: "none",
+        }}
+      />
+      {/* 关节把手层 */}
+      <svg
+        viewBox={`0 0 ${rigW} ${rigH}`}
+        style={{
+          position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
+          zIndex: 300, touchAction: "none",
+        }}
+        onPointerMove={onRigMove}
+        onPointerUp={onRigUp}
+        onPointerCancel={onRigUp}
+      >
+        {/* 骨架：4 根骨画成粗线，让人看清这是一副骨架 */}
+        {rigBones.map((b) => {
+          const A = (rigJoints || []).find((j) => j.id === b.a);
+          const B = (rigJoints || []).find((j) => j.id === b.b);
+          if (!A || !B) return null;
+          return (
+            <line key={b.id} x1={A.x} y1={A.y} x2={B.x} y2={B.y}
+              stroke="rgba(122,90,52,.28)" strokeWidth={9} strokeLinecap="round"
+              style={{ pointerEvents: "none" }} />
+          );
+        })}
+        {(rigJoints || []).map((j) => (
+          <g key={j.id} data-rig-handle={j.id}>
+            {/* 钉住的位置（不动）—— 让人看见「关节从哪被拽走的」 */}
+            <circle cx={j.sx} cy={j.sy} r={5} fill="none"
+              stroke="rgba(122,90,52,.4)" strokeWidth={2}
+              style={{ pointerEvents: "none" }} />
+            {rigDragId === j.id && (
+              <line x1={j.sx} y1={j.sy} x2={j.x} y2={j.y}
+                stroke="rgba(122,90,52,.5)" strokeWidth={2} strokeDasharray="8 6"
+                style={{ pointerEvents: "none" }} />
+            )}
+            <circle
+              cx={j.x} cy={j.y} r={14}
+              fill={rigDragId === j.id ? "#7a5a34" : "rgba(122,90,52,.85)"}
+              stroke="#fffdfa" strokeWidth={3}
+              style={{ cursor: "grab" }}
+              onPointerDown={(e) => onRigDown(e, j.id)}
+            />
+          </g>
+        ))}
+      </svg>
+    </>
+  ) : (
     <>
       {texts.filter((t) => t.layer === "paper").map((t) => (
         <TextElement

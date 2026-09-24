@@ -34,6 +34,8 @@ type Props = {
   /** 是否已完成闭环（用于提示条变绿） */
   connectDone: boolean;
   onConnectCancel: () => void;
+  /** 骨钉模式里点了「① 线条骨钉」：把当前页复制成 10 张叠放 */
+  onStartRig: () => void;
   /** 连接动作正在等用户点某个页面时，页面列表把点击交给它。
       返回 true = 这次点击被连接消费掉了，不再执行普通切页 */
   onConnectPickPage?: (pageId: string) => boolean;
@@ -62,6 +64,7 @@ export default function PageSheet({
   connectStepText,
   connectDone,
   onConnectCancel,
+  onStartRig,
   onConnectPickPage,
 }: Props) {
   const [tab, setTab] = useState<Tab>("page");
@@ -471,15 +474,43 @@ export default function PageSheet({
                 </>
               )}
 
-              {/* ③ 骨钉模式：编辑界面在后续批次实现 */}
+              {/* ③ 骨钉模式：三个选项（手稿第二张：线条骨钉 / 单变 / 页数）*/}
               {connectMode === "rig" && (
                 <>
                   <SectionLabel>骨钉模式</SectionLabel>
-                  <div style={{ fontSize: 11, color: "#8a8178", lineHeight: 1.8, padding: "2px 0 0" }}>
-                    · 点画布上任意对象 → 统一弹窗<br />
-                    · 线条骨钉：6 个木偶关节，管细节<br />
-                    · 单变：浅淡/颜色/大小/粗细，管大面<br />
-                    <span style={{ color: "#c0b8ae" }}>（编辑界面开发中）</span>
+                  <div style={{ fontSize: 11, color: "#a49a8f", lineHeight: 1.6, marginBottom: 8 }}>
+                    选一种对象，统一默认「复制当前页面 10 张叠放」
+                  </div>
+                  {[
+                    { id: "pin", label: "① 线条骨钉", desc: "6 个木偶关节，管细节。能用了", ready: true },
+                    { id: "morph", label: "② 单变", desc: "浅淡 / 颜色 / 大小 / 粗细，管大面", ready: false },
+                    { id: "count", label: "③ 页数", desc: "张数 + 模板库（动画片/连环画/漫画书）", ready: false },
+                  ].map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      disabled={!o.ready}
+                      onClick={o.ready ? onStartRig : undefined}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left",
+                        padding: "10px 12px", marginBottom: 7, borderRadius: 10,
+                        border: o.ready ? "1px solid rgba(122,90,52,.30)" : "1px solid rgba(74,70,63,.12)",
+                        background: o.ready ? "#fffdfa" : "#f4f1ec",
+                        color: o.ready ? "#3a352e" : "#b3aaa0",
+                        fontSize: 13, cursor: o.ready ? "pointer" : "default",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>{o.label}</div>
+                      <div style={{ fontSize: 10.5, color: o.ready ? "#8a8178" : "#c0b8ae", marginTop: 2 }}>
+                        {o.desc}
+                      </div>
+                    </button>
+                  ))}
+                  <div style={{ marginTop: 4, fontSize: 10, color: "#a49a8f", lineHeight: 1.7 }}>
+                    线条骨钉：6 个关节等于骨架。关节带动的地方能动，<br />
+                    关节以外全部定死。每隔 2 张有 1 张活页可改，<br />
+                    活页改的样式后面所有都默认一致。
                   </div>
                 </>
               )}
