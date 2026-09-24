@@ -67,7 +67,6 @@ type Props = {
   onCopyPage?: () => void;
   onPastePage?: (x: number, y: number) => void;
   hasClipboard?: boolean;
-  onRequestConnect?: () => void;
   /** 连接动作进行中：此时"点一下"的语义是【选对象】，不是框选/绘制 */
   connectPicking?: boolean;
   /** 连接动作里点中了对象，报给上层状态机 */
@@ -429,7 +428,6 @@ export default function Editor({
   onCopyPage,
   onPastePage,
   hasClipboard,
-  onRequestConnect,
   connectPicking,
   onConnectPickObject,
   onStartConnect,

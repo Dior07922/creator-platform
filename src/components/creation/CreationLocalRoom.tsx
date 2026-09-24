@@ -229,7 +229,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
-  const [connectMode, setConnectMode] = useState<{ from: string } | null>(null);
 
   /* ── 连接（动作驱动）──────────────────────────────────────
      按手稿第十张的动作序列，做成四步状态机。
@@ -249,6 +248,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     if (m === "phone" || m === "site") {
       setConnDraft({});
       setConnStage("pickSource");
+      /* ★ 选完模式必须关抽屉。不关的话抽屉盖在画布上，
+         用户点不到起点对象 —— 连接就又变成「隔着抽屉点」了，
+         而这正是这次要拆掉的东西。模式是入口，选完就走人。 */
+      closeDrawer();
     } else {
       setConnStage("idle");
     }
@@ -661,10 +664,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     }
   }
 
-  function startConnect(fromPageId: string) {
-    setConnectMode({ from: fromPageId });
-    setOpenDrawer("page");
-  }
   /* 跳转锚点（第 3 层）：本页 → 目标页 的 flow 关系 */
   function onJumpAnchor(toPageId: string, relType?: string) {
     if (toPageId === currentPageId) return;
@@ -674,20 +673,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       const link: PageLink = { from: currentPageId, to: toPageId, createdAt: Date.now(), relType: relType as any };
       return { ...prev, links: [...prev.links, link] };
     });
-  }
-  function completeConnect(toPageId: string): boolean {
-    if (!connectMode) return false;
-    if (connectMode.from === toPageId) { alert("不能连接到自己"); setConnectMode(null); return false; }
-    applyDoc((prev) => {
-      const exists = prev.links.find((l) => l.from === connectMode.from && l.to === toPageId);
-      if (exists) {
-        return { ...prev, links: prev.links.filter((l) => !(l.from === connectMode.from && l.to === toPageId)) };
-      }
-      const link: PageLink = { from: connectMode.from, to: toPageId, createdAt: Date.now() };
-      return { ...prev, links: [...prev.links, link] };
-    });
-    setConnectMode(null);
-    return true;
   }
 
   useEffect(() => {
@@ -754,7 +739,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
               }));
             }}
             hasClipboard={!!pageClipboard}
-            onRequestConnect={() => startConnect(currentPageId)}
             /* 连接动作进行到"该选对象"的两步时，画布上的点击变成拾取对象 */
             connectPicking={connStage === "pickSource" || connStage === "pickTargetObj"}
             onConnectPickObject={onConnectPickObject}
