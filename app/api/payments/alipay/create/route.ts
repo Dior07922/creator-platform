@@ -10,6 +10,11 @@ import {
   parseCnyAmount,
 } from "../../../../../src/server/order-store";
 
+import {
+  currentUserId,
+  orderBelongsTo,
+} from "../../../../../src/server/session";
+
 export const runtime = "nodejs";
 
 function publicBaseUrl(request: Request) {
@@ -49,11 +54,18 @@ function detectPaymentMode(
 export async function POST(
   request: Request
 ) {
-  const body =
-    await request.json();
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { message: "请求格式不正确" },
+      { status: 400 }
+    );
+  }
 
   const orderId = String(
-    body.orderId ?? ""
+    body?.orderId ?? ""
   ).trim();
 
   if (!orderId) {
@@ -67,19 +79,38 @@ export async function POST(
     );
   }
 
-  const order =
-    await findOrder(orderId);
+  try {
+    /* 只有订单归属人才能拉起收银台 */
+    const userId = await currentUserId();
 
-  if (!order) {
-    return NextResponse.json(
-      {
-        message: "订单不存在",
-      },
-      {
-        status: 404,
-      }
-    );
-  }
+    if (!userId) {
+      return NextResponse.json(
+        { message: "请先登录" },
+        { status: 401 }
+      );
+    }
+
+    const order =
+      await findOrder(orderId);
+
+    if (!order) {
+      return NextResponse.json(
+        {
+          message: "订单不存在",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    /* 不是自己的订单：一律按「不存在」返回 */
+    if (!orderBelongsTo(order.userId, userId)) {
+      return NextResponse.json(
+        { message: "订单不存在" },
+        { status: 404 }
+      );
+    }
 
     if (
       order.paymentMethod !==
@@ -181,6 +212,18 @@ export async function POST(
       {
         status: 502,
       }
+    );
+    }
+  } catch (error) {
+    /* 会话查询 / 订单读取失败：不回显内部信息 */
+    console.error(
+      "支付宝收银台创建失败:",
+      error instanceof Error ? error.message : error
+    );
+
+    return NextResponse.json(
+      { message: "暂时无法发起支付，请稍后再试" },
+      { status: 500 }
     );
   }
 }

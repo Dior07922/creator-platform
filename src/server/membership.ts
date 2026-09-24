@@ -7,7 +7,12 @@ import {
   findOrder,
 } from "./order-store";
 
-export async function ensureMembershipTables() {
+/* 会员相关建表：与 ensureAuthTables 同样每个进程只跑一次。
+   原先这里会先调一次 ensureAuthTables，再跑 2 条 ALTER + 建表 + 建索引，
+   而调用方往往已经调过 ensureAuthTables —— 一次请求重复建表两轮。 */
+let membershipSchemaReady: Promise<void> | null = null;
+
+async function createMembershipTables() {
   await ensureAuthTables();
 
   const sql = db();
@@ -47,6 +52,16 @@ export async function ensureMembershipTables() {
     membership_grants_user_idx
     ON membership_grants(user_id)
   `;
+}
+
+export function ensureMembershipTables(): Promise<void> {
+  if (!membershipSchemaReady) {
+    membershipSchemaReady = createMembershipTables().catch((error) => {
+      membershipSchemaReady = null;
+      throw error;
+    });
+  }
+  return membershipSchemaReady;
 }
 
 export async function grantMembershipForPaidOrder(

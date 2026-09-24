@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { CapacitorHttp } from "@capacitor/core";
 import { API_BASE } from "../lib/apiBase";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 
 type PlanKey = "monthly" | "yearly";
 
@@ -15,6 +16,11 @@ type MembershipStatus = {
   loggedIn: boolean;
 };
 
+/* 加载态必须与「读取失败」分开：
+   之前失败时把 status 置成 null，而 null 被渲染成「正在读取…」，
+   于是网络一抖页面就永远停在加载中，没有任何错误提示和重试入口。 */
+type LoadState = "loading" | "ready" | "error";
+
 const PLANS: { key: PlanKey; label: string; price: string; sub: string }[] = [
   { key: "monthly", label: "月度会员", price: "¥39.9", sub: "按月使用，随时续订" },
   { key: "yearly",  label: "年度会员", price: "¥198",  sub: "全年使用，更适合长期创作" },
@@ -23,14 +29,26 @@ const PLANS: { key: PlanKey; label: string; price: string; sub: string }[] = [
 export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => void; onNeedLogin: () => void }) {
   const [plan, setPlan] = useState<PlanKey | null>(null);
   const [status, setStatus] = useState<MembershipStatus | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => { void refresh(); }, []);
 
   async function refresh() {
+    setLoadState("loading");
     try {
-      const res = await fetch(`${API_BASE}/api/membership/status`, { cache: "no-store" });
+      const res = await fetchWithTimeout(`${API_BASE}/api/membership/status`, { cache: "no-store" }, 15000);
+
+      /* 401 是「未登录」这个正常业务态，不是错误 */
+      if (res.status === 401) {
+        setStatus({ active: false, plan: null, expiresAt: null, loggedIn: false });
+        setLoadState("ready");
+        return;
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const data = await res.json();
       setStatus({
         active: !!data.active,
@@ -38,11 +56,17 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
         expiresAt: data.expiresAt ?? null,
         loggedIn: !!data.loggedIn,
       });
-    } catch { setStatus(null); }
+      setLoadState("ready");
+    } catch {
+      setStatus(null);
+      setLoadState("error");
+    }
   }
 
   async function buy() {
     if (!plan) return;
+    /* 状态没读出来时不能贸然跳登录页 —— 那会把网络故障误报成未登录 */
+    if (loadState === "error") { setMessage("会员状态未能读取，请先重试"); return; }
     if (!status?.loggedIn) { onNeedLogin(); return; }
     setLoading(true); setMessage("");
     try {
@@ -106,9 +130,23 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
         }}>
           <div style={{ fontSize: 12, letterSpacing: ".14em", color: "#8a8178", marginBottom: 8 }}>会员专属</div>
           <div style={{ fontSize: 13, color: "#3a352e", lineHeight: 1.8 }}>
-            {status === null && "正在读取会员状态…"}
-            {status && status.active && `已开通 · ${planLabel}${expires ? ` · 到期 ${expires}` : ""}`}
-            {status && !status.active && (status.loggedIn ? "尚未开通，开通后可用专属 3D 记忆空间" : "登录后可开通专属 3D 记忆空间")}
+            {loadState === "loading" && "正在读取会员状态…"}
+            {loadState === "error" && (
+              <>
+                会员状态读取失败，
+                <button
+                  type="button"
+                  onClick={() => { void refresh(); }}
+                  style={{
+                    border: 0, background: "transparent", padding: "0 2px",
+                    color: "#75655a", fontSize: 13, fontFamily: "inherit",
+                    textDecoration: "underline", cursor: "pointer",
+                  }}
+                >重试</button>
+              </>
+            )}
+            {loadState === "ready" && status?.active && `已开通 · ${planLabel}${expires ? ` · 到期 ${expires}` : ""}`}
+            {loadState === "ready" && status && !status.active && (status.loggedIn ? "尚未开通，开通后可用专属 3D 记忆空间" : "登录后可开通专属 3D 记忆空间")}
           </div>
         </div>
 
@@ -140,16 +178,16 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
 
         <button
           type="button"
-          disabled={!plan || loading}
+          disabled={!plan || loading || loadState !== "ready"}
           onClick={buy}
           style={{
             width: "100%", height: 48, marginTop: 16, border: 0, borderRadius: 12,
             background: "#5f554d", color: "#fff", fontSize: 14, letterSpacing: ".06em",
             fontFamily: "inherit",
-            cursor: plan && !loading ? "pointer" : "default",
-            opacity: plan && !loading ? 1 : 0.5,
+            cursor: plan && !loading && loadState === "ready" ? "pointer" : "default",
+            opacity: plan && !loading && loadState === "ready" ? 1 : 0.5,
           }}
-        >{loading ? "处理中…" : status?.loggedIn ? "立即开通" : "登录后开通"}</button>
+        >{loading ? "处理中…" : loadState === "error" ? "会员状态未就绪" : status?.loggedIn ? "立即开通" : "登录后开通"}</button>
 
         {message && (
           <div style={{

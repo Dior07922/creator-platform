@@ -6,8 +6,9 @@ import {
 
 import {
   findOrder,
+  markOrderClosed,
+  markOrderPaid,
   parseCnyAmount,
-  updateOrder,
 } from "../../../../../src/server/order-store";
 
 import {
@@ -142,20 +143,14 @@ export async function POST(
       data.trade_status ===
         "TRADE_FINISHED"
     ) {
+      /* 原子置为 Paid（见 order-store 里的说明）：
+         本路由与前端 status 轮询会并发，读-改-写会互相覆盖。 */
       const paidOrder =
-        await updateOrder(
+        await markOrderPaid(
           order.id,
-          (stored) => {
-            stored.status =
-              "Paid";
-
-            stored.paidAt ||=
-              data.gmt_payment ||
-              new Date()
-                .toISOString();
-
-            stored.alipayTradeNo =
-              data.trade_no;
+          {
+            paidAt: data.gmt_payment,
+            alipayTradeNo: data.trade_no,
           }
         );
 
@@ -195,17 +190,9 @@ export async function POST(
       data.trade_status ===
       "TRADE_CLOSED"
     ) {
-      await updateOrder(
-        order.id,
-        (stored) => {
-          if (
-            stored.status !==
-            "Paid"
-          ) {
-            stored.status =
-              "Closed";
-          }
-        }
+      /* 已支付的单子不会被降级（SQL 里带了 status <> 'Paid' 条件） */
+      await markOrderClosed(
+        order.id
       );
     }
 

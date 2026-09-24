@@ -356,6 +356,53 @@ export async function updateOrder(
   return order;
 }
 
+/*
+ * 把订单置为已支付 —— 在 SQL 层原子完成。
+ *
+ * 不能走 updateOrder（读 → 改内存 → 整行 upsert）：支付宝异步通知和前端
+ * 状态轮询天然并发（用户付完跳回来时两者几乎同时到达），两边都读到
+ * Pending、各自改完再整行写回，后写的会把先写的覆盖掉 —— 订单可能从
+ * Paid 被写回 Pending，alipay_trade_no / paid_at 也会被旧值冲掉。
+ *
+ * 这里用一条 UPDATE 完成，并用 COALESCE 保留首次写入的 paid_at 与流水号，
+ * 因此重复调用（notify 与 status 都触发）是幂等的，也不会把已支付降级。
+ * 更新完回读一次，走的是既有的 normalizeOrder 路径。
+ */
+export async function markOrderPaid(
+  orderId: string,
+  input: { paidAt?: string; alipayTradeNo?: string }
+): Promise<StoredOrder | null> {
+  await ensureOrderTables();
+
+  const paidAt = input.paidAt || new Date().toISOString();
+
+  await db()`
+    UPDATE orders
+    SET
+      status = 'Paid',
+      paid_at = COALESCE(paid_at, ${paidAt}::timestamptz),
+      alipay_trade_no = COALESCE(alipay_trade_no, ${input.alipayTradeNo ?? null})
+    WHERE id = ${orderId}
+  `;
+
+  return findOrder(orderId);
+}
+
+/* 关闭订单：已支付的单子不允许被降级成 Closed */
+export async function markOrderClosed(
+  orderId: string
+): Promise<StoredOrder | null> {
+  await ensureOrderTables();
+
+  await db()`
+    UPDATE orders
+    SET status = 'Closed'
+    WHERE id = ${orderId} AND status <> 'Paid'
+  `;
+
+  return findOrder(orderId);
+}
+
 export function parseCnyAmount(
   value: string
 ) {

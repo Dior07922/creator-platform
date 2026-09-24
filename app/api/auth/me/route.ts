@@ -20,10 +20,12 @@ export async function GET() {
 
     if (!rows.length) return NextResponse.json({ user: null, message: "登录已失效" }, { status: 401 });
     return NextResponse.json({ user: rows[0] });
-  } catch (error: any) {
-    // 这里会把具体错误显示在网页上
+  } catch (error) {
+    /* 原始错误只进服务端日志；回给浏览器的一律是固定文案，
+       否则数据库连接串、内部结构等会直接暴露给任何访客。 */
+    console.error("读取登录状态失败:", error instanceof Error ? error.message : error);
     return NextResponse.json(
-      { user: null, message: error?.message || String(error) || "登录服务暂时不可用" },
+      { user: null, message: "登录服务暂时不可用" },
       { status: 503 }
     );
   }
@@ -53,9 +55,10 @@ export async function PATCH(request: Request) {
 
     if (!rows.length) return NextResponse.json({ message: "登录已失效" }, { status: 401 });
     return NextResponse.json({ user: rows[0] });
-  } catch (error: any) {
+  } catch (error) {
+    console.error("保存用户资料失败:", error instanceof Error ? error.message : error);
     return NextResponse.json(
-      { message: error?.message || String(error) || "资料暂时无法保存" },
+      { message: "资料暂时无法保存" },
       { status: 503 }
     );
   }

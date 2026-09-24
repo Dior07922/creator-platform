@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import LoginScreen from "./screens/LoginScreen";
 import SpaceScreen from "./screens/SpaceScreen";
@@ -19,11 +19,32 @@ export default function App() {
   /* 登录后回哪里：save=画布继续保存，space=回会员空间继续购买 */
   const [returnTo, setReturnTo] = useState<"save" | "space" | null>(null);
   const [saveTip, setSaveTip] = useState("");
+  /* 会员状态：画布的素材库门禁读它。未登录/未开通 = false。 */
+  const [isVip, setIsVip] = useState(false);
 
   /* 画布只在客户端挂载：避免服务端渲染时访问 localStorage（localDocuments）
      造成 ReferenceError 与 hydrate 不一致。挂载后常驻，画布状态不丢。 */
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  const tipTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (tipTimerRef.current != null) window.clearTimeout(tipTimerRef.current);
+  }, []);
+
+  /* 读会员状态。任何失败都按「未开通」处理，不阻塞创作。 */
+  const refreshMembership = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/membership/status`, { cache: "no-store" });
+      /* 401 = 未登录，属正常态，不当异常 */
+      if (res.status === 401) { setIsVip(false); return; }
+      if (!res.ok) return;              // 其它错误：保留上一次已知状态，避免误锁
+      const data = await res.json();
+      setIsVip(!!data.active);
+    } catch { /* 网络异常：保留上一次已知状态 */ }
+  }, []);
+
+  useEffect(() => { void refreshMembership(); }, [refreshMembership]);
 
   /* 支付宝回跳：/?payment=alipay&orderId=xxx → 查询支付结果 → 进会员空间 */
   useEffect(() => {
@@ -46,6 +67,8 @@ export default function App() {
         const data = await res.json();
         setScreen("space");
         flashTip(res.ok && data.status === "Paid" ? "会员已开通" : "支付未完成");
+        /* 支付回跳后重读会员状态，让画布门禁立刻生效 */
+        void refreshMembership();
       } catch {
         setScreen("space");
         flashTip("支付状态待确认");
@@ -56,7 +79,8 @@ export default function App() {
 
   function flashTip(msg: string) {
     setSaveTip(msg);
-    window.setTimeout(() => setSaveTip(""), 1800);
+    if (tipTimerRef.current != null) window.clearTimeout(tipTimerRef.current);
+    tipTimerRef.current = window.setTimeout(() => { tipTimerRef.current = null; setSaveTip(""); }, 1800);
   }
 
   /* 点「保存」：已登录直接保存；未登录走闸门 */
@@ -79,6 +103,8 @@ export default function App() {
         {screen === "login" && (
           <LoginScreen
             onVerified={() => {
+              /* 登录成功后重读会员状态：老会员回到画布应立刻拿到门禁权限 */
+              void refreshMembership();
               if (returnTo === "space") { setReturnTo(null); setScreen("space"); return; }
               setScreen("canvas");
               if (returnTo === "save") { setReturnTo(null); flashTip("已保存"); }
@@ -102,7 +128,8 @@ export default function App() {
             <CreationLocalRoom
               onBack={() => setScreen("welcome")}
               onEnterSpace={() => setIsOpeningDoor(true)}
-              isVip={false}
+              isVip={isVip}
+              onUpgradeVip={() => { setReturnTo("space"); setScreen("space"); }}
               onSave={handleSave}
             />
           </div>

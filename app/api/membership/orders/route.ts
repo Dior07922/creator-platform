@@ -1,18 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-
-import {
-  db,
-  ensureAuthTables,
-  SESSION_COOKIE,
-  tokenHash,
-} from "../../../../src/server/auth";
 
 import {
   createOrder,
   type StoredOrder,
 } from "../../../../src/server/order-store";
+
+import {
+  currentUserId,
+} from "../../../../src/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,40 +37,6 @@ const MEMBERSHIP_PLANS = {
     amount: string;
   }
 >;
-
-async function currentUserId() {
-  await ensureAuthTables();
-
-  const token =
-    (await cookies()).get(
-      SESSION_COOKIE
-    )?.value;
-
-  if (!token) {
-    return null;
-  }
-
-  const sql = db();
-
-  const rows = await sql`
-    SELECT user_id AS "userId"
-    FROM user_sessions
-    WHERE
-      token_hash =
-        ${tokenHash(token)}
-      AND revoked_at IS NULL
-      AND expires_at > NOW()
-    LIMIT 1
-  `;
-
-  if (!rows.length) {
-    return null;
-  }
-
-  return String(
-    rows[0].userId
-  );
-}
 
 export async function POST(
   request: Request

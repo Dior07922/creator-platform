@@ -7,13 +7,19 @@ import {
 
 import {
   findOrder,
+  markOrderClosed,
+  markOrderPaid,
   parseCnyAmount,
-  updateOrder,
 } from "../../../../../src/server/order-store";
 
 import {
   grantMembershipForPaidOrder,
 } from "../../../../../src/server/membership";
+
+import {
+  currentUserId,
+  orderBelongsTo,
+} from "../../../../../src/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,10 +45,42 @@ export async function GET(
   }
 
   try {
+    /* 订单含买家邮箱、用户 id、支付宝流水号，必须校验归属 */
+    const userId =
+      await currentUserId();
+
+    if (!userId) {
+      return NextResponse.json(
+        {
+          message: "请先登录",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
     const order =
       await findOrder(orderId);
 
     if (!order) {
+      return NextResponse.json(
+        {
+          message: "订单不存在",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    /* 不是自己的订单：一律按「不存在」返回，不泄露订单是否存在 */
+    if (
+      !orderBelongsTo(
+        order.userId,
+        userId
+      )
+    ) {
       return NextResponse.json(
         {
           message: "订单不存在",
@@ -166,19 +204,13 @@ export async function GET(
           "TRADE_FINISHED"
       ) {
         const paidOrder =
-          await updateOrder(
+          await markOrderPaid(
             order.id,
-            (stored) => {
-              stored.status =
-                "Paid";
-
-              stored.paidAt ||=
-                result.sendPayDate ||
-                new Date()
-                  .toISOString();
-
-              stored.alipayTradeNo =
-                result.tradeNo;
+            {
+              paidAt:
+                result.sendPayDate,
+              alipayTradeNo:
+                result.tradeNo,
             }
           );
 
@@ -214,17 +246,8 @@ export async function GET(
         "TRADE_CLOSED"
       ) {
         const closedOrder =
-          await updateOrder(
-            order.id,
-            (stored) => {
-              if (
-                stored.status !==
-                "Paid"
-              ) {
-                stored.status =
-                  "Closed";
-              }
-            }
+          await markOrderClosed(
+            order.id
           );
 
         return NextResponse.json({

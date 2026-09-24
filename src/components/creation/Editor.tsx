@@ -1602,9 +1602,15 @@ export default function Editor({
         window.clearTimeout((window as any).__ranjingLongPress);
         window.removeEventListener("pointermove", cancel);
         window.removeEventListener("pointerup", stop);
+        /* ★ pointercancel 必须一起摘掉：手势被系统打断（来电、系统手势、
+           浏览器接管）时不会触发 pointerup，否则每按一次画布就永久多挂
+           两个 window 监听，累积到后面整页都在漏；长按定时器也不会取消，
+           会对着已经结束的手势弹出右键菜单。 */
+        window.removeEventListener("pointercancel", stop);
       };
       window.addEventListener("pointermove", cancel);
       window.addEventListener("pointerup", stop);
+      window.addEventListener("pointercancel", stop);
     }
     const target = e.target as HTMLElement;
     if (target === editTaRef.current || target.tagName === "TEXTAREA") return;

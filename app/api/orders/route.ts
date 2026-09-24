@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findOrder } from "../../../src/server/order-store";
+import { currentUserId, orderBelongsTo } from "../../../src/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,10 +16,22 @@ export async function GET(request: Request) {
   }
 
   try {
+    /* 订单含买家邮箱与用户 id，必须校验归属，否则知道订单号即可读取他人信息 */
+    const userId = await currentUserId();
+    if (!userId) {
+      return NextResponse.json({ message: "请先登录" }, { status: 401 });
+    }
+
     const order = await findOrder(orderId);
     if (!order) {
       return NextResponse.json({ message: "订单不存在" }, { status: 404 });
     }
+
+    /* 不是自己的订单：一律按「不存在」返回，不泄露订单是否存在 */
+    if (!orderBelongsTo(order.userId, userId)) {
+      return NextResponse.json({ message: "订单不存在" }, { status: 404 });
+    }
+
     return NextResponse.json(order);
   } catch {
     return NextResponse.json({ message: "订单数据读取失败" }, { status: 500 });

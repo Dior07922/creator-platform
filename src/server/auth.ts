@@ -30,7 +30,20 @@ export function newCode() { return String(randomInt(100000, 1000000)); }
 export function newToken() { return randomBytes(32).toString("base64url"); }
 export function tokenHash(token: string) { return createHash("sha256").update(token).digest("hex"); }
 
-export async function ensureAuthTables() {
+/*
+ * 建表：每个进程只跑一次。
+ *
+ * 原先这段 DDL 挂在每个请求的必经路径上，而 /api/membership/* 还会
+ * 通过 ensureMembershipTables 再嵌套调用一次 —— 一次请求累计二十多条
+ * 建表/改表语句打向 Neon，既拖慢响应又白烧数据库计算时长。
+ *
+ * 用模块级 Promise 缓存：首个请求触发建表，其余请求直接复用同一个 Promise。
+ * 失败时清空缓存，让下一个请求可以重试（否则一次网络抖动会让整个进程
+ * 永久认为表不存在）。
+ */
+let schemaReady: Promise<void> | null = null;
+
+async function createAuthTables() {
   const sql = sqlClient();
   await sql`CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY, phone TEXT NOT NULL UNIQUE, nickname TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '',
@@ -48,8 +61,37 @@ export async function ensureAuthTables() {
     expires_at TIMESTAMPTZ NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
   await sql`CREATE INDEX IF NOT EXISTS sessions_user_idx ON user_sessions(user_id)`;
-  await sql`DELETE FROM sms_verifications WHERE created_at < NOW() - INTERVAL '2 days'`;
-  await sql`DELETE FROM user_sessions WHERE expires_at < NOW() OR revoked_at IS NOT NULL`;
+}
+
+/* 过期数据清理：不需要每请求都做，每个进程每小时最多一次。
+   放在建表流程之外，避免把清理的失败也算成「建表失败」。 */
+let lastCleanupAt = 0;
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+
+async function cleanupExpired() {
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+  try {
+    const sql = sqlClient();
+    await sql`DELETE FROM sms_verifications WHERE created_at < NOW() - INTERVAL '2 days'`;
+    await sql`DELETE FROM user_sessions WHERE expires_at < NOW() OR revoked_at IS NOT NULL`;
+  } catch (error) {
+    /* 清理失败不影响请求本身，下个周期再试 */
+    lastCleanupAt = 0;
+    console.error("清理过期数据失败:", error instanceof Error ? error.message : error);
+  }
+}
+
+export function ensureAuthTables(): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = createAuthTables().catch((error) => {
+      schemaReady = null;
+      throw error;
+    });
+  }
+  void cleanupExpired();
+  return schemaReady;
 }
 
 export function db() { return sqlClient(); }
@@ -92,6 +134,35 @@ export async function sendAliyunSms(phone: string, code: string) {
   throw lastError!;
 }
 
+/*
+ * 取真实客户端 IP，用于短信限流。
+ *
+ * 之前取的是 x-forwarded-for 的【第一个】值 —— 那是客户端可以自己伪造的位置：
+ * 攻击者只要带一个 `X-Forwarded-For: 1.2.3.4`，代理会把真实 IP 追加在后面，
+ * 取第一个正好取到伪造值，IP 维度限流就完全失效了（可被用来刷短信）。
+ *
+ * 现在的取值优先级：
+ *   1. TRUSTED_IP_HEADER 指定的头（换代理时用环境变量覆盖，无需改代码）
+ *   2. x-real-ip —— Vercel / Nginx 由边缘写入，客户端无法伪造
+ *   3. x-forwarded-for 的【最后一个】值 —— 由最近一跳可信代理追加，
+ *      客户端伪造的值只会排在左边，取最后一个才能拿到可信值
+ */
 export function clientIp(request: Request) {
-  return (request.headers.get("x-forwarded-for")?.split(",")[0] || request.headers.get("x-real-ip") || "unknown").trim();
+  const trustedHeader = process.env.TRUSTED_IP_HEADER?.trim();
+  if (trustedHeader) {
+    const value = request.headers.get(trustedHeader)?.split(",")[0]?.trim();
+    if (value) return value;
+  }
+
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+
+  const chain = request.headers.get("x-forwarded-for");
+  if (chain) {
+    const parts = chain.split(",").map((part) => part.trim()).filter(Boolean);
+    const last = parts[parts.length - 1];
+    if (last) return last;
+  }
+
+  return "unknown";
 }

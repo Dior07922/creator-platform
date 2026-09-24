@@ -5,6 +5,8 @@ out/
 .env
 .env.local
 .env*
+# 模板文件必须提交（下面的 ! 例外要放在 .env* 之后才生效）
+!.env.local.example
 *.log
 # 本地一次性验证输出（不提交）
 *.log.check.txt
