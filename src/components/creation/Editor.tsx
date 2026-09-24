@@ -68,6 +68,10 @@ type Props = {
   onPastePage?: (x: number, y: number) => void;
   hasClipboard?: boolean;
   onRequestConnect?: () => void;
+  /** 连接动作进行中：此时"点一下"的语义是【选对象】，不是框选/绘制 */
+  connectPicking?: boolean;
+  /** 连接动作里点中了对象，报给上层状态机 */
+  onConnectPickObject?: (el: { type: string; id: string }) => void;
   /** 跳转锚点：建立 本页→目标页 的 flow 关系（PageLink） */
   onJumpAnchor?: (toPageId: string, relType?: string) => void;
   onUpdatePageTransform?: (pageId: string, transform: { x: number; y: number; scale: number; rotate: number }) => void;
@@ -411,6 +415,8 @@ export default function Editor({
   onPastePage,
   hasClipboard,
   onRequestConnect,
+  connectPicking,
+  onConnectPickObject,
   onUpdatePageTransform,
   onDeletePage,
   paperColor,
@@ -445,6 +451,8 @@ export default function Editor({
   const onDrawToolChangeRef = useRef(onDrawToolChange);
   const onSelectPageRef = useRef(onSelectPage);
   onSelectPageRef.current = onSelectPage;
+  const onConnectPickObjectRef = useRef(onConnectPickObject);
+  onConnectPickObjectRef.current = onConnectPickObject;
   onDrawToolChangeRef.current = onDrawToolChange;
 
   const texts = page.texts || [];
@@ -2757,6 +2765,19 @@ export default function Editor({
 
   function onPointerUp(e: React.PointerEvent) {
     const g = gRef.current;
+
+    /* ★ 连接动作：点一下 = 拾取对象。
+       放在最前面 —— 连接进行中，"点"的语义是选对象，不是框选/绘制。
+       没拖过（!g.moved）才算"点"，避免误把拖动当成选择。 */
+    if (connectPicking && !g.moved && g.mode !== "drawing") {
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+      g.pointers.delete(e.pointerId);
+      clearTimeout(g.longPressTimer);
+      g.mode = "idle";
+      const hit = hitAnyElement(e.clientX, e.clientY);
+      if (hit) onConnectPickObjectRef.current?.(hit as { type: string; id: string });
+      return;
+    }
     /* ★ 套索闭合：射线法判定 → 命中元素编组 + 生成包围盒 */
     if (lassoPath && lassoPath.length > 3) {
       const path = lassoPath;

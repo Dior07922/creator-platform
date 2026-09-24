@@ -16,13 +16,27 @@ type Props = {
   onExit: () => void;
   onClose: () => void;
   dispatchAction: (kind: SheetAction["kind"]) => void;
-  connectModeActive?: boolean;
-  lassoModeActive?: boolean;
   hasSelection?: boolean;
   /** 当前页已有分镜数（节奏 tab 提示用） */
   framesCount?: number;
   /** 当前节奏档位（慢/中/快），节奏 tab 显示选中态 */
   speedActive?: "slow" | "mid" | "fast" | null;
+
+  /* ── 连接（动作驱动）───────────────────────────────
+     状态由父层持有：连接动作要跨页进行（连接页面 → 承接页面 → 回连接页面），
+     放在 PageSheet 内部会因为抽屉开合而丢失。 */
+  connectMode: "phone" | "site" | "rig" | null;
+  onConnectModeChange: (m: "phone" | "site" | "rig" | null) => void;
+  /** 动作进行到哪一步（用于自动切到「页面」tab —— 该选页了就别让用户自己找） */
+  connectStage: "idle" | "pickSource" | "pickTargetPage" | "pickTargetObj" | "returnHome" | "done";
+  /** 当前该做的动作，人话提示 */
+  connectStepText: string;
+  /** 是否已完成闭环（用于提示条变绿） */
+  connectDone: boolean;
+  onConnectCancel: () => void;
+  /** 连接动作正在等用户点某个页面时，页面列表把点击交给它。
+      返回 true = 这次点击被连接消费掉了，不再执行普通切页 */
+  onConnectPickPage?: (pageId: string) => boolean;
 };
 
 type Tab = "page" | "connect";
@@ -39,15 +53,24 @@ export default function PageSheet({
   onExit,
   onClose,
   dispatchAction,
-  connectModeActive,
-  lassoModeActive,
   hasSelection,
   framesCount,
   speedActive,
+  connectMode,
+  onConnectModeChange,
+  connectStage,
+  connectStepText,
+  connectDone,
+  onConnectCancel,
+  onConnectPickPage,
 }: Props) {
   const [tab, setTab] = useState<Tab>("page");
-  /* 连接模式（手稿定义）：手机 / 网站 / 骨钉。null = 还没选 */
-  const [connMode, setConnMode] = useState<"phone" | "site" | "rig" | null>(null);
+
+  /* 连接动作走到"该选页面"或"该点回起始页"时，自动切到「页面」tab，
+     免得用户自己去找。衔接不脱节。 */
+  useEffect(() => {
+    if (connectStage === "pickTargetPage" || connectStage === "returnHome") setTab("page");
+  }, [connectStage]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [align, setAlign] = useState<"left" | "center" | "right">(() => {
@@ -148,6 +171,10 @@ export default function PageSheet({
     }
     clickTimerRef.current = window.setTimeout(() => {
       clickTimerRef.current = null;
+      /* 连接动作正在等用户点某一个页面时，这次点击先交给连接状态机。
+         返回 true = 被消费，不执行普通切页，也不关抽屉
+         （用户可能紧接着还要在目标页里选对象）。 */
+      if (onConnectPickPage?.(p.id)) return;
       onSelectPage(p.id);
       onClose();
     }, 180);
@@ -384,13 +411,10 @@ export default function PageSheet({
 
           {tab === "connect" && (
             <>
-              {/* ── 连接模式（手稿定义的顶层结构）─────────────────────
-                  连接 = 三种模式，点进来先选模式：
-                    ① 手机模式  做手机 UI 设计的交互连接
-                    ② 网站模式  做网站设计的交互连接
-                    ③ 骨钉模式  让画作动起来（线条骨钉 / 单变）
-                  ①② 都建立在「基础连接」之上（跳转下一页）。
-                  ③ 的编辑界面在后续批次填。 */}
+              {/* ── 连接模式（手稿顶层结构）─────────────────────────
+                  连接靠【动作】建立，不靠文字按键。
+                  这里只负责"选模式 + 告诉你现在该做哪一步"，
+                  真正建立连接靠用户在画布和页面之间的点击动作。 */}
               <SectionLabel>连接模式</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {([
@@ -398,12 +422,12 @@ export default function PageSheet({
                   { id: "site",   label: "② 网站模式", desc: "网站设计的交互连接" },
                   { id: "rig",    label: "③ 骨钉模式", desc: "让画作动起来" },
                 ] as const).map((m) => {
-                  const active = connMode === m.id;
+                  const active = connectMode === m.id;
                   return (
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => setConnMode(active ? null : m.id)}
+                      onClick={() => onConnectModeChange(active ? null : m.id)}
                       style={{
                         textAlign: "left", padding: "10px 12px", borderRadius: 10,
                         border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
@@ -418,26 +442,37 @@ export default function PageSheet({
                 })}
               </div>
 
-              {/* ①② 走基础连接 */}
-              {(connMode === "phone" || connMode === "site") && (
+              {/* ①② 的动作引导：每一步只说"现在做什么"，不摆按键 */}
+              {(connectMode === "phone" || connectMode === "site") && (
                 <>
-                  <SectionLabel>基础连接</SectionLabel>
-                  <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
-                    {connMode === "phone"
-                      ? "手机模式的交互靠基础连接搭：点这里，跳到目标页"
-                      : "网站模式的交互靠基础连接搭：点这里，跳到目标页"}
+                  <SectionLabel>连接中</SectionLabel>
+                  <div style={{
+                    padding: "10px 12px", borderRadius: 10,
+                    background: connectDone ? "#eef4ea" : "#f6f1e9",
+                    border: connectDone ? "1px solid rgba(96,140,80,.28)" : "1px solid rgba(122,90,52,.18)",
+                    fontSize: 12, lineHeight: 1.7,
+                    color: connectDone ? "#3f5c33" : "#6b5942",
+                  }}>
+                    {connectStepText}
                   </div>
-                  <BtnGrid>
-                    <ActBtn label="跳转下一页" onClick={() => dispatchAction("jump-anchor")} />
-                  </BtnGrid>
-                  <div style={{ marginTop: 6, fontSize: 11, color: "#8a8178", lineHeight: 1.7 }}>
-                    · 本页已有 {links.length} 条页间关系
+                  <div style={{ marginTop: 8, fontSize: 10, color: "#a49a8f", lineHeight: 1.6 }}>
+                    走完四步，两个页面之间才会长出线。<br />
+                    只选一个还不成线。
                   </div>
+                  <button
+                    type="button"
+                    onClick={onConnectCancel}
+                    style={{
+                      marginTop: 10, width: "100%", height: 34, borderRadius: 9,
+                      border: "1px solid rgba(74,70,63,.14)", background: "#fffdfa",
+                      color: "#756f68", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >取消连接</button>
                 </>
               )}
 
               {/* ③ 骨钉模式：编辑界面在后续批次实现 */}
-              {connMode === "rig" && (
+              {connectMode === "rig" && (
                 <>
                   <SectionLabel>骨钉模式</SectionLabel>
                   <div style={{ fontSize: 11, color: "#8a8178", lineHeight: 1.8, padding: "2px 0 0" }}>
@@ -449,26 +484,15 @@ export default function PageSheet({
                 </>
               )}
 
-              <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "16px 0 0" }} />
-
-              <SectionLabel>元素连线（进阶）</SectionLabel>
-              <BtnGrid>
-                <ActBtn label={connectModeActive ? "● 退出连线" : "进入连线"} active={connectModeActive} onClick={() => dispatchAction("connect-toggle")} />
-                <ActBtn label={lassoModeActive ? "● 退出套索" : "进入套索"} active={lassoModeActive} onClick={() => dispatchAction("lasso-toggle")} />
-              </BtnGrid>
-              <div style={{ marginTop: 6, fontSize: 11, color: "#8a8178", lineHeight: 1.7 }}>
-                · 连线：进模式后，点第一个元素 → 再点第二个元素，生成连线<br />
-                · 套索：进模式后，手指画圈，圈内元素自动绑定
-              </div>
-              <SectionLabel>关系类型（标注连线）</SectionLabel>
-              <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
-                对本页已有连线批量标注关系：<br />· 故事＝叙事推进（实线箭头）· 展示＝解释标注（虚线）· 流程＝触发跳转（粗线）
-              </div>
-              <BtnGrid>
-                <ActBtn label="故事" onClick={() => dispatchAction("rel-story")} />
-                <ActBtn label="展示" onClick={() => dispatchAction("rel-display")} />
-                <ActBtn label="流程" onClick={() => dispatchAction("rel-flow")} />
-              </BtnGrid>
+              {/* 已建立的连接（线） */}
+              {links.length > 0 && (
+                <>
+                  <SectionLabel>已连成</SectionLabel>
+                  <div style={{ fontSize: 11, color: "#6b5942", lineHeight: 1.8 }}>
+                    本页已有 {links.length} 条连接
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>

@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { makeEmptyDoc } from "../../lib/documents";
 import { loadLocalDoc, saveLocalDoc } from "../../lib/localDocuments";
-import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode } from "../../types/document";
+import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode, Interaction } from "../../types/document";
 import Editor from "./Editor";
 import type { BrushParams } from "./Editor";
 import {
@@ -230,6 +230,86 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [connectMode, setConnectMode] = useState<{ from: string } | null>(null);
+
+  /* ── 连接（动作驱动）──────────────────────────────────────
+     按手稿第十张的动作序列，做成四步状态机。
+     状态放在这里而不是 PageSheet 里：连接动作要跨页进行
+     （连接页面 → 承接页面 → 回连接页面），抽屉一开一合就会丢。
+     「只高亮框选还不成线」—— 第 1 步选完不算完成，必须走完第 4 步。 */
+  const [connMode, setConnMode] = useState<"phone" | "site" | "rig" | null>(null);
+  const [connStage, setConnStage] = useState<"idle" | "pickSource" | "pickTargetPage" | "pickTargetObj" | "returnHome" | "done">("idle");
+  const [connDraft, setConnDraft] = useState<{
+    fromPageId?: string; fromElementId?: string;
+    toPageId?: string; toElementId?: string;
+  }>({});
+
+  /** 选模式：进入连接动作序列 */
+  function changeConnMode(m: "phone" | "site" | "rig" | null) {
+    setConnMode(m);
+    if (m === "phone" || m === "site") {
+      setConnDraft({});
+      setConnStage("pickSource");
+    } else {
+      setConnStage("idle");
+    }
+  }
+
+  function cancelConnect() {
+    setConnMode(null);
+    setConnStage("idle");
+    setConnDraft({});
+  }
+
+  /** 画布上点了对象（Editor 回调） */
+  function onConnectPickObject(el: { type: string; id: string }) {
+    if (connStage === "pickSource") {
+      setConnDraft((d) => ({ ...d, fromPageId: currentPageId, fromElementId: el.id }));
+      setConnStage("pickTargetPage");
+      return;
+    }
+    if (connStage === "pickTargetObj") {
+      setConnDraft((d) => ({ ...d, toElementId: el.id }));
+      setConnStage("returnHome");
+    }
+  }
+
+  /** 页面列表被点了（返回 true = 这次点击被连接消费） */
+  function onConnectPickPage(pageId: string): boolean {
+    if (connStage === "pickTargetPage") {
+      setConnDraft((d) => ({ ...d, toPageId: pageId }));
+      setConnStage("pickTargetObj");
+      setCurrentPageId(pageId);          // 切到承接页面
+      return true;
+    }
+    if (connStage === "returnHome") {
+      const from = connDraft.fromPageId;
+      if (!from || pageId !== from) return false;   // 必须点回起始页
+      /* 闭环：两边都接上了，写入连接 */
+      const item: Interaction = {
+        id: `ix-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        mode: connMode === "site" ? "site" : "phone",
+        fromPageId: from,
+        fromElementId: connDraft.fromElementId || "",
+        toPageId: connDraft.toPageId || "",
+        toElementId: connDraft.toElementId || "",
+        createdAt: Date.now(),
+      };
+      applyDoc((prev) => ({ ...prev, interactions: [...(prev.interactions || []), item] }));
+      setCurrentPageId(from);
+      setConnStage("done");
+      return true;
+    }
+    return false;
+  }
+
+  /** 当前该做的动作，人话提示 */
+  const connStepText =
+    connStage === "pickSource"      ? "① 点画布上你要作为起点的对象"
+    : connStage === "pickTargetPage" ? "② 点「页面」里你要去的那个页面"
+    : connStage === "pickTargetObj"  ? "③ 在承接页面里，也点一个对象"
+    : connStage === "returnHome"     ? "④ 点回起始页，连成闭环"
+    : connStage === "done"           ? "✓ 连接完成，两个页面之间长出了线"
+    : "选一个模式开始";
 
   const _curPage = doc.pages.find((p) => p.id === currentPageId) || null;
   const paperColor = _curPage?.paperColor ?? "#ffffff";
@@ -636,6 +716,9 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             }}
             hasClipboard={!!pageClipboard}
             onRequestConnect={() => startConnect(currentPageId)}
+            /* 连接动作进行到"该选对象"的两步时，画布上的点击变成拾取对象 */
+            connectPicking={connStage === "pickSource" || connStage === "pickTargetObj"}
+            onConnectPickObject={onConnectPickObject}
             onDeletePage={() => { if (doc.pages.length > 1) deletePage(currentPageId); }}
             paperColor={paperColor}
             paperAlpha={paperAlpha}
@@ -728,8 +811,13 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           onExit={() => onBack && onBack()}
           onClose={closeDrawer}
           dispatchAction={dispatchSheet}
-          connectModeActive={elementConnectMode}
-          lassoModeActive={lassoMode}
+          connectMode={connMode}
+          onConnectModeChange={changeConnMode}
+          connectStage={connStage}
+          connectStepText={connStepText}
+          connectDone={connStage === "done"}
+          onConnectCancel={cancelConnect}
+          onConnectPickPage={onConnectPickPage}
           hasSelection={editorHasSelection}
           framesCount={(currentPage as any)?.frames?.length || 0}
           speedActive={(window as any).__ranjingPerfSpeed === 1400 ? "slow"

@@ -192,11 +192,37 @@ export type PageLink = {
   label?: string;
 };
 
+/*
+ * 交互连接（手稿第十张定义的动作产物）
+ *
+ * 连接不是"摆一个写着连接的按钮"，而是用户走完一整套动作后长出来的：
+ *   ① 在连接页面点对象（高亮）
+ *   ② 点要去的承接页面
+ *   ③ 在承接页面里也点一个对象
+ *   ④ 点回连接页面 → 闭环
+ *
+ * 必须双向：单线只能跳转过去却回不来，所以两边都要有落点。
+ */
+export type Interaction = {
+  id: string;
+  /** 走的哪条模式（手机 / 网站） */
+  mode: "phone" | "site";
+  /** 起点：连接页面 + 页面上的对象 */
+  fromPageId: string;
+  fromElementId: string;
+  /** 终点：承接页面 + 页面上的对象 */
+  toPageId: string;
+  toElementId: string;
+  createdAt: number;
+};
+
 export type DocModel = {
   id: string;
   title?: string;
   pages: Page[];
   links: PageLink[];
+  /** 交互连接（动作建立的双向连接） */
+  interactions?: Interaction[];
   createdAt: number;
   updatedAt: number;
   cloudDocumentId?: string;
