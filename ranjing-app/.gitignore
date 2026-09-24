@@ -1,0 +1,24 @@
+node_modules
+.next
+.next/
+out/
+.env
+.env.local
+.env*
+*.log
+# 本地一次性验证输出（不提交）
+*.log.check.txt
+build[0-9]*-check.txt
+http-check.txt
+verify-*.txt
+.DS_Store
+.vercel
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+.idea/
+.vscode/
+*.iml
+android/.gradle/
+android/local.properties
+android/.idea/
+android/app/build/
