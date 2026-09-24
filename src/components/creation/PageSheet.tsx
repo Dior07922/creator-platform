@@ -46,6 +46,8 @@ export default function PageSheet({
   speedActive,
 }: Props) {
   const [tab, setTab] = useState<Tab>("page");
+  /* 连接模式（手稿定义）：手机 / 网站 / 骨钉。null = 还没选 */
+  const [connMode, setConnMode] = useState<"phone" | "site" | "rig" | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [align, setAlign] = useState<"left" | "center" | "right">(() => {
@@ -382,7 +384,74 @@ export default function PageSheet({
 
           {tab === "connect" && (
             <>
-              <SectionLabel>连线模式</SectionLabel>
+              {/* ── 连接模式（手稿定义的顶层结构）─────────────────────
+                  连接 = 三种模式，点进来先选模式：
+                    ① 手机模式  做手机 UI 设计的交互连接
+                    ② 网站模式  做网站设计的交互连接
+                    ③ 骨钉模式  让画作动起来（线条骨钉 / 单变）
+                  ①② 都建立在「基础连接」之上（跳转下一页）。
+                  ③ 的编辑界面在后续批次填。 */}
+              <SectionLabel>连接模式</SectionLabel>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {([
+                  { id: "phone",  label: "① 手机模式", desc: "手机 UI 的交互连接" },
+                  { id: "site",   label: "② 网站模式", desc: "网站设计的交互连接" },
+                  { id: "rig",    label: "③ 骨钉模式", desc: "让画作动起来" },
+                ] as const).map((m) => {
+                  const active = connMode === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setConnMode(active ? null : m.id)}
+                      style={{
+                        textAlign: "left", padding: "10px 12px", borderRadius: 10,
+                        border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
+                        background: active ? "#f1ece4" : "#fffdfa",
+                        cursor: "pointer", fontFamily: "inherit",
+                      }}
+                    >
+                      <div style={{ fontSize: 13, color: "#3a352e", fontWeight: active ? 600 : 400 }}>{m.label}</div>
+                      <div style={{ fontSize: 10, color: "#a49a8f", marginTop: 2 }}>{m.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ①② 走基础连接 */}
+              {(connMode === "phone" || connMode === "site") && (
+                <>
+                  <SectionLabel>基础连接</SectionLabel>
+                  <div style={{ fontSize: 10, color: "#a49a8f", margin: "2px 0 6px", lineHeight: 1.5 }}>
+                    {connMode === "phone"
+                      ? "手机模式的交互靠基础连接搭：点这里，跳到目标页"
+                      : "网站模式的交互靠基础连接搭：点这里，跳到目标页"}
+                  </div>
+                  <BtnGrid>
+                    <ActBtn label="跳转下一页" onClick={() => dispatchAction("jump-anchor")} />
+                  </BtnGrid>
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#8a8178", lineHeight: 1.7 }}>
+                    · 本页已有 {links.length} 条页间关系
+                  </div>
+                </>
+              )}
+
+              {/* ③ 骨钉模式：编辑界面在后续批次实现 */}
+              {connMode === "rig" && (
+                <>
+                  <SectionLabel>骨钉模式</SectionLabel>
+                  <div style={{ fontSize: 11, color: "#8a8178", lineHeight: 1.8, padding: "2px 0 0" }}>
+                    · 点画布上任意对象 → 统一弹窗<br />
+                    · 线条骨钉：6 个木偶关节，管细节<br />
+                    · 单变：浅淡/颜色/大小/粗细，管大面<br />
+                    <span style={{ color: "#c0b8ae" }}>（编辑界面开发中）</span>
+                  </div>
+                </>
+              )}
+
+              <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "16px 0 0" }} />
+
+              <SectionLabel>元素连线（进阶）</SectionLabel>
               <BtnGrid>
                 <ActBtn label={connectModeActive ? "● 退出连线" : "进入连线"} active={connectModeActive} onClick={() => dispatchAction("connect-toggle")} />
                 <ActBtn label={lassoModeActive ? "● 退出套索" : "进入套索"} active={lassoModeActive} onClick={() => dispatchAction("lasso-toggle")} />
@@ -400,13 +469,6 @@ export default function PageSheet({
                 <ActBtn label="展示" onClick={() => dispatchAction("rel-display")} />
                 <ActBtn label="流程" onClick={() => dispatchAction("rel-flow")} />
               </BtnGrid>
-              <SectionLabel>跳转锚点</SectionLabel>
-              <BtnGrid>
-                <ActBtn label="下一页·跳转" onClick={() => dispatchAction("jump-anchor")} />
-              </BtnGrid>
-              <div style={{ marginTop: 6, fontSize: 11, color: "#8a8178", lineHeight: 1.7 }}>
-                · 本页已有 {links.length} 条页间关系（页面 tab 可见跳转）
-              </div>
             </>
           )}
         </div>
