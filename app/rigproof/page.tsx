@@ -5,36 +5,16 @@
 import { useEffect, useRef, useState } from "react";
 import { type RigPoint, type RigBone, warpTo, defaultRadius, makeArmBones } from "@/lib/rigWarp";
 
-const W = 390;
-const H = 844;
-const ONE_CM = 28;
+const W = 320;
+const H = 480;
+const ONE_CM = 10;
 
 function drawFigure(ctx: CanvasRenderingContext2D) {
-  ctx.fillStyle = "#fdfaf5";
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = "#3a352e";
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  const cx = W / 2;
-  const shoulderY = 300;
-  ctx.beginPath(); ctx.arc(cx, 250, 34, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx, 284); ctx.lineTo(cx, 560); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cx, 560); ctx.lineTo(cx - 46, 700);
-  ctx.moveTo(cx, 560); ctx.lineTo(cx + 46, 700);
-  ctx.stroke();
-  for (const side of [-1, 1]) {
-    const sx = cx + side * 26;
-    const ex = cx + side * 92;
-    const hx = cx + side * 118;
-    ctx.beginPath();
-    ctx.moveTo(sx, shoulderY);
-    ctx.lineTo(ex, shoulderY + 70);
-    ctx.lineTo(hx, shoulderY + 140);
-    ctx.stroke();
-    ctx.beginPath(); ctx.arc(hx, shoulderY + 140, 15, 0, Math.PI * 2); ctx.stroke();
-  }
+  const im = new Image();
+  im.onload = () => { ctx.drawImage(im, 0, 0, W, H); };
+  im.src = '/rigtest/figure.png';
 }
 
 function armAngle(lift: number): number {
@@ -53,31 +33,16 @@ function armAngle(lift: number): number {
 }
 
 function makePoints(lift: number): RigPoint[] {
-  const cx = W / 2;
-  const shoulderY = 300;
-  const out: RigPoint[] = [];
-  for (const side of [-1, 1]) {
-    const tag = side < 0 ? "L" : "R";
-    const sx = cx + side * 26;
-    const ex = cx + side * 92;
-    const hx = cx + side * 118;
-    const elbowRest = shoulderY + 70;
-    const handRest = shoulderY + 140;
-    const th = armAngle(lift) * -side;
-    const cos = Math.cos(th);
-    const sin = Math.sin(th);
-    const rot = (px: number, py: number) => {
-      const dx = px - sx;
-      const dy = py - shoulderY;
-      return { x: sx + dx * cos - dy * sin, y: shoulderY + dx * sin + dy * cos };
-    };
-    const e = rot(ex, elbowRest);
-    const h = rot(hx, handRest);
-    out.push({ id: `sh-${tag}`, sx, sy: shoulderY, x: sx, y: shoulderY });
-    out.push({ id: `el-${tag}`, sx: ex, sy: elbowRest, x: e.x, y: e.y });
-    out.push({ id: `hd-${tag}`, sx: hx, sy: handRest, x: h.x, y: h.y });
-  }
-  return out;
+  /* 手稿里那个人（320x480）：肩→肘→手，左右各 3 个 */
+  const R: [string, number, number, number, number, number, number][] = [
+    ['sh-L', 78, 132, 74, 196, 82, 252],
+    ['sh-R', 132, 132, 146, 190, 150, 246],
+  ];
+  return R.flatMap(([tag, sx, sy, ex, ey, hx, hy]) => [
+    { id: "sh-" + tag, sx, sy, x: sx, y: sy },
+    { id: "el-" + tag, sx: ex, sy: ey, x: ex, y: ey },
+    { id: "hd-" + tag, sx: hx, sy: hy, x: hx, y: hy - lift },
+  ]);
 }
 
 const BONES: RigBone[] = makeArmBones([
@@ -102,6 +67,9 @@ export default function RigProof() {
   const [ms2d, setMs2d] = useState(0);
   const [msMap, setMsMap] = useState(0);
   const [srcUrl, setSrcUrl] = useState("");
+  /* 源图是异步加载的。加载完必须触发一次重算，
+     否则形变在图片到位之前就跑完了，之后再也不动 —— 实测「变化像素 0」。 */
+  const [srcReady, setSrcReady] = useState(0);
   const [mapUrl, setMapUrl] = useState("");
   const [dispScale, setDispScale] = useState(200);
   const ptsRef = useRef<RigPoint[]>(makePoints(0));
@@ -113,7 +81,12 @@ export default function RigProof() {
     const ctx = c.getContext("2d");
     if (!ctx) return;
     drawFigure(ctx);
-    setSrcUrl(c.toDataURL("image/png"));
+    /* drawFigure 里是异步 onload，这里等一拍再采，并且通知外面重算 */
+    const t = window.setTimeout(() => {
+      setSrcUrl(c.toDataURL("image/png"));
+      setSrcReady((v) => v + 1);
+    }, 600);
+    return () => window.clearTimeout(t);
   }, []);
 
   ptsRef.current = makePoints(lift);
@@ -134,7 +107,7 @@ export default function RigProof() {
     warpTo(ctx, src, W, H, ptsRef.current, BONES, defaultRadius(W, H), den, den * 2);
     setMs2d(performance.now() - t0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lift, den]);
+  }, [lift, den, srcReady]);
 
   /* ── 2. GPU：把骨架位移场烘成一张位移贴图，交给 feDisplacementMap ── */
   useEffect(() => {
@@ -227,7 +200,7 @@ export default function RigProof() {
     padding: "7px 12px", borderRadius: 9, border: "1px solid rgba(74,70,63,.18)",
     background: "#fffdfa", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
   };
-  const panel: React.CSSProperties = { position: "relative", width: 195, height: 422 };
+  const panel: React.CSSProperties = { position: "relative", width: 240, height: 360 };
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", background: "#f8f5ef", minHeight: "100vh" }}>
@@ -238,7 +211,7 @@ export default function RigProof() {
         <div>
           <div style={{ fontSize: 11, color: "#8a8178", marginBottom: 3 }}>源图</div>
           <canvas ref={srcRef} width={W} height={H}
-            style={{ width: 195, height: 422, border: "1px solid #ddd6ca", background: "#fff", display: "block" }} />
+            style={{ width: 240, height: 360, border: "1px solid #ddd6ca", background: "#fff", display: "block" }} />
         </div>
         <div>
           <div style={{ fontSize: 11, color: "#8a8178", marginBottom: 3 }}>
@@ -246,7 +219,7 @@ export default function RigProof() {
           </div>
           <div style={panel}>
             <canvas ref={out2dRef} width={W} height={H}
-              style={{ width: 195, height: 422, border: "1px solid #ddd6ca", background: "#fff", display: "block" }} />
+              style={{ width: 240, height: 360, border: "1px solid #ddd6ca", background: "#fff", display: "block" }} />
             <svg viewBox={`0 0 ${W} ${H}`}
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", touchAction: "none" }}
               onPointerDown={onDown} onPointerMove={onMove}
@@ -263,7 +236,7 @@ export default function RigProof() {
           </div>
           <div style={panel}>
             {srcUrl && mapUrl && (
-              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: 195, height: 422, display: "block", border: "1px solid #ddd6ca", background: "#fff" }}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: 240, height: 360, display: "block", border: "1px solid #ddd6ca", background: "#fff" }}>
                 <defs>
                   <filter id="rjWarp" x="-30%" y="-30%" width="160%" height="160%"
                     filterUnits="objectBoundingBox" primitiveUnits="userSpaceOnUse">
@@ -284,8 +257,8 @@ export default function RigProof() {
       </div>
       <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <button style={btn} onClick={() => setLift(0)}>原图（不动）</button>
-        <button style={btn} onClick={() => setLift(24)}>第一张 · 轻轻抬高一点</button>
-        <button style={btn} onClick={() => setLift(24 + ONE_CM)}>第二张 · 再抬一公分</button>
+        <button style={btn} onClick={() => setLift(14)}>第一张 · 轻轻抬高一点</button>
+        <button style={btn} onClick={() => setLift(14 + ONE_CM)}>第二张 · 再抬一公分</button>
         <span style={{ fontSize: 12, color: "#8a8178", marginLeft: 6 }}>网格</span>
         {[12, 16, 24, 32].map((d) => (
           <button key={d} style={{ ...btn, background: den === d ? "#3a352e" : "#fffdfa", color: den === d ? "#fffdfa" : "#3a352e" }}
