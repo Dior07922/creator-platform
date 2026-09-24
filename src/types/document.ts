@@ -210,9 +210,12 @@ export type Interaction = {
   /** 起点：连接页面 + 页面上的对象 */
   fromPageId: string;
   fromElementId: string;
+  /** 起点对象的类型（note/text/image/table/link/shape），画线和命中都要用 */
+  fromElementType?: string;
   /** 终点：承接页面 + 页面上的对象 */
   toPageId: string;
   toElementId: string;
+  toElementType?: string;
   createdAt: number;
 };
 

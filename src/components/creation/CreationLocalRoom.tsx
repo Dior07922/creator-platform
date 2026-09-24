@@ -239,8 +239,8 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   const [connMode, setConnMode] = useState<"phone" | "site" | "rig" | null>(null);
   const [connStage, setConnStage] = useState<"idle" | "pickSource" | "pickTargetPage" | "pickTargetObj" | "returnHome" | "done">("idle");
   const [connDraft, setConnDraft] = useState<{
-    fromPageId?: string; fromElementId?: string;
-    toPageId?: string; toElementId?: string;
+    fromPageId?: string; fromElementId?: string; fromElementType?: string;
+    toPageId?: string; toElementId?: string; toElementType?: string;
   }>({});
 
   /** 选模式：进入连接动作序列 */
@@ -254,6 +254,43 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     }
   }
 
+  /* 连接过程中的轻提示（1.8s 自隐） */
+  const [connTip, setConnTip] = useState("");
+  const connTipTimer = useRef<number | null>(null);
+  function flashConnTip(msg: string) {
+    setConnTip(msg);
+    if (connTipTimer.current != null) window.clearTimeout(connTipTimer.current);
+    connTipTimer.current = window.setTimeout(() => { connTipTimer.current = null; setConnTip(""); }, 1800);
+  }
+  useEffect(() => () => { if (connTipTimer.current != null) window.clearTimeout(connTipTimer.current); }, []);
+
+  /* 闭环完成：亮一下「✓ 闭环完成」，然后自动退出连接模式 */
+  useEffect(() => {
+    if (connStage !== "done") return;
+    const t = window.setTimeout(() => {
+      setConnMode(null);
+      setConnStage("idle");
+      setConnDraft({});
+    }, 1400);
+    return () => window.clearTimeout(t);
+  }, [connStage]);
+
+  /* ★ 连接入口（长按弹窗里的「连接」）：
+     长按的那个对象直接作为起点，进入连接模式后不必再点一次，
+     这样整套动作刚好是【四个点击】完成闭环。
+     不开抽屉 —— 连接是在画布上的几张纸之间直接点出来的。 */
+  function startConnectFromObject(el: { type: string; id: string }) {
+    if (!el?.id) return;
+    if (doc.pages.length < 2) {
+      flashConnTip("当前页数不足，需要 2 组才能开启连接");
+      return;
+    }
+    setConnMode("phone");
+    setConnDraft({ fromPageId: currentPageId, fromElementId: el.id, fromElementType: el.type });
+    setConnStage("pickTargetPage");
+    closeDrawer();
+  }
+
   function cancelConnect() {
     setConnMode(null);
     setConnStage("idle");
@@ -263,12 +300,12 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   /** 画布上点了对象（Editor 回调） */
   function onConnectPickObject(el: { type: string; id: string }) {
     if (connStage === "pickSource") {
-      setConnDraft((d) => ({ ...d, fromPageId: currentPageId, fromElementId: el.id }));
+      setConnDraft((d) => ({ ...d, fromPageId: currentPageId, fromElementId: el.id, fromElementType: el.type }));
       setConnStage("pickTargetPage");
       return;
     }
     if (connStage === "pickTargetObj") {
-      setConnDraft((d) => ({ ...d, toElementId: el.id }));
+      setConnDraft((d) => ({ ...d, toElementId: el.id, toElementType: el.type }));
       setConnStage("returnHome");
     }
   }
@@ -290,8 +327,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         mode: connMode === "site" ? "site" : "phone",
         fromPageId: from,
         fromElementId: connDraft.fromElementId || "",
+        fromElementType: connDraft.fromElementType || "note",
         toPageId: connDraft.toPageId || "",
         toElementId: connDraft.toElementId || "",
+        toElementType: connDraft.toElementType || "note",
         createdAt: Date.now(),
       };
       applyDoc((prev) => ({ ...prev, interactions: [...(prev.interactions || []), item] }));
@@ -302,13 +341,13 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     return false;
   }
 
-  /** 当前该做的动作，人话提示 */
+  /** 当前该做的动作，人话提示（画布上的说法，不提抽屉/列表） */
   const connStepText =
-    connStage === "pickSource"      ? "① 点画布上你要作为起点的对象"
-    : connStage === "pickTargetPage" ? "② 点「页面」里你要去的那个页面"
-    : connStage === "pickTargetObj"  ? "③ 在承接页面里，也点一个对象"
-    : connStage === "returnHome"     ? "④ 点回起始页，连成闭环"
-    : connStage === "done"           ? "✓ 连接完成，两个页面之间长出了线"
+    connStage === "pickSource"      ? "点你要作为起点的对象"
+    : connStage === "pickTargetPage" ? "点延伸物那张纸"
+    : connStage === "pickTargetObj"  ? "在延伸物里点一个连接对象"
+    : connStage === "returnHome"     ? "点回连接页面"
+    : connStage === "done"           ? "✓ 闭环完成"
     : "选一个模式开始";
 
   const _curPage = doc.pages.find((p) => p.id === currentPageId) || null;
@@ -719,6 +758,19 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             /* 连接动作进行到"该选对象"的两步时，画布上的点击变成拾取对象 */
             connectPicking={connStage === "pickSource" || connStage === "pickTargetObj"}
             onConnectPickObject={onConnectPickObject}
+            onStartConnect={startConnectFromObject}
+            /* 连接模式 = 纸排开 + 其他纸可点，全程在画布上完成，不经过抽屉 */
+            connectArrange={connMode !== null && connStage !== "idle"}
+            onPaperPick={
+              connStage === "pickTargetPage" || connStage === "returnHome"
+                ? (pid) => {
+                    if (!onConnectPickPage(pid)) flashConnTip("要闭环，得点回刚才那张纸");
+                  }
+                : undefined
+            }
+            interactions={doc.interactions || []}
+            connectDraft={connDraft}
+            connectDone={connStage === "done"}
             onDeletePage={() => { if (doc.pages.length > 1) deletePage(currentPageId); }}
             paperColor={paperColor}
             paperAlpha={paperAlpha}
@@ -879,6 +931,41 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       )}
       {openDrawer === "lock" && (
         <LockDrawer onClose={closeDrawer} onPicked={closeDrawer} />
+      )}
+
+      {/* ★ 连接模式提示条：画在画布上，不依赖抽屉 ——
+          连接是在面前的几张纸之间点出来的，指引必须一直看得见。 */}
+      {connMode && (connMode === "phone" || connMode === "site") && connStage !== "idle" && (
+        <div style={{
+          position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)",
+          zIndex: 3001, display: "flex", alignItems: "center", gap: 10,
+          padding: "9px 10px 9px 16px", borderRadius: 999,
+          background: connStage === "done" ? "rgba(63,92,51,.95)" : "rgba(58,53,46,.94)",
+          color: "#fffdfa", fontSize: 12.5, letterSpacing: ".03em",
+          boxShadow: "0 6px 22px rgba(0,0,0,.24)", whiteSpace: "nowrap",
+        }}>
+          <span>{connStepText}</span>
+          <button
+            type="button"
+            onClick={cancelConnect}
+            style={{
+              border: 0, borderRadius: 999, padding: "4px 10px",
+              background: "rgba(255,255,255,.16)", color: "#fffdfa",
+              fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+            }}
+          >{connStage === "done" ? "知道了" : "取消"}</button>
+        </div>
+      )}
+
+      {connTip && (
+        <div style={{
+          position: "absolute", left: "50%", top: 72, transform: "translateX(-50%)",
+          zIndex: 3000, padding: "10px 18px", borderRadius: 10,
+          background: "rgba(58,53,46,.94)", color: "#fffdfa",
+          fontSize: 13, letterSpacing: ".04em", whiteSpace: "nowrap",
+          boxShadow: "0 6px 20px rgba(0,0,0,.22)",
+          pointerEvents: "none",
+        }}>{connTip}</div>
       )}
 
       {confirmState && (

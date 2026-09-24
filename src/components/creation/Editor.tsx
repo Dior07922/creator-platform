@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
-  ElementLink, ElementLinkTargetType, Group, ImageNode, LinkNode, NoteNode, Page, PageLink, ShapeKind, ShapeNode, TableNode, TextNode,
+  ElementLink, ElementLinkTargetType, Group, ImageNode, Interaction, LinkNode, NoteNode, Page, PageLink, ShapeKind, ShapeNode, TableNode, TextNode,
 } from "../../types/document";
 
 /** perfect-freehand easing 预设（StrokeOptions.easing 需要函数，UI 用名字选） */
@@ -72,6 +72,21 @@ type Props = {
   connectPicking?: boolean;
   /** 连接动作里点中了对象，报给上层状态机 */
   onConnectPickObject?: (el: { type: string; id: string }) => void;
+  /** 长按弹窗里点了「连接」：以这个对象为起点开启连接模式 */
+  onStartConnect?: (el: { type: string; id: string }) => void;
+  /** 连接模式：把纸排开、其他纸变成可点（连接是在眼前的几张纸之间点出来的） */
+  connectArrange?: boolean;
+  /** 连接模式下点了某一张纸（不是纸里的对象，是纸本身） */
+  onPaperPick?: (pageId: string) => void;
+  /** 文档里已成立的连接（用来画线） */
+  interactions?: Interaction[];
+  /** 正在形成的这条连接（起点已定，承接物逐个补齐） */
+  connectDraft?: {
+    fromPageId?: string; fromElementId?: string; fromElementType?: string;
+    toPageId?: string; toElementId?: string; toElementType?: string;
+  };
+  /** 这条连接已经闭环（画回程那一段） */
+  connectDone?: boolean;
   /** 跳转锚点：建立 本页→目标页 的 flow 关系（PageLink） */
   onJumpAnchor?: (toPageId: string, relType?: string) => void;
   onUpdatePageTransform?: (pageId: string, transform: { x: number; y: number; scale: number; rotate: number }) => void;
@@ -417,6 +432,7 @@ export default function Editor({
   onRequestConnect,
   connectPicking,
   onConnectPickObject,
+  onStartConnect,
   onUpdatePageTransform,
   onDeletePage,
   paperColor,
@@ -435,6 +451,11 @@ export default function Editor({
   sheetAction,
   brush,
   onJumpAnchor,
+  connectArrange,
+  onPaperPick,
+  interactions,
+  connectDraft,
+  connectDone,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const editTaRef = useRef<HTMLTextAreaElement>(null);
@@ -453,6 +474,8 @@ export default function Editor({
   onSelectPageRef.current = onSelectPage;
   const onConnectPickObjectRef = useRef(onConnectPickObject);
   onConnectPickObjectRef.current = onConnectPickObject;
+  /* onPointerDown 里要读，用 ref 避免把它的闭包钉死在旧值上 */
+  const papersPickableRef = useRef(false);
   onDrawToolChangeRef.current = onDrawToolChange;
 
   const texts = page.texts || [];
@@ -576,7 +599,7 @@ export default function Editor({
   /* ★ 框选轻弹窗：长按/框选完成后在画布上出现的操作入口（组合/连接/排列），
      替代原来被全透明层锁死画布的 ctxMenu 结构。 */
   const [boxPopup, setBoxPopup] = useState<{ x: number; y: number; count: number } | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "align" | "edit" } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "align" | "edit"; hitEl?: { type: string; id: string } } | null>(null);
 
   /* ── 临摹素材（视线固定）─────────────────────────────────────
      从手机相册选一张图作为临摹参照：
@@ -1760,6 +1783,12 @@ export default function Editor({
   function onPointerDown(e: React.PointerEvent) {
     const __tgt = e.target as HTMLElement;
     if (__tgt.closest("[data-ctx-menu]")) return;
+    /* ★ 连接模式：按在「别的纸」上，是「点这张纸」这个动作，不是画布手势。
+       这里必须直接放行 —— 下面会给 stage 做 setPointerCapture，
+       一旦捕获，后续 pointerup / click 全部改派到 stage，
+       纸盒上的 onClick 永远收不到，点纸就点不动。
+       实测事件序列：BOX:pointerdown,BOX:mousedown → STAGE:pointerup,STAGE:click。 */
+    if (__tgt.closest("[data-other-page]") && papersPickableRef.current) return;
     {
       const sx = e.clientX, sy = e.clientY;
       const lp = window.setTimeout(() => {
@@ -1791,7 +1820,7 @@ export default function Editor({
             setBox(bb);
             setBoxGroupId(null); boxGroupIdRef.current = null;
           }
-          setCtxMenu({ kind: "element", x: sx, y: sy });
+          setCtxMenu({ kind: "element", x: sx, y: sy, hitEl: hitEl as { type: string; id: string } });
         } else {
           setCtxMenu({ kind: "blank", x: sx, y: sy });
         }
@@ -4188,6 +4217,116 @@ function handleSheetAction(kind: string) {
     : null;
 
 
+  /* ★ 整页内容渲染（任意页面，只读、不参与选中/编辑）。
+     其他纸以前只画 texts + shapes，notes/images/tables/links 全是空白，
+     导致「延伸物」看起来是一张空纸、也点不到里面的对象。
+     这里把 6 种元素按 layer=paper 全画出来，和当前纸同一套 z 常量。
+     当前纸的渲染路径完全不动。 */
+  function renderPageContent(pg: Page) {
+    const pw = pg.paperW && pg.paperW > 0 ? pg.paperW : 0;
+    const ph = pg.paperH && pg.paperH > 0 ? pg.paperH : 0;
+    return (
+      <>
+        {(pg.texts || []).filter((t) => t.layer === "paper").map((t) => (
+          <div
+            key={t.id}
+            style={{
+              position: "absolute", zIndex: t.z ?? Z_TEXT,
+              left: t.x, top: t.y,
+              fontSize: t.fontSize,
+              fontFamily: t.fontFamily || DEFAULT_FONT,
+              color: t.color, lineHeight: 1.4,
+              whiteSpace: "pre", width: "max-content",
+              pointerEvents: "none",
+            }}
+          >{t.text}</div>
+        ))}
+        {(pg.images || []).filter((im) => im.layer === "paper").map((im) => (
+          <img
+            key={im.id} src={im.src} alt="" draggable={false}
+            style={{
+              position: "absolute", zIndex: im.z ?? Z_IMAGE,
+              left: im.x, top: im.y, width: im.w, height: im.h,
+              objectFit: "contain",
+              transform: `rotate(${im.rotate || 0}deg)`, transformOrigin: "center center",
+              pointerEvents: "none",
+            }}
+          />
+        ))}
+        {(pg.notes || []).filter((n) => n.layer === "paper").map((n) => (
+          <div
+            key={n.id}
+            style={{
+              position: "absolute", zIndex: n.z ?? Z_NOTE,
+              left: n.x, top: n.y, width: n.w, height: n.h,
+              background: n.bgColor, color: n.textColor,
+              borderRadius: 6,
+              transform: `rotate(${n.rotate || 0}deg)`, transformOrigin: "center center",
+              padding: 10, boxSizing: "border-box",
+              fontSize: n.fontSize, lineHeight: 1.4,
+              overflow: "hidden", whiteSpace: "pre-wrap",
+              pointerEvents: "none",
+              boxShadow: "0 2px 8px rgba(0,0,0,.08)",
+            }}
+          >{n.text}</div>
+        ))}
+        {(pg.tables || []).filter((t) => t.layer === "paper").map((t) => (
+          <div
+            key={t.id}
+            style={{
+              position: "absolute", zIndex: t.z ?? Z_TABLE,
+              left: t.x, top: t.y, width: t.w, height: t.h,
+              display: "grid",
+              gridTemplateRows: `repeat(${t.rows}, 1fr)`,
+              gridTemplateColumns: `repeat(${t.cols}, 1fr)`,
+              pointerEvents: "none",
+              transform: `rotate(${t.rotate || 0}deg)`, transformOrigin: "center center",
+              border: "1.5px solid #3a352e",
+              boxSizing: "border-box", background: "#ffffff",
+            }}
+          >
+            {Array.from({ length: t.rows }).map((_, r) =>
+              Array.from({ length: t.cols }).map((__, c) => (
+                <div key={`${r}-${c}`} style={{
+                  borderRight: c < t.cols - 1 ? "1px solid #3a352e" : "none",
+                  borderBottom: r < t.rows - 1 ? "1px solid #3a352e" : "none",
+                  fontSize: 12, padding: 4, boxSizing: "border-box", overflow: "hidden",
+                }}>{t.cells[r]?.[c] || ""}</div>
+              ))
+            )}
+          </div>
+        ))}
+        {(pg.links || []).filter((l) => l.layer === "paper").map((l) => (
+          <div
+            key={l.id}
+            style={{
+              position: "absolute", zIndex: l.z ?? Z_LINK,
+              left: l.x, top: l.y, width: l.w, height: l.h,
+              background: "#eaf3fb", color: "#2a4a6b",
+              transform: `rotate(${l.rotate || 0}deg)`, transformOrigin: "center center",
+              border: "1px solid rgba(42,74,107,.3)",
+              borderRadius: 8, padding: "8px 12px", boxSizing: "border-box",
+              fontSize: 13, overflow: "hidden",
+              display: "flex", flexDirection: "column", justifyContent: "center", gap: 2,
+              pointerEvents: "none",
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{l.title || l.url}</div>
+            <div style={{ fontSize: 11, color: "#5a7fa0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
+          </div>
+        ))}
+        <svg
+          width="100%" height="100%"
+          viewBox={pw > 0 && ph > 0 ? `0 0 ${pw} ${ph}` : undefined}
+          preserveAspectRatio={pw > 0 && ph > 0 ? "none" : "xMidYMid meet"}
+          style={{ position: "absolute", zIndex: Z_SHAPES, left: 0, top: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "hidden" }}
+        >
+          {(pg.shapes || []).filter((s) => s.layer === "paper").map((s) => renderShape(s))}
+        </svg>
+      </>
+    );
+  }
+
   const paperInner = (
     <>
       {texts.filter((t) => t.layer === "paper").map((t) => (
@@ -4490,6 +4629,143 @@ function handleSheetAction(kind: string) {
     </>
   );
 
+  /* ── 连接模式：把纸竖着排开 ─────────────────────────────
+     连接是「眼前的几张纸之间点出来」的动作，纸重叠在一起就点不到。
+     这里只改显示用的 transform，不写进文档；退出连接模式即恢复。
+     当前纸在上，其余纸依次往下，整摞垂直居中。 */
+  const connArrangeOn = !!connectArrange;
+  const arrPaperW = paper.w > 0 ? paper.w : 390;
+  const arrPaperH = paper.h > 0 ? paper.h : 844;
+  const ARR_SCALE = 0.42;
+  const ARR_GAP = 16;
+  const arrStep = arrPaperH * ARR_SCALE + ARR_GAP;
+  const arrCount = (allPages || []).length || 1;
+  const arrTop = -((arrCount - 1) * arrStep) / 2;
+  /* ★ 格子是固定的：起点纸永远在第一格（最上），其余纸按文档顺序往下。
+     这样点延伸物时只有「谁是当前纸」变，纸本身不会跳位置 ——
+     否则用户刚点的那张会突然窜到顶上，看着像出了 bug。 */
+  const arrOrder = [
+    ...(connectDraft?.fromPageId && (allPages || []).some((x) => x.id === connectDraft.fromPageId)
+      ? [connectDraft.fromPageId] : []),
+    ...(allPages || []).map((x) => x.id).filter((id) => id !== connectDraft?.fromPageId),
+  ];
+  const slotOf = (pgId: string) => Math.max(0, arrOrder.indexOf(pgId));
+  const slotY = (k: number) => arrTop + k * arrStep;
+  const arrMainY = slotY(slotOf(page.id));
+
+  /* 命中测试（screenToPaperLocal）读的是 paperStateRef。
+     连接模式下纸被排开，显示值和文档里存的不一样，
+     必须把显示值同步进去，否则点延伸物里的对象永远点不中。 */
+  if (connArrangeOn) paperStateRef.current = { ...paper, x: 0, y: arrMainY, scale: ARR_SCALE, rotate: 0 };
+  else paperStateRef.current = paper;
+
+  /* 连接模式下其他纸可点：由上层决定何时传 onPaperPick */
+  const papersPickable = connArrangeOn && !!onPaperPick;
+  papersPickableRef.current = papersPickable;
+  const mainPaperTransform = connArrangeOn
+    ? `translate(0px, ${arrMainY}px) scale(${ARR_SCALE}) rotate(0deg)`
+    : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
+
+  /* ── 连接线：闭环的可见证据 ─────────────────────────────
+     连接不是一条记录，是一条看得见的线：起点对象 → 延伸物那张纸 → 延伸物里的对象 → 回到起点。
+     两端元素中心都换算到画布坐标，所以在排开模式下两张纸之间的线是真实可画、可看的。 */
+  const [stageBox, setStageBox] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const read = () => setStageBox({ w: el.clientWidth, h: el.clientHeight });
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /** 元素在纸张局部坐标里的包围盒（任意页面，不只是当前页） */
+  function elemBoxIn(pg: Page, type: string, id: string) {
+    if (type === "note")  { const n = (pg.notes || []).find((x) => x.id === id);  return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
+    if (type === "image") { const n = (pg.images || []).find((x) => x.id === id); return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
+    if (type === "table") { const n = (pg.tables || []).find((x) => x.id === id); return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
+    if (type === "link")  { const n = (pg.links || []).find((x) => x.id === id);  return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
+    if (type === "shape") {
+      const n = (pg.shapes || []).find((x) => x.id === id);
+      if (!n) return null;
+      return { x: Math.min(n.x1, n.x2), y: Math.min(n.y1, n.y2), w: Math.abs(n.x2 - n.x1), h: Math.abs(n.y2 - n.y1) };
+    }
+    if (type === "text") {
+      const n = (pg.texts || []).find((x) => x.id === id);
+      if (!n) return null;
+      /* 文字按内容撑开，DOM 在渲染过就能量到真宽；量不到按字号估 */
+      const el = document.querySelector(`[data-text-id="${id}"]`) as HTMLElement | null;
+      let w = el?.offsetWidth || 0;
+      if (!w) { for (const ch of String(n.text || "")) w += /[一-鿿　-〿＀-￯]/.test(ch) ? n.fontSize : n.fontSize * 0.56; }
+      return { x: n.x, y: n.y, w: Math.max(w, 8), h: el?.offsetHeight || n.fontSize * 1.5 };
+    }
+    return null;
+  }
+
+  /** 某张纸此刻显示在画布上的位置与缩放（排开模式用排开值） */
+  function paperDisplay(pgId: string) {
+    if (!connArrangeOn) {
+      const tr = (allPages || []).find((x) => x.id === pgId)?.transform || { x: 0, y: 0, scale: 1 };
+      return { tx: tr.x, ty: tr.y, s: tr.scale };
+    }
+    if (pgId === page.id) return { tx: 0, ty: arrMainY, s: ARR_SCALE };
+    if (!(allPages || []).some((x) => x.id === pgId)) return null;
+    return { tx: 0, ty: slotY(slotOf(pgId)), s: ARR_SCALE };
+  }
+
+  /** 某张纸里某个元素的中心，换算到画布坐标 */
+  function elemCenterOnStage(pgId: string, type: string, id: string) {
+    const pg = (allPages || []).find((x) => x.id === pgId);
+    if (!pg || !type || !id) return null;
+    const d = paperDisplay(pgId);
+    if (!d) return null;
+    const b = elemBoxIn(pg, type, id);
+    if (!b) return null;
+    const pw = pg.paperW && pg.paperW > 0 ? pg.paperW : 390;
+    const ph = pg.paperH && pg.paperH > 0 ? pg.paperH : 844;
+    return {
+      x: stageBox.w / 2 + d.tx + (b.x + b.w / 2 - pw / 2) * d.s,
+      y: stageBox.h / 2 + d.ty + (b.y + b.h / 2 - ph / 2) * d.s,
+    };
+  }
+
+  /** 连接线：已完成的闭环 + 正在形成的这条 */
+  const connLines = (() => {
+    if (!connArrangeOn || stageBox.w <= 0) return [] as { id: string; d: string; x1: number; y1: number; x2: number; y2: number; done: boolean }[];
+    const seg = (id: string, a: { x: number; y: number } | null, b: { x: number; y: number } | null, done: boolean) => {
+      if (!a || !b) return null;
+      const dy = (b.y - a.y) * 0.45;
+      return { id, x1: a.x, y1: a.y, x2: b.x, y2: b.y, done, d: `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}` };
+    };
+    const out: { id: string; d: string; x1: number; y1: number; x2: number; y2: number; done: boolean }[] = [];
+    /* 正在形成的线：起点 → 承接纸 → 承接对象，一段一段长出来 */
+    if (connectDraft?.fromPageId && connectDraft?.fromElementId) {
+      const a = elemCenterOnStage(connectDraft.fromPageId, connectDraft.fromElementType || "note", connectDraft.fromElementId);
+      const c = connectDraft.toPageId && connectDraft.toElementId
+        ? elemCenterOnStage(connectDraft.toPageId, connectDraft.toElementType || "note", connectDraft.toElementId)
+        : null;
+      const toPageId = connectDraft.toPageId;
+      const pb = toPageId
+        ? { x: stageBox.w / 2, y: stageBox.h / 2 + slotY(slotOf(toPageId)) }
+        : null;
+      const s1 = seg("draft1", a, c || pb, false);
+      if (s1) out.push(s1);
+      if (connectDone) {
+        const back = seg("draft2", c || pb, a, true);
+        if (back) out.push(back);
+      }
+    }
+    /* 已存进文档的闭环 */
+    (interactions || []).forEach((ix) => {
+      const a = elemCenterOnStage(ix.fromPageId, ix.fromElementType || "note", ix.fromElementId);
+      const b = elemCenterOnStage(ix.toPageId, ix.toElementType || "note", ix.toElementId);
+      const s = seg("ix-" + ix.id, a, b, true);
+      if (s) out.push(s);
+    });
+    return out;
+  })();
+
   return (
     <div
       ref={stageRef}
@@ -4530,45 +4806,40 @@ function handleSheetAction(kind: string) {
       <style>{`
         @keyframes ranjingFlashIn { from { opacity: 0; transform: translateX(-50%) translateY(-4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
       `}</style>
-      {otherPages.map((p) => {
+      {/* 连接线：闭环的可见证据。正在形成的线是虚线，闭环后变实线 */}
+      {connLines.length > 0 && (
+        <svg style={{
+          position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
+          pointerEvents: "none", zIndex: 8, overflow: "visible",
+        }}>
+          {connLines.map((L) => (
+            <g key={L.id}>
+              <path
+                d={L.d}
+                fill="none"
+                stroke={L.done ? "rgba(122,90,52,.9)" : "rgba(122,90,52,.55)"}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeDasharray={L.done ? undefined : "7 6"}
+              />
+              <circle cx={L.x1} cy={L.y1} r={5} fill="rgba(122,90,52,.95)" stroke="#fffdfa" strokeWidth={2} />
+              {L.done && <circle cx={L.x2} cy={L.y2} r={5} fill="rgba(122,90,52,.95)" stroke="#fffdfa" strokeWidth={2} />}
+            </g>
+          ))}
+        </svg>
+      )}
+
+      {otherPages.map((p, i) => {
         const tr = p.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
-        const pTexts = (p.texts || []).filter((t) => t.layer === "paper");
-        const pShapes = (p.shapes || []).filter((s) => s.layer === "paper");
         const isSelected = selectedPageIds.has(p.id);
         const hasSize = !!(p.paperW && p.paperH && p.paperW > 0 && p.paperH > 0);
-        const innerChildren = (
-          <>
-            {pTexts.map((t) => (
-              <div
-                key={t.id}
-                style={{
-                  position: "absolute",
-                  left: t.x, top: t.y,
-                  fontSize: t.fontSize,
-                  fontFamily: t.fontFamily || DEFAULT_FONT,
-                  color: t.color,
-                  lineHeight: 1.4,
-                  whiteSpace: "pre",
-                  width: "max-content",
-                  pointerEvents: "none",
-                }}
-              >{t.text}</div>
-            ))}
-            <svg
-              width="100%"
-              height="100%"
-              viewBox={hasSize ? `0 0 ${p.paperW} ${p.paperH}` : undefined}
-              preserveAspectRatio={hasSize ? "none" : "xMidYMid meet"}
-              style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "hidden" }}
-            >
-              {pShapes.map((s) => renderShape(s))}
-            </svg>
-          </>
-        );
+        const innerChildren = renderPageContent(p);
         const boxShadow = isSelected
           ? `0 0 0 3px ${SELECT_BLUE}, 0 4px 24px rgba(0,0,0,.1)`
           : "0 4px 24px rgba(0,0,0,.1)";
-        const transform = `translate(${tr.x}px, ${tr.y}px) scale(${tr.scale}) rotate(${tr.rotate}deg)`;
+        const transform = connArrangeOn
+          ? `translate(0px, ${slotY(slotOf(p.id))}px) scale(${ARR_SCALE}) rotate(0deg)`
+          : `translate(${tr.x}px, ${tr.y}px) scale(${tr.scale}) rotate(${tr.rotate}deg)`;
         const base: React.CSSProperties = {
           position: "absolute",
           transform,
@@ -4582,9 +4853,43 @@ function handleSheetAction(kind: string) {
         const style: React.CSSProperties = hasSize
           ? { ...base, left: "50%", top: "50%", width: p.paperW!, height: p.paperH!, marginLeft: -p.paperW! / 2, marginTop: -p.paperH! / 2 }
           : { ...base, inset: 0 };
+        /* 可点的是「纸本身」这一块，不是整块画布：
+           这样点空白不会误触发，点当前纸 / 点其他纸各自命中各自的纸。 */
+        if (papersPickable) {
+          style.pointerEvents = "auto";
+          style.cursor = "pointer";
+          style.boxShadow = `0 0 0 2px rgba(122,90,52,.45), 0 4px 24px rgba(0,0,0,.1)`;
+        }
         return (
-          <div key={p.id} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-            <div style={style}>{innerChildren}</div>
+          <div
+            key={p.id}
+            data-other-page={p.id}
+            /* zIndex 只在连接模式给：平时必须是 auto，
+               靠 DOM 顺序被后面那张不透明的当前纸盖住；
+               一旦给 5，其他纸就会浮到当前纸上面，屏幕上糊成一片。 */
+            style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: connArrangeOn ? 5 : undefined }}
+          >
+            <div
+              style={style}
+              onClick={papersPickable ? () => onPaperPick?.(p.id) : undefined}
+            >{innerChildren}</div>
+            {connArrangeOn && papersPickable && (
+              <div style={{
+                position: "absolute", left: "50%", top: "50%",
+                width: (p.paperW || 390) * ARR_SCALE, height: arrPaperH * ARR_SCALE,
+                marginLeft: -((p.paperW || 390) * ARR_SCALE) / 2,
+                marginTop: -(arrPaperH * ARR_SCALE) / 2 + slotY(slotOf(p.id)),
+                borderRadius: 10,
+                pointerEvents: "none",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <span style={{
+                  fontSize: 12, color: "rgba(122,90,52,.9)",
+                  background: "rgba(255,253,250,.94)", padding: "4px 10px", borderRadius: 999,
+                  border: "1px dashed rgba(122,90,52,.5)",
+                }}>点这张纸</span>
+              </div>
+            )}
           </div>
         );
       })}
@@ -4607,7 +4912,7 @@ function handleSheetAction(kind: string) {
             left: "50%", top: "50%",
             width: paper.w, height: paper.h,
             marginLeft: -paper.w / 2, marginTop: -paper.h / 2,
-            transform: `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`,
+            transform: mainPaperTransform,
             transformOrigin: "center center",
             background: toRgba(paperColor, paperAlpha),
             boxShadow: mainPaperSelected
@@ -4626,7 +4931,7 @@ function handleSheetAction(kind: string) {
           style={{
             position: "absolute",
             inset: 0,
-            transform: `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`,
+            transform: mainPaperTransform,
             transformOrigin: "center center",
             background: toRgba(paperColor, paperAlpha),
             boxShadow: mainPaperSelected
@@ -4805,7 +5110,9 @@ function handleSheetAction(kind: string) {
                 <CtxItem label="排列 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "align" })} />
                 <CtxItem label="组合" onClick={() => { setCtxMenu(null); handleSheetAction("box-compose"); }} />
                 <CtxItem label="编辑 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "edit" })} />
-                <CtxItem label="连接(接着)" onClick={() => { setCtxMenu(null); handleSheetAction("box-chain-story"); }} />
+                {/* ★ 连接入口：长按对象 → 点这里 → 连接模式开启（不开抽屉，
+                    画布上直接做四步闭环）。替换掉原来的「连接(接着)」。 */}
+                <CtxItem label="连接" onClick={() => { setCtxMenu(null); onStartConnect?.(ctxMenu.hitEl || { type: "", id: "" }); }} />
                 <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); deleteSelection(); clearBox(); }} />
               </>
             )}
