@@ -8,6 +8,7 @@ import type { BrushParams } from "./Editor";
 import {
   ObjectDrawer, ShapeDrawer,
   ColorDrawer, SpecDrawer, LockDrawer, FontDrawer,
+  SaveDrawer,
   BRUSH_DEFAULTS,
 } from "./CreationDrawer";
 import PageSheet from "./PageSheet";
@@ -261,7 +262,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   }
 
   const [openDrawer, setOpenDrawer] = useState<
-    "page" | "object" | "shape" | "color" | "spec" | "lock" | "font" | null
+    "page" | "object" | "shape" | "color" | "spec" | "lock" | "font" | "save" | null
   >(null);
 
   const [sideLabels, setSideLabels] = useState<Record<string, string>>(() => {
@@ -296,7 +297,8 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       case "shape":  setOpenDrawer("shape"); break;
       case "font":   setOpenDrawer("font"); break;
       case "spec":   setOpenDrawer("spec"); break;
-      case "save":   onSave?.(); break;
+      /* 「存」不再直接保存，改为打开存抽屉：保存 + 导出 SVG/PNG/透明 PNG */
+      case "save":   setOpenDrawer("save"); break;
       case "door":
         // 不再弹 WindowDrawer，直接触发进入空间
         if (onEnterSpace) onEnterSpace("home");
@@ -736,6 +738,19 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         />
       )}
       {openDrawer === "object" && <ObjectDrawer onClose={closeDrawer} />}
+      {openDrawer === "save" && (
+        <SaveDrawer
+          onClose={closeDrawer}
+          onSave={onSave}
+          getDoc={() => doc}
+          onRestore={(restored) => {
+            /* 整体替换文档；快照里已带全部页面，所以顺带把当前页指到第一页，
+               避免停留在已被覆盖掉的页 id 上导致画布空掉 */
+            applyDoc(() => restored);
+            setCurrentPageId(restored.pages?.[0]?.id || "");
+          }}
+        />
+      )}
       {openDrawer === "shape" && (
         <ShapeDrawer
           onClose={closeDrawer}

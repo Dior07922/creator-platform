@@ -1,11 +1,16 @@
 ﻿// name=src/components/creation/CreationDrawer.tsx
 "use client";
-import React, { useEffect, useRef, useState } from "react";
-import type { Page, PageLink, ShapeKind } from "../../types/document";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { Page, PageLink, ShapeKind, DocModel } from "../../types/document";
 import type { BrushParams, EasingName } from "./Editor";
 import ColorPicker from "./ColorPicker";
 import { FONT_LIBRARY } from "../../lib/fonts";
 import { SPEC_CATEGORIES } from "../../lib/paperSpecs";
+import {
+  saveSnapshot, listSnapshots, getSnapshot, deleteSnapshot,
+  formatSnapshotTime, MAX_SNAPSHOTS,
+  type SnapshotMeta,
+} from "../../lib/snapshots";
 import { API_BASE } from "../../lib/apiBase";
 
 const PAGE_LIMIT = 30;
@@ -945,6 +950,159 @@ export function LockDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
             </div>
             <div className="mini-confirm-actions" style={{ marginTop: 12 }}>
               <button type="button" className="mini-confirm-cancel" onClick={() => setDirDialog(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/* ============================================================
+   存：保存 + 快照/回滚 + 导出
+   导出原先挂在长按弹窗上（空白菜单和元素菜单各一份、内容重复），
+   现按产品定义统一收进侧边栏「存」。
+============================================================ */
+export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
+  onClose: () => void;
+  onSave?: () => void;
+  /** 取当前文档（存快照用） */
+  getDoc?: () => DocModel;
+  /** 用快照内容整体替换当前文档（回滚用） */
+  onRestore?: (doc: DocModel) => void;
+}) {
+  const [snaps, setSnaps] = useState<SnapshotMeta[]>([]);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  /** 待确认回滚的那张快照（非空时弹确认框） */
+  const [pendingRestore, setPendingRestore] = useState<SnapshotMeta | null>(null);
+  const msgTimer = useRef<number | null>(null);
+
+  const flash = useCallback((text: string) => {
+    setMsg(text);
+    if (msgTimer.current != null) window.clearTimeout(msgTimer.current);
+    msgTimer.current = window.setTimeout(() => { msgTimer.current = null; setMsg(""); }, 1800);
+  }, []);
+  useEffect(() => () => { if (msgTimer.current != null) window.clearTimeout(msgTimer.current); }, []);
+
+  const refresh = useCallback(async () => {
+    const d = getDoc?.();
+    if (!d) return;
+    try { setSnaps(await listSnapshots(d.id)); }
+    catch { setSnaps([]); }
+  }, [getDoc]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function takeSnapshot() {
+    const d = getDoc?.();
+    if (!d || busy) return;
+    setBusy(true);
+    try {
+      const meta = await saveSnapshot(d);
+      await refresh();
+      flash(`已存快照 ${formatSnapshotTime(meta.createdAt)}`);
+    } catch (e) {
+      flash(e instanceof Error && e.message === "INDEXEDDB_UNAVAILABLE" ? "此环境不支持快照" : "快照保存失败");
+    } finally { setBusy(false); }
+  }
+
+  async function doRestore(meta: SnapshotMeta) {
+    setPendingRestore(null);
+    setBusy(true);
+    try {
+      const snap = await getSnapshot(meta.id);
+      if (!snap) { flash("快照已不存在"); return; }
+      /* 深拷贝后再交付：避免后续编辑把 IndexedDB 里的这份快照也改掉 */
+      onRestore?.(JSON.parse(JSON.stringify(snap.doc)) as DocModel);
+      flash(`已回滚到 ${formatSnapshotTime(meta.createdAt)}`);
+    } catch {
+      flash("回滚失败");
+    } finally { setBusy(false); }
+  }
+
+  async function removeSnapshot(meta: SnapshotMeta) {
+    try { await deleteSnapshot(meta.id); await refresh(); flash("已删除快照"); }
+    catch { flash("删除失败"); }
+  }
+
+  const latest = snaps[0] || null;
+  const itemStyle: React.CSSProperties = { textAlign: "center", padding: "14px 6px", fontSize: 13, whiteSpace: "nowrap" };
+
+  return (
+    <aside className="cd-panel" style={{ width: "min(34vw, 150px)", maxWidth: 150 }}>
+      <div className="cd-body" style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, paddingBottom: 60 }}>
+
+          <button type="button" className="cd-item" onClick={() => { onSave?.(); onClose(); }} style={itemStyle}>保存</button>
+
+          {/* ── 快照 ── */}
+          <button type="button" className="cd-item" disabled={busy}
+            onClick={() => { void takeSnapshot(); }}
+            style={{ ...itemStyle, opacity: busy ? 0.5 : 1 }}>点击快照</button>
+
+          <button type="button" className="cd-item" disabled={busy || !latest}
+            onClick={() => { if (latest) setPendingRestore(latest); }}
+            style={{ ...itemStyle, opacity: (busy || !latest) ? 0.45 : 1 }}>
+            一键回滚
+          </button>
+
+          {msg && (
+            <div style={{ fontSize: 10, color: "#7a5a34", textAlign: "center", lineHeight: 1.5, padding: "0 4px" }}>{msg}</div>
+          )}
+
+          {/* ── 快照列表（新的在上，点一条就回滚到那一条） ── */}
+          {snaps.length > 0 && (
+            <div style={{ marginTop: 2 }}>
+              <div style={{ fontSize: 10, color: "#a49a8f", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>
+                快照 {snaps.length}/{MAX_SNAPSHOTS}
+              </div>
+              <div style={{ maxHeight: 168, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+                {snaps.map((s) => (
+                  <div key={s.id} style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "6px 7px", borderRadius: 8,
+                    background: "#fffdfa", border: "1px solid rgba(74,70,63,.10)",
+                  }}>
+                    <button type="button" onClick={() => setPendingRestore(s)}
+                      style={{
+                        flex: 1, minWidth: 0, border: 0, background: "transparent", cursor: "pointer",
+                        textAlign: "left", padding: 0, fontFamily: "inherit",
+                      }}>
+                      <div style={{ fontSize: 11, color: "#3a352e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {formatSnapshotTime(s.createdAt)}
+                      </div>
+                      <div style={{ fontSize: 9, color: "#a49a8f" }}>{s.pageCount} 页</div>
+                    </button>
+                    <button type="button" onClick={() => { void removeSnapshot(s); }}
+                      title="删除这张快照"
+                      style={{ border: 0, background: "transparent", color: "#b4ada5", fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── 导出 ── */}
+          <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 0" }} />
+          <button type="button" className="cd-item" onClick={() => { (window as any).__ranjingCommands?.exportCanvas?.("svg"); onClose(); }} style={itemStyle}>导出 SVG</button>
+          <button type="button" className="cd-item" onClick={() => { (window as any).__ranjingCommands?.exportCanvas?.("png"); onClose(); }} style={itemStyle}>导出 PNG</button>
+          <button type="button" className="cd-item" onClick={() => { (window as any).__ranjingCommands?.exportCanvas?.("png-transparent"); onClose(); }} style={itemStyle}>导出透明 PNG</button>
+        </div>
+      </div>
+      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
+
+      {/* 回滚确认：回滚会覆盖当前所有改动，必须二次确认 */}
+      {pendingRestore && (
+        <div className="mini-confirm-overlay" onClick={() => setPendingRestore(null)}>
+          <div className="mini-confirm-box" onClick={(e) => e.stopPropagation()}>
+            <div className="mini-confirm-msg" style={{ fontSize: 13, lineHeight: 1.7 }}>
+              回滚到 {formatSnapshotTime(pendingRestore.createdAt)} 的快照？<br />
+              <span style={{ fontSize: 11, color: "#918981" }}>当前的改动会被覆盖。</span>
+            </div>
+            <div className="mini-confirm-actions">
+              <button type="button" className="mini-confirm-cancel" onClick={() => setPendingRestore(null)}>取消</button>
+              <button type="button" className="mini-confirm-ok" onClick={() => { void doRestore(pendingRestore); }}>回滚</button>
             </div>
           </div>
         </div>

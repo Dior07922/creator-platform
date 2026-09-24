@@ -157,6 +157,16 @@ const SELECT_BLUE_BG = "rgba(59,130,246,.10)";
 const LONG_PRESS_MS = 500;
 const DEFAULT_FONT = '"Noto Sans SC", sans-serif';
 
+/* 各类型元素的默认图层顺序。
+   数值与旧的渲染顺序一致（文字最底、笔迹最上），
+   所以没设过 z 的老文档观感不变。用户「置顶/移上」后写入具体 z 值。 */
+const Z_TEXT = 10;
+const Z_IMAGE = 20;
+const Z_NOTE = 30;
+const Z_TABLE = 40;
+const Z_LINK = 50;
+const Z_SHAPES = 60;   // 笔迹整体一层（同一 <svg> 内无法与其他类型交叉）
+
 /** 笔迹工具条固定色板 */
 const PEN_COLORS = ["#3a352e", "#d94c4c", "#f39c12", "#27ae60", "#3498db", "#8e44ad"];
 
@@ -558,7 +568,73 @@ export default function Editor({
   /* ★ 框选轻弹窗：长按/框选完成后在画布上出现的操作入口（组合/连接/排列），
      替代原来被全透明层锁死画布的 ctxMenu 结构。 */
   const [boxPopup, setBoxPopup] = useState<{ x: number; y: number; count: number } | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "copy-as" | "export-as" | "align" } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "align" | "edit" } | null>(null);
+
+  /* ── 临摹素材（视线固定）─────────────────────────────────────
+     从手机相册选一张图作为临摹参照：
+       · 定位用 position:fixed，挂在纸张变换之外 —— 所以画布怎么拖、怎么缩放，
+         它始终停在用户视线处，不会跟着画布跑丢
+       · 图片本身 pointer-events:none，画布手势直接穿过去，不影响作画
+       · 只有它上方那条小控制条可交互（拖动 / 透明度 / 关闭）
+     属于会话内的辅助工具，不写进文档、不参与导出。 */
+  const [traceImg, setTraceImg] = useState<{
+    src: string; x: number; y: number; w: number; h: number; opacity: number;
+  } | null>(null);
+  const traceInputRef = useRef<HTMLInputElement>(null);
+  const traceDragRef = useRef<{ dx: number; dy: number } | null>(null);
+
+  function pickTraceImage() {
+    setCtxMenu(null);
+    traceInputRef.current?.click();
+  }
+
+  function onTraceFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";               // 允许连续选同一张
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = String(reader.result || "");
+      if (!src) return;
+      const probe = new Image();
+      probe.onload = () => {
+        /* 初始大小取屏幕宽度的 60%（不放大超过原图），顶部留出控制条位置 */
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const w = Math.min(vw * 0.6, probe.width || vw * 0.6);
+        const h = w * ((probe.height || 1) / (probe.width || 1));
+        setTraceImg({
+          src, w, h,
+          x: Math.max(8, (vw - w) / 2),
+          y: Math.max(48, (vh - h) / 2),
+          opacity: 0.45,
+        });
+      };
+      probe.onerror = () => { /* 不是图片，忽略 */ };
+      probe.src = src;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function onTraceHandleDown(e: React.PointerEvent) {
+    if (!traceImg) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    traceDragRef.current = { dx: e.clientX - traceImg.x, dy: e.clientY - traceImg.y };
+  }
+  function onTraceHandleMove(e: React.PointerEvent) {
+    const d = traceDragRef.current;
+    if (!d) return;
+    e.preventDefault();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    setTraceImg((t) => t ? {
+      ...t,
+      /* 限制在屏幕内，避免拖出视野「跑丢」 */
+      x: Math.min(Math.max(-t.w * 0.5, e.clientX - d.dx), vw - t.w * 0.5),
+      y: Math.min(Math.max(0, e.clientY - d.dy), vh - 40),
+    } : t);
+  }
+  function onTraceHandleUp() { traceDragRef.current = null; }
   const [textPanel, setTextPanel] = useState<{ x: number; y: number } | null>(null);
   /* ★ 套索轨迹：stage 局部坐标点序列。null = 未在画套索 */
   const [lassoPath, setLassoPath] = useState<{ x: number; y: number }[] | null>(null);
@@ -1398,37 +1474,147 @@ export default function Editor({
   }
 
   /** 导出当前页为文件。format: svg | png | png-transparent */
+  /* ── 导出内容构建 ─────────────────────────────────────────────
+     旧实现只取页面上的 <svg> 克隆，而那个 svg 里只有笔迹：
+     文字/图片/便签/表格/链接全是 DOM 元素，不在其中 —— 导出的是残缺作品。
+     现在按纸张坐标重建完整 SVG：
+       · 六类元素从页面数据逐个生成 SVG 元素
+       · 笔迹直接复用页面上已渲染好的路径（不重写笔刷逻辑）
+     坐标全部是纸张局部坐标，与 <svg viewBox="0 0 W H"> 一致。 */
+  const escXml = (s: string) =>
+    String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  /** 按容器宽度手动折行：SVG 的 <text> 不会自动换行。中日韩按 1 字宽、其余按 0.55 字宽估算。 */
+  const wrapForSvg = (text: string, maxW: number, fontSize: number): string[] => {
+    const out: string[] = [];
+    for (const para of String(text ?? "").split("\n")) {
+      let cur = ""; let w = 0;
+      for (const ch of para) {
+        const cw = /[⺀-鿿　-〿＀-￯]/.test(ch) ? fontSize : fontSize * 0.55;
+        if (w + cw > maxW && cur) { out.push(cur); cur = ""; w = 0; }
+        cur += ch; w += cw;
+      }
+      out.push(cur);
+    }
+    return out;
+  };
+
+  const rotAttr = (deg: number | undefined, cx: number, cy: number) =>
+    deg ? ` transform="rotate(${deg} ${cx} ${cy})"` : "";
+
+  function buildPageSvg(W: number, H: number, withPaperBg: boolean): string {
+    const pg = pageRef.current as any;
+    const P: string[] = [];
+
+    if (withPaperBg) {
+      const bg = pg.paperColor || "#ffffff";
+      const alpha = typeof pg.paperAlpha === "number" ? pg.paperAlpha : 1;
+      P.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="${escXml(bg)}"${alpha < 1 ? ` fill-opacity="${alpha}"` : ""}/>`);
+    }
+
+    // 文字
+    for (const t of (pg.texts || [])) {
+      const F = t.fontSize || 16;
+      const lines = String(t.text ?? "").split("\n");
+      const spans = lines
+        .map((ln: string, i: number) => `<tspan x="${t.x}" dy="${i === 0 ? 0 : F * 1.4}">${escXml(ln)}</tspan>`)
+        .join("");
+      P.push(
+        `<text x="${t.x}" y="${(t.y ?? 0) + F}" font-size="${F}" fill="${escXml(t.color || "#3a352e")}" ` +
+        `font-family="${escXml(t.fontFamily || DEFAULT_FONT)}" xml:space="preserve">${spans}</text>`
+      );
+    }
+
+    // 图片
+    for (const im of (pg.images || [])) {
+      P.push(
+        `<image x="${im.x}" y="${im.y}" width="${im.w}" height="${im.h}" href="${escXml(im.src)}" ` +
+        `preserveAspectRatio="xMidYMid meet"${rotAttr(im.rotate, im.x + im.w / 2, im.y + im.h / 2)}/>`
+      );
+    }
+
+    // 便签
+    for (const n of (pg.notes || [])) {
+      const F = n.fontSize || 14;
+      const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+      P.push(
+        `<g${rotAttr(n.rotate, cx, cy)}>` +
+        `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="6" fill="${escXml(n.bgColor || "#fff9c4")}"/>` +
+        wrapForSvg(n.text, Math.max(8, n.w - 20), F)
+          .map((ln: string, i: number) =>
+            `<text x="${n.x + 10}" y="${n.y + 10 + F * (1 + i * 1.4)}" font-size="${F}" fill="${escXml(n.textColor || "#3a352e")}" xml:space="preserve">${escXml(ln)}</text>`)
+          .join("") +
+        `</g>`
+      );
+    }
+
+    // 表格
+    for (const t of (pg.tables || [])) {
+      const cw = t.w / Math.max(1, t.cols);
+      const chh = t.h / Math.max(1, t.rows);
+      const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+      const lines: string[] = [];
+      for (let c = 1; c < t.cols; c++) lines.push(`<line x1="${t.x + cw * c}" y1="${t.y}" x2="${t.x + cw * c}" y2="${t.y + t.h}" stroke="#3a352e" stroke-width="1"/>`);
+      for (let r = 1; r < t.rows; r++) lines.push(`<line x1="${t.x}" y1="${t.y + chh * r}" x2="${t.x + t.w}" y2="${t.y + chh * r}" stroke="#3a352e" stroke-width="1"/>`);
+      const cells: string[] = [];
+      for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) {
+        const v = t.cells?.[r]?.[c]; if (!v) continue;
+        cells.push(`<text x="${t.x + cw * c + 4}" y="${t.y + chh * r + 12}" font-size="12" fill="#3a352e" xml:space="preserve">${escXml(v)}</text>`);
+      }
+      P.push(
+        `<g${rotAttr(t.rotate, cx, cy)}>` +
+        `<rect x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}" fill="#ffffff" stroke="#3a352e" stroke-width="1.5"/>` +
+        lines.join("") + cells.join("") + `</g>`
+      );
+    }
+
+    // 链接
+    for (const l of (pg.links || [])) {
+      const cx = l.x + l.w / 2, cy = l.y + l.h / 2;
+      P.push(
+        `<g${rotAttr(l.rotate, cx, cy)}>` +
+        `<rect x="${l.x}" y="${l.y}" width="${l.w}" height="${l.h}" rx="8" fill="#eaf3fb" stroke="rgba(42,74,107,.3)" stroke-width="1"/>` +
+        `<text x="${l.x + 12}" y="${l.y + l.h / 2 - 2}" font-size="13" font-weight="600" fill="#2a4a6b" xml:space="preserve">${escXml(l.title || l.url)}</text>` +
+        `<text x="${l.x + 12}" y="${l.y + l.h / 2 + 14}" font-size="11" fill="#5a7fa0" xml:space="preserve">${escXml(l.url)}</text>` +
+        `</g>`
+      );
+    }
+
+    // 笔迹：直接复用页面上已渲染好的内容，坐标同为纸张局部坐标
+    const liveSvg = stageRef.current?.querySelector("svg");
+    if (liveSvg) P.push(liveSvg.innerHTML);
+
+    return (
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+      `width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" overflow="hidden">` +
+      `<clipPath id="rjPageClip"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath>` +
+      `<g clip-path="url(#rjPageClip)">${P.join("")}</g>` +
+      `</svg>`
+    );
+  }
+
   function exportCanvas(format: "svg" | "png" | "png-transparent") {
     const stage = stageRef.current;
     if (!stage) return;
-    const svgEl = stage.querySelector<SVGSVGElement>("svg");
-    if (!svgEl) return;
 
-    const p = paperStateRef.current;
-    const W = Math.max(1, Math.round(pageRef.current.paperW || 800));
-    const H = Math.max(1, Math.round(pageRef.current.paperH || 1000));
+    const pg = pageRef.current as any;
+    /* 纸张尺寸缺失（自由画布）时退回页面可视尺寸，保证导出不会退化成 800×1000 的错误比例 */
+    const W = Math.max(1, Math.round(pg.paperW || stage.clientWidth || 800));
+    const H = Math.max(1, Math.round(pg.paperH || stage.clientHeight || 1000));
     const stamp = Date.now();
     const filename = `ranjing-${stamp}`;
+    const transparent = format === "png-transparent";
+    const svgText = buildPageSvg(W, H, !transparent);
 
     if (format === "svg") {
-      const clone = svgEl.cloneNode(true) as SVGSVGElement;
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      const blob = new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${clone.outerHTML}`], {
+      downloadBlob(new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${svgText}`], {
         type: "image/svg+xml;charset=utf-8",
-      });
-      downloadBlob(blob, `${filename}.svg`);
+      }), `${filename}.svg`);
       return;
     }
 
-    // PNG / 透明 PNG：把 svg 光栅化到 canvas
-    const clone = svgEl.cloneNode(true) as SVGSVGElement;
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    clone.setAttribute("width", String(W));
-    clone.setAttribute("height", String(H));
-    const svgText = new XMLSerializer().serializeToString(clone);
-    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-
+    // PNG / 透明 PNG：把重建的 SVG 按 1:1 光栅化（不再按 stage 尺寸反算比例，避免非整比例规格被拉歪）
+    const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
@@ -1436,16 +1622,7 @@ export default function Editor({
       canvas.height = H;
       const ctx = canvas.getContext("2d");
       if (!ctx) { URL.revokeObjectURL(url); return; }
-      if (format === "png") {
-        // 不透明版：铺上纸张底色
-        ctx.fillStyle = pageRef.current.paperColor || "#ffffff";
-        ctx.fillRect(0, 0, W, H);
-      }
-      // 纸张内容按当前变换比例缩放铺满
-      const sw = stage.clientWidth || W;
-      const sh = stage.clientHeight || H;
-      const scale = Math.min(W / (sw || W), H / (sh || H));
-      ctx.drawImage(img, 0, 0, sw * scale, sh * scale);
+      ctx.drawImage(img, 0, 0, W, H);
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(url);
         if (blob) downloadBlob(blob, `${filename}.png`);
@@ -1453,8 +1630,6 @@ export default function Editor({
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
-    // 记录当前变换，避免 lint 报未使用
-    void p;
   }
 
   function downloadBlob(blob: Blob, name: string) {
@@ -1581,14 +1756,36 @@ export default function Editor({
       const sx = e.clientX, sy = e.clientY;
       const lp = window.setTimeout(() => {
         if (drawToolRef.current) return;
-        /* ★ 单对象长按：识别实际按住的元素（六类 + Unit），弹出该对象菜单；
-           只有真正按在空白上才弹空白菜单。长按+拖动已在 move 里取消（>10px）。 */
+        /* ★ 长按判定只看「有没有命中明确目标」，不看「在不在纸张内」。
+           原实现是：命中元素 → 元素菜单；否则若在纸张外 → 空白菜单。
+           问题有两个：
+             ① 未选规格时纸张铺满全屏（paperW=0 时 W 取 rect.width），
+                inside 恒为 true，"纸张外"根本不存在 → 空白菜单永远不可达；
+             ② 按在白纸上（无元素处）什么都不弹，用户点了没反应。
+           现在按产品定义：明确命中什么 → 什么就是对象；
+           没有明确目标 → 空白菜单，它的作用对象就是白纸本身
+           （删除/复制/粘贴白纸）。 */
         const hitEl = hitAnyElement(sx, sy);
         if (hitEl) {
+          /* ★ 自动框选高亮：把框设成该元素的包围盒。
+             框既是选中状态的来源（getSelectedRefs / selectedTextIds 都读它），
+             也是画面上那圈高亮。外扩 2px 并保证最小 4px，
+             这样细长的笔迹（h≈0）也能通过 getSelectedRefs 的 w/h>=4 判定。 */
+          const b = boundsOf(hitEl.type, hitEl.id);
+          if (b) {
+            const pad = 2;
+            const bb = {
+              x: b.x - pad, y: b.y - pad,
+              w: Math.max(b.w, 4) + pad * 2,
+              h: Math.max(b.h, 4) + pad * 2,
+            };
+            boxRef.current = bb;
+            setBox(bb);
+            setBoxGroupId(null); boxGroupIdRef.current = null;
+          }
           setCtxMenu({ kind: "element", x: sx, y: sy });
         } else {
-          const local = screenToPaperLocal(sx, sy, stageRef.current, paperStateRef.current);
-          if (!local.inside) setCtxMenu({ kind: "blank", x: sx, y: sy });
+          setCtxMenu({ kind: "blank", x: sx, y: sy });
         }
         try { navigator.vibrate && navigator.vibrate(12); } catch {}
       }, 500);
@@ -3119,6 +3316,17 @@ export default function Editor({
     if (type === "note")  { const n = (pg.notes || []).find((x) => x.id === id);  return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
     if (type === "table") { const n = (pg.tables || []).find((x) => x.id === id); return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
     if (type === "link")  { const n = (pg.links || []).find((x) => x.id === id);  return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null; }
+    if (type === "text") {
+      const n = (pg.texts || []).find((x) => x.id === id);
+      if (!n) return null;
+      /* 文字不存宽高（按内容撑开），取 DOM 实际尺寸；取不到时按字号估一个 */
+      const el = document.querySelector(`[data-text-id="${id}"]`) as HTMLElement | null;
+      return {
+        x: n.x, y: n.y,
+        w: el?.offsetWidth || 40,
+        h: el?.offsetHeight || (n.fontSize || 16) * 1.6,
+      };
+    }
     if (type === "shape") {
       const n = (pg.shapes || []).find((x) => x.id === id);
       if (!n) return null;
@@ -3228,6 +3436,8 @@ export default function Editor({
         /* ★ P0-9：粘贴错位 +32，保留各元素真实类型与相对位置 */
         pasteSelection();
       },
+      /* 导出原先挂在长按弹窗上，现统一收进侧边栏「存」，由 SaveDrawer 调用这条命令 */
+      exportCanvas: (format: "svg" | "png" | "png-transparent") => exportCanvas(format),
       eraser: () => onDrawToolChangeRef.current?.("eraser"),
       selectAll: () => {
         const sr = stageRef.current?.getBoundingClientRect();
@@ -3277,20 +3487,83 @@ function handleSheetAction(kind: string) {
     }
 
     if (kind === "bring-front" || kind === "bring-forward" || kind === "send-backward" || kind === "send-back") {
+      /* 分两条路：
+         · 笔迹（shape）整体在一个 <svg> 里，靠数组次序叠放 → 仍用数组重排
+         · 文字/图片/便签/表格/链接同处一层，靠 CSS z-index 叠放 → 重排后重算 z
+         两条路可以同时发生（框选里混着笔迹和其他元素时）。 */
+
+      /* ── 非笔迹元素：按 z 排序后挪位，再重新分配 z ── */
+      const domSel = sel.filter((s) => s.type !== "shape");
+      if (domSel.length) {
+        const ARR: Record<string, string> = { text: "texts", image: "images", note: "notes", table: "tables", link: "links" };
+        const ZD: Record<string, number> = { text: Z_TEXT, image: Z_IMAGE, note: Z_NOTE, table: Z_TABLE, link: Z_LINK };
+        const pg: any = pageRef.current;
+
+        const key = (ty: string, id: string) => `${ty}:${id}`;
+        const picked = new Set(domSel.map((s) => key(s.type, s.id)));
+
+        const list: { type: string; id: string; z: number }[] = [];
+        for (const ty of Object.keys(ARR)) {
+          for (const n of (pg[ARR[ty]] || [])) {
+            if (n.layer !== "paper") continue;
+            list.push({ type: ty, id: n.id, z: typeof n.z === "number" ? n.z : ZD[ty] });
+          }
+        }
+        if (!list.some((x) => picked.has(key(x.type, x.id)))) { /* 选中的不在本页，跳过 */ }
+        else {
+          list.sort((a, b) => a.z - b.z);
+
+          let ordered: typeof list;
+          const selItems = list.filter((x) => picked.has(key(x.type, x.id)));
+          const restItems = list.filter((x) => !picked.has(key(x.type, x.id)));
+
+          if (kind === "bring-front") {
+            ordered = [...restItems, ...selItems];
+          } else if (kind === "send-back") {
+            ordered = [...selItems, ...restItems];
+          } else {
+            const step = kind === "bring-forward" ? 1 : -1;
+            ordered = [...list];
+            const idxs = ordered.map((x, i) => (picked.has(key(x.type, x.id)) ? i : -1)).filter((i) => i >= 0);
+            /* 向「上」挪时从最上面开始处理，避免两个相邻的选中项互相顶住 */
+            const seq = step > 0 ? [...idxs].reverse() : idxs;
+            for (const i of seq) {
+              const j = i + step;
+              if (j < 0 || j >= ordered.length) continue;
+              if (picked.has(key(ordered[j].type, ordered[j].id))) continue;
+              const tmp = ordered[i]; ordered[i] = ordered[j]; ordered[j] = tmp;
+            }
+          }
+
+          /* 重算 z：按新次序给 10/20/30…，与默认值同量纲，老数据观感不变 */
+          const patch: any = {};
+          for (const ty of Object.keys(ARR)) patch[ARR[ty]] = [...(pg[ARR[ty]] || [])];
+          ordered.forEach((item, i) => {
+            const arr = patch[ARR[item.type]];
+            const node = arr.find((n: any) => n.id === item.id);
+            if (node) node.z = (i + 1) * 10;
+          });
+          textsRef.current = patch.texts || textsRef.current;
+          onUpdateRef.current(patch);
+        }
+      }
+
+      /* ── 笔迹：保留原有的数组重排 ── */
       const ids = sel.filter((s) => s.type === "shape").map((s) => s.id);
-      if (!ids.length) return;
-      const shapes = [...(pageRef.current.shapes || [])];
-      ids.forEach((id) => {
-        const i = shapes.findIndex((s) => s.id === id);
-        if (i < 0) return;
-        const [item] = shapes.splice(i, 1);
-        const j = kind === "bring-front" ? shapes.length
-          : kind === "send-back" ? 0
-          : kind === "bring-forward" ? Math.min(shapes.length, i + 1)
-          : Math.max(0, i - 1);
-        shapes.splice(j, 0, item);
-      });
-      onUpdateRef.current({ shapes });
+      if (ids.length) {
+        const shapes = [...(pageRef.current.shapes || [])];
+        ids.forEach((id) => {
+          const i = shapes.findIndex((s) => s.id === id);
+          if (i < 0) return;
+          const [item] = shapes.splice(i, 1);
+          const j = kind === "bring-front" ? shapes.length
+            : kind === "send-back" ? 0
+            : kind === "bring-forward" ? Math.min(shapes.length, i + 1)
+            : Math.max(0, i - 1);
+          shapes.splice(j, 0, item);
+        });
+        onUpdateRef.current({ shapes });
+      }
       return;
     }
 
@@ -3900,6 +4173,7 @@ function handleSheetAction(kind: string) {
         <TextElement
           key={t.id}
           t={t}
+          z={t.z ?? Z_TEXT}
           isEditing={editingId === t.id}
           isDragging={draggingTextId === t.id}
           isSelected={selectedTextIds.has(t.id)}
@@ -3913,6 +4187,7 @@ function handleSheetAction(kind: string) {
           draggable={false}
           style={{
             position: "absolute",
+            zIndex: im.z ?? Z_IMAGE,
             left: im.x, top: im.y, width: im.w, height: im.h,
             objectFit: "contain",
             transform: `rotate(${im.rotate || 0}deg)`,
@@ -3927,6 +4202,7 @@ function handleSheetAction(kind: string) {
           key={n.id}
           style={{
             position: "absolute",
+            zIndex: n.z ?? Z_NOTE,
             left: n.x, top: n.y, width: n.w, height: n.h,
             background: n.bgColor, color: n.textColor,
             borderRadius: 6,
@@ -3947,6 +4223,7 @@ function handleSheetAction(kind: string) {
           key={t.id}
           style={{
             position: "absolute",
+            zIndex: t.z ?? Z_TABLE,
             left: t.x, top: t.y, width: t.w, height: t.h,
             display: "grid",
             gridTemplateRows: `repeat(${t.rows}, 1fr)`,
@@ -3978,6 +4255,7 @@ function handleSheetAction(kind: string) {
           key={l.id}
           style={{
             position: "absolute",
+            zIndex: l.z ?? Z_LINK,
             left: l.x, top: l.y, width: l.w, height: l.h,
             background: "#eaf3fb", color: "#2a4a6b",
             transform: `rotate(${l.rotate || 0}deg)`,
@@ -4002,6 +4280,7 @@ function handleSheetAction(kind: string) {
         preserveAspectRatio={paper.w > 0 && paper.h > 0 ? "none" : "xMidYMid meet"}
         style={{
           position: "absolute",
+          zIndex: Z_SHAPES,
           left: 0, top: 0,
           width: "100%", height: "100%",
           pointerEvents: "none",
@@ -4441,7 +4720,13 @@ function handleSheetAction(kind: string) {
 
       {ctxMenu && (
         <>
-          <div data-ctx-menu onClick={() => setCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 2499, background: "transparent" }} />
+          {/* ★ 遮罩关闭必须用 onPointerDown，不能用 onClick。
+              触摸抬手时浏览器会补发一次 click，落点正是这个刚出现的遮罩，
+              结果长按菜单在手指一抬起的瞬间就被自己关掉 ——
+              手机上这个功能完全无法使用（桌面鼠标不受影响，所以容易漏掉）。
+              pointerdown 只在「新的一次按下」时触发，开启菜单那一次按下
+              发生在遮罩出现之前，因此不会误关。 */}
+          <div data-ctx-menu onPointerDown={() => setCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 2499, background: "transparent" }} />
           <div data-ctx-menu
             onPointerDown={(ev) => ev.stopPropagation()}
             style={{
@@ -4454,25 +4739,21 @@ function handleSheetAction(kind: string) {
               borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
               border: "1px solid rgba(74,70,63,.08)",
             }}>
-            {ctxMenu.sub === "copy-as" ? (
-
+            {ctxMenu.sub === "edit" ? (
+              /* ★ 编辑：图层位置。
+                 水平翻面按产品决定不做（使用度不高、要动数据结构+渲染+导出+命中测试）。
+                 边界说明：笔迹整体在同一 <svg> 内，是「一整层」，
+                 它与其他类型之间可以整体换层，但单根笔迹无法插到图片中间。 */
               <>
                 <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                <CtxItem label="SVG" onClick={() => { setCtxMenu(null); exportCanvas("svg"); }} />
-                <CtxItem label="PNG" onClick={() => { setCtxMenu(null); exportCanvas("png"); }} />
-                <CtxItem label="透明背景 PNG" onClick={() => { setCtxMenu(null); exportCanvas("png-transparent"); }} />
-              </>
-            ) : ctxMenu.sub === "export-as" ? (
-              <>
-                <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
-                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                <CtxItem label="SVG" onClick={() => { setCtxMenu(null); exportCanvas("svg"); }} />
-                <CtxItem label="PNG" onClick={() => { setCtxMenu(null); exportCanvas("png"); }} />
-                <CtxItem label="透明背景 PNG" onClick={() => { setCtxMenu(null); exportCanvas("png-transparent"); }} />
+                <CtxItem label="置顶" onClick={() => { setCtxMenu(null); handleSheetAction("bring-front"); }} />
+                <CtxItem label="移上一下" onClick={() => { setCtxMenu(null); handleSheetAction("bring-forward"); }} />
+                <CtxItem label="移下一下" onClick={() => { setCtxMenu(null); handleSheetAction("send-backward"); }} />
+                <CtxItem label="置底" onClick={() => { setCtxMenu(null); handleSheetAction("send-back"); }} />
               </>
             ) : ctxMenu.sub === "align" ? (
-              /* ★ P0-7：排列从「页」移入长按菜单（单对象长按也可用），只作用于当前被选对象 */
+              /* ★ 排列：只作用于当前被选对象，单对象长按也可用 */
               <>
                 <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
@@ -4486,24 +4767,25 @@ function handleSheetAction(kind: string) {
                 <CtxItem label="垂直等距" onClick={() => { setCtxMenu(null); handleSheetAction("distribute-v"); }} />
               </>
             ) : ctxMenu.kind === "blank" ? (
+              /* ★ 空白菜单：作用对象是白纸本身（用户按空白背景 = 想删/复制/粘贴白纸）。
+                 已按产品定义移除「复制为→」「选中全部」；导出统一移到侧边栏「存」。 */
               <>
-                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteSelection(); }} />
-                <CtxItem label="复制为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "copy-as" })} />
-                <CtxItem label="导出为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "export-as" })} />
+                <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); onDeletePage?.(); }} />
+                <CtxItem label="复制" onClick={() => { setCtxMenu(null); onCopyPage?.(); }} />
+                <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); onPastePage?.(ctxMenu.x, ctxMenu.y); }} />
                 <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                <CtxItem label="选中全部" onClick={() => { setCtxMenu(null); (window as any).__ranjingCommands?.selectAll?.(); }} />
+                {/* 临摹素材作用于「这张纸」，所以放在长按白纸的菜单里 */}
+                <CtxItem label="导入临摹素材" onClick={pickTraceImage} />
               </>
             ) : (
               <>
                 <CtxItem label="复制" onClick={() => { setCtxMenu(null); copySelection(); }} />
                 <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteSelection(); }} />
+                <CtxItem label="排列 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "align" })} />
                 <CtxItem label="组合" onClick={() => { setCtxMenu(null); handleSheetAction("box-compose"); }} />
+                <CtxItem label="编辑 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "edit" })} />
                 <CtxItem label="连接(接着)" onClick={() => { setCtxMenu(null); handleSheetAction("box-chain-story"); }} />
-                <CtxItem label="对齐 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "align" })} />
                 <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); deleteSelection(); clearBox(); }} />
-                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                <CtxItem label="复制为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "copy-as" })} />
-                <CtxItem label="导出为 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "export-as" })} />
               </>
             )}
           </div>
@@ -4563,6 +4845,74 @@ function handleSheetAction(kind: string) {
         }}
       />
 
+      {/* 临摹素材：隐藏的文件选择器（accept=image/* 在手机上会直接开相册） */}
+      <input
+        ref={traceInputRef}
+        type="file"
+        accept="image/*"
+        onChange={onTraceFilePicked}
+        style={{ display: "none" }}
+      />
+
+      {/* 临摹素材浮层：fixed 定位在画布变换之外，因此不随画布平移缩放而跑丢 */}
+      {traceImg && (
+        <>
+          <img
+            src={traceImg.src}
+            alt=""
+            draggable={false}
+            style={{
+              position: "fixed",
+              left: traceImg.x, top: traceImg.y,
+              width: traceImg.w, height: traceImg.h,
+              opacity: traceImg.opacity,
+              pointerEvents: "none",     // 手势穿透，不影响在画布上作画
+              userSelect: "none", WebkitUserSelect: "none",
+              zIndex: 2600,
+              objectFit: "contain",
+            }}
+          />
+          {/* 控制条：浮层上唯一可交互的部分 */}
+          <div
+            data-ctx-menu
+            style={{
+              position: "fixed",
+              left: Math.min(Math.max(4, traceImg.x), Math.max(4, window.innerWidth - 190)),
+              top: Math.max(4, traceImg.y - 34),
+              zIndex: 2601,
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 8px", borderRadius: 10,
+              background: "rgba(251,250,247,.96)",
+              boxShadow: "0 4px 16px rgba(58,53,46,.22)",
+              border: "1px solid rgba(74,70,63,.10)",
+              touchAction: "none",
+            }}
+          >
+            <div
+              onPointerDown={onTraceHandleDown}
+              onPointerMove={onTraceHandleMove}
+              onPointerUp={onTraceHandleUp}
+              onPointerCancel={onTraceHandleUp}
+              style={{ cursor: "grab", fontSize: 14, lineHeight: 1, padding: "4px 6px", color: "#57524c", touchAction: "none" }}
+              title="拖动"
+            >✥</div>
+            <input
+              type="range" min={0.1} max={1} step={0.05}
+              value={traceImg.opacity}
+              onChange={(e) => setTraceImg((t) => t ? { ...t, opacity: Number(e.target.value) } : t)}
+              style={{ width: 64 }}
+              title="透明度"
+            />
+            <button
+              type="button"
+              onClick={() => setTraceImg(null)}
+              style={{ border: 0, background: "transparent", fontSize: 15, lineHeight: 1, color: "#8a8178", cursor: "pointer", padding: "2px 4px" }}
+              title="关闭"
+            >×</button>
+          </div>
+        </>
+      )}
+
     </div>
   );
 }
@@ -4581,11 +4931,13 @@ function CtxItem({ label, onClick, danger }: { label: string; onClick: () => voi
 
 function TextElement({
   t,
+  z,
   isEditing,
   isDragging,
   isSelected,
 }: {
   t: TextNode;
+  z?: number;
   isEditing: boolean;
   isDragging: boolean;
   isSelected: boolean;
@@ -4595,6 +4947,7 @@ function TextElement({
       data-text-id={t.id}
       style={{
         position: "absolute",
+        zIndex: z,
         left: t.x, top: t.y,
         minWidth: 24,
         minHeight: t.fontSize * 1.6,

@@ -1,4 +1,15 @@
 ﻿// name=src/types/document.ts
+/*
+ * 图层顺序（z）
+ *
+ * 六类元素原先靠「渲染顺序」固定叠放：文字 → 图片 → 便签 → 表格 → 链接 → 笔迹，
+ * 用户无法调整，长按菜单里的「置顶 / 移上一下」只对笔迹生效。
+ *
+ * 现在每类元素都可带 z：
+ *   · 未设置时按类型取默认值（DEFAULT_Z，见 Editor），与旧观感一致
+ *   · 数值大的盖在数值小的上面
+ *   · 笔迹整体在一个 <svg> 里，共用同一个层级；笔迹之间的顺序仍由数组次序决定
+ */
 export type TextNode = {
   id: string;
   text: string;
@@ -8,6 +19,8 @@ export type TextNode = {
   color: string;
   layer: "background" | "paper";
   fontFamily?: string;
+  /** 图层顺序（缺省按类型默认值） */
+  z?: number;
 };
 
 export type ImageNode = {
@@ -19,6 +32,7 @@ export type ImageNode = {
   h: number;
   rotate?: number;
   layer: "background" | "paper";
+  z?: number;
 };
 
 export type NoteNode = {
@@ -33,6 +47,7 @@ export type NoteNode = {
   fontSize: number;
   layer: "background" | "paper";
   rotate?: number;
+  z?: number;
 };
 
 export type TableNode = {
@@ -46,6 +61,7 @@ export type TableNode = {
   cells: string[][];
   layer: "background" | "paper";
   rotate?: number;
+  z?: number;
 };
 
 export type LinkNode = {
@@ -58,6 +74,7 @@ export type LinkNode = {
   h: number;
   layer: "background" | "paper";
   rotate?: number;
+  z?: number;
 };
 
 export type ShapeKind =
