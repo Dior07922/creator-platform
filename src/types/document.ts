@@ -174,9 +174,34 @@ export type Page = {
   paperAlpha?: number;
   paperW?: number;
   paperH?: number;
+  /** 线条骨钉：这一张纸自己的关节姿势。
+      只有「活页」和起始页才存；其余纸不存，用【往前找最近一张有姿势的纸】的结果。
+      改一张活页，后面自动跟上 —— 因为后面的本来就在读它。 */
+  rig?: RigConfig;
   createdAt: number;
   updatedAt: number;
   meta?: Record<string, any>;
+};
+
+/** 一颗骨钉（一个关节）：钉在画面的 (sx, sy)，被拖到了 (x, y) */
+export type RigJoint = {
+  id: string;
+  /** 钉住的位置（源图坐标）—— 钉子扎下去的那个点，永不改变 */
+  sx: number;
+  sy: number;
+  /** 当前被拖到的位置（源图坐标） */
+  x: number;
+  y: number;
+};
+
+/** 一张纸的骨钉配置 */
+export type RigConfig = {
+  /** 这一张自己的关节姿势（活页/起始页才有） */
+  joints?: RigJoint[];
+  /** 关节带动的影响半径（像素）。不同画作不一样，用户可调 */
+  radius?: number;
+  /** 骨架是怎么来的：用户自己点的，还是系统自动布的 */
+  origin?: "manual" | "auto";
 };
 
 /* 关系语义：连接层的 4 种真实关系（不是画线，是建立关系） */
