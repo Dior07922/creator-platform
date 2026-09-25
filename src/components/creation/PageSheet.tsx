@@ -1,4 +1,5 @@
 "use client";
+import { isLooseLeaf as __looseLeaf } from "../../lib/rigPages";
 import React, { useEffect, useRef, useState } from "react";
 import type { Page, PageLink, SheetAction } from "../../types/document";
 
@@ -11,6 +12,9 @@ type Props = {
   onSelectPage: (id: string) => void;
   onAddPage: () => void;
   onDeletePage: (id: string) => void;
+  /** ★ 骨钉叠放的 10 张 id（按顺序）。有它才能把 10 张收成 1 张卡片 + 3 张活页，
+      不然三十多张全列出来，用户删都要删累死。 */
+  rigStackIds?: string[];
   onRenamePage: (id: string, title: string) => void;
   onDuplicatePage: (id: string) => void;
   onExit: () => void;
@@ -61,6 +65,7 @@ export default function PageSheet({
   onSelectPage,
   onAddPage,
   onDeletePage,
+  rigStackIds,
   onRenamePage,
   onDuplicatePage,
   onExit,
@@ -353,6 +358,9 @@ export default function PageSheet({
                 alignItems: align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
               }}>
                 {pages.map((p, idx) => {
+                  /* ★ 骨钉叠放：只画第 1 张 + 3 张活页（3/6/9），中间那些「保持」的收进卡片里 */
+                  const __stackIdx = (rigStackIds || []).indexOf(p.id);
+                  if (__stackIdx >= 0 && __stackIdx !== 0 && !__looseLeaf(__stackIdx)) return null;
                   const active = p.id === currentPageId;
                   const label = p.title || "未命名";
                   const wRatio = p.paperW && p.paperH ? p.paperW / p.paperH : 0.75;
@@ -362,6 +370,7 @@ export default function PageSheet({
                     <button
                       key={p.id}
                       type="button"
+                      data-page-row={p.id}
                       onPointerDown={() => handlePointerDown(p)}
                       onPointerUp={() => handlePointerUp(p)}
                       onPointerLeave={() => { setPressedId(null); clearPress(); }}
@@ -447,7 +456,10 @@ export default function PageSheet({
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => onConnectModeChange(active ? null : m.id)}
+                      /* ★ 骨钉不设二级入口 —— 用户 2026-09-26：
+                         「把线条骨钉入口也可以删掉 直接点击骨钉模式不就进来了」「不要留 2 套」。
+                         点「③ 骨钉模式」这一步本身就是入口，直接进骨钉空间。 */
+                      onClick={() => (m.id === "rig" ? onStartRig() : onConnectModeChange(active ? null : m.id))}
                       style={{
                         textAlign: "left", padding: "10px 12px", borderRadius: 10,
                         border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
@@ -542,46 +554,11 @@ export default function PageSheet({
                 </>
               )}
 
-              {/* ③ 骨钉模式：三个选项（手稿第二张：线条骨钉 / 单变 / 页数）*/}
-              {connectMode === "rig" && (
-                <>
-                  <SectionLabel>骨钉模式</SectionLabel>
-                  <div style={{ fontSize: 11, color: "#a49a8f", lineHeight: 1.6, marginBottom: 8 }}>
-                    选一种对象，统一默认「复制当前页面 10 张叠放」
-                  </div>
-                  {[
-                    { id: "pin", label: "① 线条骨钉", desc: "6 个木偶关节，管细节。能用了", ready: true },
-                    { id: "morph", label: "② 单变", desc: "浅淡 / 颜色 / 大小 / 粗细，管大面", ready: false },
-                    { id: "count", label: "③ 页数", desc: "张数 + 模板库（动画片/连环画/漫画书）", ready: false },
-                  ].map((o) => (
-                    <button
-                      key={o.id}
-                      type="button"
-                      disabled={!o.ready}
-                      onClick={o.ready ? onStartRig : undefined}
-                      style={{
-                        display: "block", width: "100%", textAlign: "left",
-                        padding: "10px 12px", marginBottom: 7, borderRadius: 10,
-                        border: o.ready ? "1px solid rgba(122,90,52,.30)" : "1px solid rgba(74,70,63,.12)",
-                        background: o.ready ? "#fffdfa" : "#f4f1ec",
-                        color: o.ready ? "#3a352e" : "#b3aaa0",
-                        fontSize: 13, cursor: o.ready ? "pointer" : "default",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      <div style={{ fontWeight: 600 }}>{o.label}</div>
-                      <div style={{ fontSize: 10.5, color: o.ready ? "#8a8178" : "#c0b8ae", marginTop: 2 }}>
-                        {o.desc}
-                      </div>
-                    </button>
-                  ))}
-                  <div style={{ marginTop: 4, fontSize: 10, color: "#a49a8f", lineHeight: 1.7 }}>
-                    线条骨钉：6 个关节等于骨架。关节带动的地方能动，<br />
-                    关节以外全部定死。每隔 2 张有 1 张活页可改，<br />
-                    活页改的样式后面所有都默认一致。
-                  </div>
-                </>
-              )}
+              {/* ★ 骨钉的二级面板【整块删除】—— 用户 2026-09-26：
+                 「把线条骨钉入口也可以删掉 直接点击骨钉模式不就进来了」「不要留 2 套」。
+                 它里面只剩「线条骨钉」这一个按钮 + 一段说明，功能全部并进上一格：
+                 点「③ 骨钉模式」即直接进骨钉空间（见上面 onClick）。
+                 所以 connectMode 永远不会再等于 "rig"，这里不留死代码。 */}
 
               {/* 已建立的连接（线） */}
               {links.length > 0 && (

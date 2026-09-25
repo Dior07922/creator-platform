@@ -71,7 +71,7 @@ type Props = {
   /** 连接动作进行中：此时"点一下"的语义是【选对象】，不是框选/绘制 */
   connectPicking?: boolean;
   /** 连接动作里点中了对象，报给上层状态机 */
-  onConnectPickObject?: (el: { type: string; id: string }) => void;
+  onConnectPickObject?: (el: { type: string; id: string }, pageId?: string) => void;
   /** 长按弹窗里点了「连接」：以这个对象为起点开启连接模式 */
   onStartConnect?: (el: { type: string; id: string }) => void;
   /* （原 connectArrange：把纸排开 —— 整套已删除，连接不再动任何纸张的位置） */
@@ -80,6 +80,23 @@ type Props = {
   rigMode?: boolean;
   /** 当前纸实际要用的关节（已经过活页继承解算，可能是从前面某张继承来的） */
   rigJoints?: RigJoint[];
+  /** ★ 用户正拿在手里的骨钉（关节位 id）＋手指当前屏幕位置 —— 画放大镜用 */
+  rigHolding?: string | null;
+  rigHover?: { x: number; y: number } | null;
+  /** ★ 关节定点图：该钉在哪儿的参考位置（淡淡的、钉一个少一个） */
+  rigGuide?: { id: string; x: number; y: number }[];
+  /** ★ 骨钉这个独立空间自己的视野（镜头）—— 只改"怎么看"，纸的坐标不动 */
+  rigView?: { k: number; vx: number; vy: number };
+  /** ★ 模板的呈现选项：黑白画面 */
+  rigMono?: boolean;
+  /** ★ 模板库选中的呈现形态（手稿第五张底部三块）：
+      anim＝电视机（框里装画）／book＝漫画书册（切成小格装订成册）／strip＝连环画（折角大画布） */
+  rigTemplate?: "anim" | "strip" | "book" | null;
+  /** 漫画书册用几格：3 格 / 6 格（用户 2026-09-26：「可以按 3 格和 6 格来做」） */
+  rigCells?: 3 | 6;
+  /** 书册/连环画：翻下一页（点右下角折角） */
+  onRigFlip?: () => void;
+  onRigViewChange?: (v: { k: number; vx: number; vy: number }) => void;
   /** 影响半径 */
   rigRadius?: number;
   /** 用户拖了某个关节 */
@@ -102,9 +119,19 @@ type Props = {
   /** ★ 演示模式：固定视口、一次只显示一个页面；只有这时点对象才跳转。
       普通创作画布里点对象永远只是"选中/编辑"（用户 2026-09-26 定的边界）。 */
   demoOn?: boolean;
-  /** ★ 无限画布：看画布的方式（k 缩放 / vx,vy 平移）。状态在父层，Editor 会随页切换重挂载。 */
-  canvasView?: { k: number; vx: number; vy: number };
-  onCanvasViewChange?: (v: { k: number; vx: number; vy: number }) => void;
+  /** ★ 抽屉面板开着 = 用户正在做"功能性工作"。
+      这时画布上【禁止触发任何弹窗、禁止触发框选】（用户 2026-09-26 第十一条，定死）。
+      只在工作结束（抽屉关掉）时才恢复。 */
+  drawerBusy?: boolean;
+  /** ★ 演示态：手指从屏幕左边缘往右扫 → 把左侧工具栏叫回来。
+      演示时工具栏默认收在屏幕外（纸要真实尺寸、满屏、零遮挡），
+      所以给一个【纯识别、不拦任何点击】的唤出手势：
+      只有"从左边往右扫"才触发，原地"点"照旧走跳转。 */
+  onRevealRail?: () => void;
+  /** ★ 连接编辑状态（页 → 连接 → 手机/网站模式）。
+      用户 2026-09-26：「普通创作状态不显示连接线；进入连接编辑状态才显示完整连接关系」。
+      所以连接线 / 连接高亮框的开关是它，不是"连过就常驻"。演示态另外掐掉。 */
+  connectViewOn?: boolean;
   /** 演示模式里点中了有连接的对象（去程） */
   onConnectJump?: (ix: Interaction) => void;
   /** ★ 运行态里点中了【创作者指定的返程对象】（第十张第③步选的那个） */
@@ -150,7 +177,9 @@ type Mode =
   | "scaleEl"
   | "dragUnit";
 
-type ResizeHandle = "nw" | "ne" | "se" | "sw";
+/* ★ 手稿第七张：「拖四个角=拉大小」「拖上下边框=拉伸长宽」「拖左右边框=拉宽窄」。
+   四条边 n/s/e/w 是这一批新加的 —— 以前只有四个角。 */
+type ResizeHandle = "nw" | "ne" | "se" | "sw" | "n" | "s" | "e" | "w";
 
 function normalizeAngleDiff(rad: number) {
   while (rad > Math.PI) rad -= Math.PI * 2;
@@ -200,11 +229,22 @@ const HANDLE_HIT = 28;
 const SELECT_BLUE = "rgba(59,130,246,.85)";
 const SELECT_BLUE_BG = "rgba(59,130,246,.10)";
 const LONG_PRESS_MS = 500;
+/* ★ 演示态「把工具栏叫回来」的手势：从屏幕最左边这一条起手，往右扫够这么远。
+   起手区只有 24px，且只认"扫"（原地点击完全不拦），所以纸上的点击一点不受影响。 */
+const EDGE_REVEAL_PX = 24;
+const EDGE_REVEAL_SWIPE = 36;
+/* ★ 框选对象上按下之后：往上滑多远才算"我要框选"。往下拖一律是移动。 */
+const MOVE_OR_SELECT_PX = 26;
 const DEFAULT_FONT = '"Noto Sans SC", sans-serif';
 
 /* 各类型元素的默认图层顺序。
    数值与旧的渲染顺序一致（文字最底、笔迹最上），
    所以没设过 z 的老文档观感不变。用户「置顶/移上」后写入具体 z 值。 */
+/* ★ 笔迹那一层的缓存 —— 必须放在【组件外面】。
+   进骨钉时当前页会切成叠放里的第 1 张，editorKey 一变 Editor 整个重挂载，
+   放组件里的 ref 会被清空，做位图时就抓不到笔迹（用户报「我的画不见了」）。 */
+let STROKES_CACHE = "";
+
 const Z_TEXT = 10;
 const Z_IMAGE = 20;
 const Z_NOTE = 30;
@@ -513,13 +553,23 @@ export default function Editor({
   connectDone,
   connectRun,
   demoOn,
-  canvasView,
-  onCanvasViewChange,
+  drawerBusy,
+  onRevealRail,
+  connectViewOn,
   onConnectJump,
   onConnectJumpBack,
   onDeleteInteraction,
   rigMode,
   rigJoints,
+  rigHolding,
+  rigHover,
+  rigGuide,
+  rigView,
+  rigMono,
+  rigTemplate = null,
+  rigCells = 6,
+  onRigFlip,
+  onRigViewChange,
   rigRadius,
   onRigJointMove,
 }: Props) {
@@ -540,6 +590,10 @@ export default function Editor({
   onSelectPageRef.current = onSelectPage;
   const onConnectPickObjectRef = useRef(onConnectPickObject);
   onConnectPickObjectRef.current = onConnectPickObject;
+  const onRevealRailRef = useRef(onRevealRail);
+  const drawerBusyRef = useRef(drawerBusy);
+  drawerBusyRef.current = drawerBusy;
+  onRevealRailRef.current = onRevealRail;
   /* onPointerDown 里要读，用 ref 避免把它的闭包钉死在旧值上 */
   const papersPickableRef = useRef(false);
   onDrawToolChangeRef.current = onDrawToolChange;
@@ -556,9 +610,6 @@ export default function Editor({
   brushRef.current = brush;
   onDrawToolConsumedRef.current = onDrawToolConsumed;
 
-  const view = canvasView || { k: 1, vx: 0, vy: 0 };
-  const viewRef = useRef(view);
-  viewRef.current = view;
 
   const [paper, setPaper] = useState<PaperState>(() => {
     const t = page.transform;
@@ -698,7 +749,7 @@ export default function Editor({
   /* ★ 框选轻弹窗：长按/框选完成后在画布上出现的操作入口（组合/连接/排列），
      替代原来被全透明层锁死画布的 ctxMenu 结构。 */
   const [boxPopup, setBoxPopup] = useState<{ x: number; y: number; count: number } | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "align" | "edit"; hitEl?: { type: string; id: string } } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ kind: "blank" | "element"; x: number; y: number; sub?: "align" | "edit" | "font"; hitEl?: { type: string; id: string } } | null>(null);
 
   /* ── 临摹素材（视线固定）─────────────────────────────────────
      从手机相册选一张图作为临摹参照：
@@ -765,7 +816,6 @@ export default function Editor({
     } : t);
   }
   function onTraceHandleUp() { traceDragRef.current = null; }
-  const [textPanel, setTextPanel] = useState<{ x: number; y: number } | null>(null);
   /* ★ 套索轨迹：stage 局部坐标点序列。null = 未在画套索 */
   const [lassoPath, setLassoPath] = useState<{ x: number; y: number }[] | null>(null);
   const [selectedEl, setSelectedEl] = useState<{
@@ -891,6 +941,17 @@ export default function Editor({
     longPressTimer: 0 as any,
     moved: false,
     longPressed: false,
+    /* ★ 按在【有内容的框上】之后，先定方向再动：往上滑=框选、往下/横着拖=移动。
+       gating=true 表示"还没定"——这段距离内一点都不动（用户原话
+       「稍微不注意就被拖走了」正是没这道闸造成的）。只有从内容上起手才上闸，
+       空白处起手的框选不受影响。 */
+    dirGate: true as boolean,
+    /* 这一把捏合缩的是哪张纸（两指在哪张上就是哪张，见第九条） */
+    pinchPageId: null as string | null,
+    /* ★ 演示态「左边缘往右扫 → 叫回工具栏」用。纯识别：只有真的扫出去才触发，
+       原地"点"完全不拦（点了就照旧走跳转）。 */
+    edgeSwipeFrom: null as null | { x: number; y: number },
+    edgeSwipeFired: false as boolean,
     dragTextId: null as string | null,
     pendingBox: false as boolean,
     boxSourceLayer: null as "background" | "paper" | null,
@@ -899,7 +960,10 @@ export default function Editor({
     boxStartPoint: { x: 0, y: 0 },
     boxResizeHandle: "se" as ResizeHandle,
     boxOriginal: { x: 0, y: 0, w: 0, h: 0 },
-    boxOriginalMembers: [] as { id: string; x: number; y: number; fontSize: number }[],
+    /* 框里所有成员的原样快照（各种类型都收）+ 框起手时的【纸张矩形】——
+       拖动/拉大小一律以这两份为基准重算，绝不在每一帧上累加（那会越拖越胀）。 */
+    boxOriginalMembers: [] as { type: string; id: string; node: any }[],
+    boxPaperOrigin: null as BoxState | null,
     boxOriginalOtherPages: [] as { id: string; x: number; y: number; scale: number }[],
     boxMoveStart: { x: 0, y: 0 },
     boxMoveOriginal: { x: 0, y: 0, w: 0, h: 0 },
@@ -944,6 +1008,7 @@ export default function Editor({
       g.dragTextId = null;
       g.dragBoxOrigin = null;
       g.pendingBox = false;
+      (g as any).boxArmed = false;
       g.pendingSwitchPageId = null;
       g.pendingClearBoxOnUp = false;
       g.justCommittedEdit = false;
@@ -1211,10 +1276,10 @@ export default function Editor({
     showFloatingEditor(rect.left, rect.top, wideWidth, height, fontSize, t.color, t.text || "");
     focusFloatingEditor();
     setEditingId(t.id); editingIdRef.current = t.id;
-    {
-      const __r = el?.getBoundingClientRect();
-      if (__r) setTextPanel({ x: __r.left + __r.width, y: __r.top });
-    }
+    /* ★ 这里原来会弹一个独立的「字体」小面板（大/中/小）。
+       已删除：用户 2026-09-26 要求「把这个字体的弹窗移到长弹窗里，
+       字体同属于有内容的区域，不准再出现」——
+       字号现在只从【长按文字 → 字体 →】进。 */
   }
   function createTextAndEdit(screenX: number, screenY: number, layer: "background" | "paper") {
     const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1452,6 +1517,13 @@ export default function Editor({
     if (!b) return null;
     const local = getStageLocal(sx, sy);
     if (!local) return null;
+    /* ★ 热区必须【跟着框的大小收敛】。
+       原来是写死的 ±28（每个角一个 56×56 的方块）：元素一画小，四个角就把整个框铺满，
+       于是"想拉大小"变成了"一碰就拖走"，反过来想移动又抓不到中间。
+       用户原话：「稍微不注意就被拖走了，我明明只想要把它拉小一点，拉不小只能拖走」。
+       现在钳到框的 30%，并留 8px 下限；框中间那一块永远留给"拖着走"。 */
+    const zone = Math.max(8, Math.min(HANDLE_HIT, b.w * 0.3, b.h * 0.3));
+    /* 四角优先（角比边更常抓） */
     const pts: { h: ResizeHandle; x: number; y: number }[] = [
       { h: "nw", x: b.x, y: b.y },
       { h: "ne", x: b.x + b.w, y: b.y },
@@ -1459,10 +1531,18 @@ export default function Editor({
       { h: "sw", x: b.x, y: b.y + b.h },
     ];
     for (const p of pts) {
-      if (Math.abs(local.x - p.x) <= HANDLE_HIT && Math.abs(local.y - p.y) <= HANDLE_HIT) {
-        return p.h;
-      }
+      if (Math.abs(local.x - p.x) <= zone && Math.abs(local.y - p.y) <= zone) return p.h;
     }
+    /* 四条边：① 只在两条角热区【之间】那一段；② 只在外侧 35% 那一条带里。
+       ② 是必须的：细长元素（比如一根 8px 高的线）如果只看距离，
+       上下两条边的热区都会横跨整条线，中间就永远抓不到、移不动了。 */
+    const inMidX = local.x > b.x + zone && local.x < b.x + b.w - zone;
+    const inMidY = local.y > b.y + zone && local.y < b.y + b.h - zone;
+    if (inMidX && local.y < b.y + b.h * 0.35 && local.y - b.y <= zone) return "n";
+    if (inMidX && local.y > b.y + b.h * 0.65 && b.y + b.h - local.y <= zone) return "s";
+    if (inMidY && local.x < b.x + b.w * 0.35 && local.x - b.x <= zone) return "w";
+    if (inMidY && local.x > b.x + b.w * 0.65 && b.x + b.w - local.x <= zone) return "e";
+    /* 中间那一块 → 交给 isInsideBox → 拖着框走 */
     return null;
   }
   function isInsideBox(sx: number, sy: number): boolean {
@@ -1494,7 +1574,11 @@ export default function Editor({
     const ids: string[] = [];
     const p = paperStateRef.current;
 
-    /** 纸张局部包围盒 → 是否与框相交 */
+    /* ★★ 框选只认【完整包住】的东西 —— 掠到一点边不算。
+       用户 2026-09-26：「刚拉起框就把一个大家伙黏上了，这不合理」；
+       手稿第六张：「按住框选时，框还没有；接触到完整内容时才成型；
+       框选的对象是"完整"」。
+       原来是相交就算（沾一点边就黏上），一个 5px 的小框能黏住整张画。 */
     const hitsBox = (lb: { x: number; y: number; w: number; h: number }) => {
       const c1 = paperLocalToScreen(lb.x, lb.y, stage, p);
       const c2 = paperLocalToScreen(lb.x + lb.w, lb.y + lb.h, stage, p);
@@ -1502,7 +1586,8 @@ export default function Editor({
       const y1 = Math.min(c1.y, c2.y);
       const x2 = Math.max(c1.x, c2.x);
       const y2 = Math.max(c1.y, c2.y);
-      return !(x2 < bx1 || x1 > bx2 || y2 < by1 || y1 > by2);
+      /* 框必须把整块内容【全部盖住】：四条边都不许露出去 */
+      return x1 >= bx1 && x2 <= bx2 && y1 >= by1 && y2 <= by2;
     };
     const layerOk = (n: any) => !restrictTo || n.layer === restrictTo;
     const pushXYWH = (list: any[] | undefined) => {
@@ -1534,6 +1619,83 @@ export default function Editor({
     });
     return ids;
   }
+  /* ══ ★ 框住的东西：拖着框走 / 拉大小 / 拉长宽 ════════════════════════
+     手稿第七张：按住拖=移动、拖四角=拉大小、拖上下边框=拉长、拖左右边框=拉宽窄。
+     以前这三条【只对文字生效】—— 框里的线条、图形一个字都不动
+     （用户原话：「我明明只想要把它拉小一点，拉不小只能拖走」）。
+     现在统一按【纸张坐标】算：框在纸上的矩形从 A 变到 B，
+     成员的 x/y/w/h、图形的 x1..y2 与 points 全部跟着 A→B 走。 */
+
+  /** 把框里所有成员原样拍一份（文字/图片/便签/表格/链接/图形，各种都收） */
+  function snapshotBoxMembers(): { type: string; id: string; node: any }[] {
+    const pg = pageRef.current;
+    const ids = new Set<string>(currentGroupMemberIds());
+    const b = boxRef.current;
+    if (b && b.w >= 4 && b.h >= 4) computeMembersInBox(b).forEach((id) => ids.add(id));
+    const out: { type: string; id: string; node: any }[] = [];
+    ids.forEach((id) => {
+      const t = resolveMemberRef(id)?.type || "text";
+      const arr: any[] = t === "image" ? (pg.images || []) : t === "note" ? (pg.notes || [])
+        : t === "table" ? (pg.tables || []) : t === "link" ? (pg.links || [])
+        : t === "shape" ? (pg.shapes || []) : (pg.texts || []);
+      const node = arr.find((n) => n.id === id);
+      if (node) out.push({ type: t, id, node: JSON.parse(JSON.stringify(node)) });
+    });
+    return out;
+  }
+
+  /** 一个成员按「框从 a 变到 b」重排（a / b 都是纸张坐标里的矩形） */
+  function remapMember(type: string, node: any, a: BoxState, b: BoxState): any {
+    const sx = a.w > 0.5 ? b.w / a.w : 1;
+    const sy = a.h > 0.5 ? b.h / a.h : 1;
+    const mx = (x: number) => b.x + (x - a.x) * sx;
+    const my = (y: number) => b.y + (y - a.y) * sy;
+    if (type === "text") {
+      /* 字号只跟着"最小的那一维"走：单拉宽不应该把字撑高 */
+      const fr = Math.max(0.05, Math.min(sx, sy));
+      return { ...node, x: mx(node.x), y: my(node.y), fontSize: Math.max(4, (node.fontSize || 16) * fr) };
+    }
+    if (type === "shape") {
+      const out: any = { ...node, x1: mx(node.x1), y1: my(node.y1), x2: mx(node.x2), y2: my(node.y2) };
+      if (Array.isArray(node.points)) out.points = node.points.map((p: any) => ({ x: mx(p.x), y: my(p.y) }));
+      return out;
+    }
+    /* image / note / table / link：x,y,w,h 一起走 */
+    const out: any = { ...node, x: mx(node.x), y: my(node.y) };
+    if (typeof node.w === "number") out.w = Math.max(4, node.w * sx);
+    if (typeof node.h === "number") out.h = Math.max(4, node.h * sy);
+    return out;
+  }
+
+  /** 把「框从 a 变到 b」真正写回文档。一次写全，不在 move 里堆历史。 */
+  function applyBoxRemap(a: BoxState, b: BoxState) {
+    const g = gRef.current;
+    const members = g.boxOriginalMembers as unknown as { type: string; id: string; node: any }[];
+    (window as any).__rb = { called: true, n: members ? members.length : -1, types: members ? members.map((m) => m.type) : [], a, b };   /* TEMP-DEBUG */
+    if (!members || !members.length) return;
+    const pg = pageRef.current;
+    const buckets: Record<string, any[]> = {
+      text: [...(pg.texts || [])], image: [...(pg.images || [])], note: [...(pg.notes || [])],
+      table: [...(pg.tables || [])], link: [...(pg.links || [])], shape: [...(pg.shapes || [])],
+    };
+    let touched = false;
+    for (const m of members) {
+      const arr = buckets[m.type];
+      if (!arr) continue;
+      /* ★ 框里含整张纸时，纸层成员跟着【纸自己的缩放】走，这里不许再动一次（否则缩两遍） */
+      if (g.boxIncludePaper && m.node?.layer === "paper") continue;
+      const i = arr.findIndex((n) => n.id === m.id);
+      if (i < 0) continue;
+      arr[i] = remapMember(m.type, m.node, a, b);
+      touched = true;
+    }
+    if (!touched) return;
+    onUpdateRef.current({
+      texts: buckets.text, images: buckets.image, notes: buckets.note,
+      tables: buckets.table, links: buckets.link, shapes: buckets.shape,
+    });
+  }
+
   function currentGroupMemberIds(): string[] {
     const gid = boxGroupIdRef.current;
     if (!gid) return [];
@@ -1774,9 +1936,14 @@ export default function Editor({
       );
     }
 
-    // 笔迹：直接复用页面上已渲染好的内容，坐标同为纸张局部坐标
-    const liveSvg = stageRef.current?.querySelector("svg");
-    if (liveSvg) P.push(liveSvg.innerHTML);
+    /* 笔迹：直接复用页面上已渲染好的那一层（单一来源，不写第二套）。
+       ★ 骨钉模式下这一层已经不在 DOM 里了（纸换成了位图）——
+         那时必须用【进骨钉前缓存下来的那一份】，否则位图里只有文字/图片，
+         手画的线条和图形全丢，用户看到的就是一张白纸（实测：位图里只剩 22 个非白像素）。 */
+    const strokes = rigMode
+      ? (strokesCacheRef.current || STROKES_CACHE)
+      : (stageRef.current?.querySelector("[data-shapes-svg]")?.innerHTML || "");
+    if (strokes) P.push(strokes);
 
     return (
       `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
@@ -1937,9 +2104,71 @@ export default function Editor({
     if (link) return { type: "link", id: link.id };
     const shape = hitShapeAt(lx.x, lx.y, pg.shapes || []);
     if (shape) return { type: "shape", id: shape.id };
+    /* ★ 兜底：按在任何元素的【真包围盒】里也算命中。
+       为什么必须有这一层：上面那几个 hit*At 用的是"离笔画多近"的描边判定
+       （图形是 8px 以内）。手画的圆圈/线条，按在圈里、离笔画超过 8px 的地方
+       会被判成"空白" —— 于是【空白短弹窗出现在有内容的地方】。
+       用户 2026-09-26 定死：「任何有内容的地方长按，短弹窗都不准出现，
+       只准出现在空白处长按」。所以这里按包围盒再收一遍。 */
+    const boxHit = hitContentByBox(lx.x, lx.y);
+    if (boxHit) return boxHit;
     /* Unit 外框命中带也算对象命中（P0-4 单对象长按里的 Unit） */
     const unit = hitUnitBorder(lx.x, lx.y);
     if (unit) return { type: "unit", id: unit.unit.id };
+    return null;
+  }
+
+  /** ★ 在【任意一张纸】上命中对象（不只当前纸）。
+      连接模式专用：点别的纸上的对象原来完全失灵。
+      换算用 paperDisplay（就是画连接线、画高亮框用的那一套），
+      命中用各自的真包围盒（elemBoxIn），从后往前 = 后画的在上。 */
+  function hitElementOnPage(pg: Page, sx: number, sy: number): { type: string; id: string } | null {
+    const d = paperDisplay(pg.id);
+    if (!d) return null;
+    const pw = pg.paperW && pg.paperW > 0 ? pg.paperW : 390;
+    const ph = pg.paperH && pg.paperH > 0 ? pg.paperH : 844;
+    const sr = stageRef.current?.getBoundingClientRect();
+    if (!sr) return null;
+    const cx = sr.width / 2 + d.tx;
+    const cy = sr.height / 2 + d.ty;
+    const tr = (pg.transform || { rotate: 0 } as any).rotate || 0;
+    const rad = (-tr * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const dx = sx - sr.left - cx;
+    const dy = sy - sr.top - cy;
+    const s = d.s || 1;
+    const lx = (dx * cos - dy * sin) / s + pw / 2;
+    const ly = (dx * sin + dy * cos) / s + ph / 2;
+    if (lx < 0 || lx > pw || ly < 0 || ly > ph) return null;
+    const rows: { type: string; id: string }[] = [];
+    (pg.images || []).forEach((n) => rows.push({ type: "image", id: n.id }));
+    (pg.notes || []).forEach((n) => rows.push({ type: "note", id: n.id }));
+    (pg.tables || []).forEach((n) => rows.push({ type: "table", id: n.id }));
+    (pg.links || []).forEach((n) => rows.push({ type: "link", id: n.id }));
+    (pg.shapes || []).forEach((n) => rows.push({ type: "shape", id: n.id }));
+    (pg.texts || []).forEach((n) => rows.push({ type: "text", id: n.id }));
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const b = elemBoxIn(pg, rows[i].type, rows[i].id);
+      if (b && lx >= b.x && lx <= b.x + b.w && ly >= b.y && ly <= b.y + b.h) return rows[i];
+    }
+    return null;
+  }
+
+  /** 纸内坐标落点：谁的【真包围盒】盖住它？（文字不走这里，hitText 已经按 DOM 盒判过） */
+  function hitContentByBox(px: number, py: number): { type: string; id: string } | null {
+    const pg = pageRef.current;
+    const hit = (b: { x: number; y: number; w: number; h: number } | null) =>
+      !!b && px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h;
+    const rows: { type: string; id: string; b: { x: number; y: number; w: number; h: number } | null }[] = [];
+    (pg.images || []).forEach((n) => rows.push({ type: "image", id: n.id, b: n }));
+    (pg.notes || []).forEach((n) => rows.push({ type: "note", id: n.id, b: n }));
+    (pg.tables || []).forEach((n) => rows.push({ type: "table", id: n.id, b: n }));
+    (pg.links || []).forEach((n) => rows.push({ type: "link", id: n.id, b: n }));
+    (pg.shapes || []).forEach((n) => rows.push({ type: "shape", id: n.id, b: shapeLocalBox(n) }));
+    /* 后画的在上 → 从后往前找 */
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (hit(rows[i].b)) return { type: rows[i].type, id: rows[i].id };
+    }
     return null;
   }
 
@@ -1961,10 +2190,29 @@ export default function Editor({
     /* ★ 盖在画布上的界面（胶片条这类）同理：它们要自己收点击。
        不排除的话 stage 一捕获指针，按钮的 onClick 就永远收不到。 */
     if (__tgt.closest("[data-no-canvas-gesture]")) return;
+    /* ★ 演示态：记下"这一下是不是从屏幕左边缘起的"。
+       只是记，什么都不拦 —— 抬手时是扫就是唤出，是点就照旧跳转。 */
+    gRef.current.edgeSwipeFired = false;
+    gRef.current.edgeSwipeFrom = demoOn && e.clientX <= EDGE_REVEAL_PX
+      ? { x: e.clientX, y: e.clientY }
+      : null;
+    /* ★ 框选起手点：每一次按下都重新记，别留给上一次手势。
+       踩过的坑：加页/换页会让 Editor 整个重挂载（editorKey = 页id+规格），
+       手势状态被重置成初值 {0,0}；而框选起手那条分支只赋了 startPoint、
+       没赋 boxStartPoint —— 于是加页之后一拖，框从屏幕左上角 (0,0) 开始画，
+       实测「手指走 100×100、框却是 (0,0) 到 (130,740)」。在这里统一兜住。 */
+    {
+      const lo = getStageLocal(e.clientX, e.clientY);
+      if (lo) gRef.current.boxStartPoint = lo;
+      gRef.current.pendingBox = false;
+      (gRef.current as any).boxArmed = false;
+    }
     {
       const sx = e.clientX, sy = e.clientY;
       const lp = window.setTimeout(() => {
         if (drawToolRef.current) return;
+        /* ★ 第十一条：抽屉面板开着时，画布上禁止任何弹窗 */
+        if (drawerBusyRef.current) return;
         /* ★ 双手指 = 捏合，不是长按。
            两根手指各起了一个定时器，而 window.__ranjingLongPress 只记得住最后一个，
            第一根手指那个会漏到 500ms 后开火 —— 实测：捏合到一半突然弹出元素菜单、
@@ -1998,6 +2246,14 @@ export default function Editor({
             setBoxGroupId(null); boxGroupIdRef.current = null;
           }
           setCtxMenu({ kind: "element", x: sx, y: sy, hitEl: hitEl as { type: string; id: string } });
+        } else if (boxRef.current && isInsideBox(sx, sy)) {
+          /* ★ 框选出来的框【里面】，一律也算"有内容的地方"。
+             为什么必须有这一条：框住好几个对象时，对象【之间的空隙】不属于任何一个元素，
+             原来会掉进"空白" → 短弹窗出现在有内容的地方。
+             用户 2026-09-26 定死：「框选的对象同属于有内容的，同样走长弹窗，
+             不要再出现短弹窗；有内容的区域出现短弹窗就是你的问题」。
+             框保持原样（不重设），长弹窗的各项本来就作用于框里的内容。 */
+          setCtxMenu({ kind: "element", x: sx, y: sy });
         } else {
           setCtxMenu({ kind: "blank", x: sx, y: sy });
         }
@@ -2285,7 +2541,7 @@ export default function Editor({
             setBoxGroupId(null); boxGroupIdRef.current = null;
             g.dragBoxOrigin = bb;      // 接着拖动时，框跟着对象走
           }
-          g.mode = "dragShape";
+          g.mode = "dragShape"; g.dirGate = false; g.startPoint = { x: e.clientX, y: e.clientY };
           g.dragShapeStart = { x: e.clientX, y: e.clientY };
           if (type === "image") {
             (g as any).dragImageOrigin = JSON.parse(JSON.stringify(hit));
@@ -2326,7 +2582,7 @@ export default function Editor({
           setBoxGroupId(null); boxGroupIdRef.current = null;
           g.dragBoxOrigin = bb;
         }
-        g.mode = "dragShape";
+        g.mode = "dragShape"; g.dirGate = false; g.startPoint = { x: e.clientX, y: e.clientY };
         g.dragShapeStart = { x: e.clientX, y: e.clientY };
         g.dragShapeOrigin = JSON.parse(JSON.stringify(hitShape));
         g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -2421,9 +2677,8 @@ export default function Editor({
           g.boxOriginal = { ...boxRef.current };
           g.boxOriginalPaper = { x: cur.x, y: cur.y, scale: cur.scale };
           g.boxIncludePaper = boxContainsPaper(boxRef.current);
-          g.boxOriginalMembers = textsRef.current
-            .filter((t) => currentGroupMemberIds().includes(t.id))
-            .map((t) => ({ id: t.id, x: t.x, y: t.y, fontSize: t.fontSize }));
+          g.boxOriginalMembers = snapshotBoxMembers();
+          g.boxPaperOrigin = stageBoxToPaper(boxRef.current);
           g.boxOriginalOtherPages = snapshotOriginalOtherPages();
           return;
         }
@@ -2436,15 +2691,14 @@ export default function Editor({
           return;
         }
         if (isInsideBox(e.clientX, e.clientY)) {
-          g.mode = "dragBox";
+          g.mode = "dragBox"; g.dirGate = false; g.startPoint = { x: e.clientX, y: e.clientY };
           const local = getStageLocal(e.clientX, e.clientY);
           g.boxMoveStart = local || { x: 0, y: 0 };
           g.boxMoveOriginal = { ...boxRef.current };
           g.boxIncludePaper = boxContainsPaper(boxRef.current);
           g.boxOriginalPaper = { x: cur.x, y: cur.y, scale: cur.scale };
-          g.boxOriginalMembers = textsRef.current
-            .filter((t) => currentGroupMemberIds().includes(t.id))
-            .map((t) => ({ id: t.id, x: t.x, y: t.y, fontSize: t.fontSize }));
+          g.boxOriginalMembers = snapshotBoxMembers();
+          g.boxPaperOrigin = stageBoxToPaper(boxRef.current);
           g.boxOriginalOtherPages = snapshotOriginalOtherPages();
           return;
         }
@@ -2493,6 +2747,8 @@ export default function Editor({
         setDraft(null);
       }
       clearTimeout(g.longPressTimer);
+      clearTimeout((g as any).boxArmTimer);   /* ★ 框选的 70ms 保险作废：双指不是框选 */
+      (g as any).boxArmTimer = 0;
       g.moved = true;
       g.longPressed = false;
       g.pendingBox = false;
@@ -2537,19 +2793,46 @@ export default function Editor({
         }
       }
       g.dragTextId = null;
-      g.initial = {
-        ...g.initial,
-        x: cur.x, y: cur.y, scale: cur.scale, rotate: cur.rotate,
-        dist: snap.dist, angle: snap.angle, midX: snap.midX, midY: snap.midY,
-      };
-      (g as any).viewOrigin = { ...viewRef.current };
+      /* ★★ 两指缩放手势【在哪张纸上，就缩放哪张】—— 用户 2026-09-26 第九条：
+         「两指缩放手势在哪，那就缩放，定死。不需要再点击一下页面进行切换」。
+         所以起手时先看两指中点在谁的范围内：是本页就照旧走 setPaper；
+         是【别的纸】就记住那张纸的 id，整段手势直接缩放它本人，
+         ★ 不切当前页 —— 切页会让 Editor 整个重挂载，手势当场断掉。 */
+      const other = hitOtherPage(snap.midX, snap.midY);
+      g.pinchPageId = other ? other.id : page.id;
+      if (other) {
+        const tr = other.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
+        g.initial = {
+          ...g.initial,
+          x: tr.x, y: tr.y, scale: tr.scale, rotate: tr.rotate || 0,
+          dist: snap.dist, angle: snap.angle, midX: snap.midX, midY: snap.midY,
+        };
+      } else {
+        g.initial = {
+          ...g.initial,
+          x: cur.x, y: cur.y, scale: cur.scale, rotate: cur.rotate,
+          dist: snap.dist, angle: snap.angle, midX: snap.midX, midY: snap.midY,
+        };
+      }
       g.mode = "pinch";
+      (g as any).rigView0 = { ...(rigView || { k: 1, vx: 0, vy: 0 }) };   /* ★ 骨钉空间：这一把捏合的【起手视野】 */
     }
   }
 
   function onPointerMove(e: React.PointerEvent) {
     const g = gRef.current;
+    (window as any).__mv = { mode: g.mode, hasBox: !!boxRef.current, dragShapeOrigin: !!g.dragShapeOrigin, boxPaperOrigin: !!g.boxPaperOrigin, members: (g.boxOriginalMembers || []).length };   /* TEMP-DEBUG */
     if (g.justCommittedEdit) return;
+    /* ★ 演示态：从左边缘往右扫够远 → 把工具栏叫回来（只触发一次）。
+       这一下不做任何"消费"，手势继续按原样走，所以不拦点击。 */
+    if (g.edgeSwipeFrom && !g.edgeSwipeFired) {
+      const dxs = e.clientX - g.edgeSwipeFrom.x;
+      const dys = Math.abs(e.clientY - g.edgeSwipeFrom.y);
+      if (dxs >= EDGE_REVEAL_SWIPE && dys <= 60) {
+        g.edgeSwipeFired = true;
+        onRevealRailRef.current?.();
+      }
+    }
     /* ★ 套索：累积轨迹点（stage 局部坐标） */
     if (lassoPath && g.pointers.has(e.pointerId)) {
       const local = getStageLocal(e.clientX, e.clientY);
@@ -2561,6 +2844,31 @@ export default function Editor({
     }
     if (!g.pointers.has(e.pointerId)) return;
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    /* ══ ★ 按下之后往哪走 —— 方向定死 ═══════════════════════════════════
+       用户 2026-09-26 口头定的：「手指按住往上滑 = 框选」「手指按住往下拖 = 移动」。
+       ⚠️ 这一条【不】在手稿第七张里 —— 第七张写的是「不用判断，把拖拽和框选融合」、
+          「点击框选对象【中间】不松手并出现拖就是移动」（只看按在哪、不看方向）。
+          用户明确要求「按我现在说的来」，所以照方向做，冲突时以这一条为准。
+       实现：从【有内容的框上】起手时先上一道闸，26px 之内一动不动（这也顺手治了
+       「稍微不注意就被拖走」）；超过之后看主方向——往上 → 转框选，其余 → 放行去做移动。 */
+    if (!g.dirGate && g.pointers.size === 1 && g.mode !== "boxSelect") {
+      const mvx = e.clientX - g.startPoint.x;
+      const mvy = e.clientY - g.startPoint.y;
+      if (Math.abs(mvx) <= MOVE_OR_SELECT_PX && Math.abs(mvy) <= MOVE_OR_SELECT_PX) return;
+      g.dirGate = true;
+      if (mvy < -MOVE_OR_SELECT_PX && Math.abs(mvy) >= Math.abs(mvx)) {
+        /* 往上滑 → 框选：撤掉框、从按下点重新拉一个 */
+        clearBox();
+        g.mode = "boxSelect";
+        g.boxStartPoint = getStageLocal(g.startPoint.x, g.startPoint.y) || { x: 0, y: 0 };
+        g.pendingBox = false;
+        const b0 = { x: g.boxStartPoint.x, y: g.boxStartPoint.y, w: 0, h: 0 };
+        boxRef.current = b0;
+        setBox(b0);
+        return;
+      }
+    }
 
     // 待绘制 → 移动超过 4px 才真正开始
     const pd = (g as any).pendingDraw;
@@ -2740,17 +3048,53 @@ export default function Editor({
     if (g.mode === "idle" && g.pointers.size === 1) {
       const dx = e.clientX - g.startPoint.x;
       const dy = e.clientY - g.startPoint.y;
-      if (Math.hypot(dx, dy) > 10) {
+      /* ★ 手指"点一下" vs 真的要"拖"：门槛 22px（原来是 10px）。
+         实测（照真机手指抖动复现，点空白）：
+           抖动直线距离  9px → 不闪框
+                       11px → 闪出 1 个框
+                       13px、18px → 都闪
+         真机上拇指点一下、滚一下就是十几像素，于是【每点一下就闪一个框】——
+         用户原话：「点一下就是框，点一下就是框，跟羊癫疯一样」。
+         22px：手指点一下抖不到；真要框选，随手一拖就是几十像素，不受影响。 */
+      if (Math.hypot(dx, dy) > 22) {
         clearTimeout(g.longPressTimer);
         g.moved = true;
         g.pendingClearBoxOnUp = false;
         if (g.pendingBox) {
-          g.mode = "boxSelect";
-          const b0 = { x: g.boxStartPoint.x, y: g.boxStartPoint.y, w: 0, h: 0 };
-          boxRef.current = b0;
-          setBox(b0);
-          setBoxGroupId(null); boxGroupIdRef.current = null;
-          g.pendingBox = false;
+          /* ★ 空白起手：挂上"框选保险"之后就【停在这条路上】，不许掉到下面
+             "拖文字"那条分支去 —— 上一版就是把 pendingBox 立刻置 false，
+             结果下一帧掉进 else 变成 dragText，70ms 后保险一开火发现
+             mode 不是 idle 直接作废，**上滑框选整个消失了**（用户当场抓到）。
+             现在 pendingBox 一直留着，每次 move 都从这里 return。 */
+          if (drawerBusyRef.current) return;              /* 抽屉开着：不起框 */
+          if (!(g as any).boxArmed) {
+            (g as any).boxArmed = true;
+            /* ★★ 框选只在【往上滑】时起 —— 用户 2026-09-26 定死：
+               「框选只有三个地方：点击内容、长按内容、按住往上滑。
+                摁住往下拖就是移动，往下拖是不可能出现框选的」。
+               方向不对就什么都不起（无效的动作就是不发生，也不弹字）。 */
+            const 往上滑 = dy < 0 && Math.abs(dy) >= Math.abs(dx);
+            if (往上滑) {
+              /* ★★ 再加 70 毫秒保险 —— 两指缩放的"框跑出来"就是这儿漏的。
+                 真机上两根手指不是同时落的：第一根先落、还会先滑一小段，
+                 这一段被当成单指就会立刻拉出框；等第二根落下时框已经闪过了。
+                 现在 70ms 后才真的起框：这 70ms 内第二根手指一落，保险作废。
+                 真要框选的话，70ms 人眼无感。 */
+              const armTimer = window.setTimeout(() => {
+                (g as any).boxArmTimer = 0;
+                if (gRef.current.pointers.size !== 1) return;      /* 第二根落了 → 不起框 */
+                if (gRef.current.mode !== "idle") return;          /* 已成别的手势 → 不起框 */
+                if (!gRef.current.pendingBox) return;              /* 已经放弃 → 不起框 */
+                gRef.current.mode = "boxSelect";
+                const b0 = { x: gRef.current.boxStartPoint.x, y: gRef.current.boxStartPoint.y, w: 0, h: 0 };
+                boxRef.current = b0;
+                setBox(b0);
+                setBoxGroupId(null); boxGroupIdRef.current = null;
+              }, 70);
+              (g as any).boxArmTimer = armTimer;
+            }
+          }
+          return;
         } else {
           /* 空白拖动已一律走框选（见 pointerdown 那段），
              这里只剩「按在文字上拖 = 移动文字」一种；dragPaper 已删。 */
@@ -2847,10 +3191,52 @@ export default function Editor({
        之前把双指改成动镜头，结果所有纸一起缩放、单张纸再也分不开。
        这里改回来：手指动的是手里这张纸。 */
     if (g.mode === "pinch" && g.pointers.size === 2) {
+      /* ★ 骨钉模式下双指【一律不动】—— 用户 2026-09-26：
+         「不能拉伸大小；第一层不动；后面几层也不许自己动」。
+         叠放的 10 张是同一张画面的不同姿势，纸一被缩放，整套叠放就散了。 */
       const snap = getTwoFingerSnapshot();
-      const vo = ((g as any).viewOrigin as { k: number; vx: number; vy: number } | undefined) || { k: 1, vx: 0, vy: 0 };
-      const k = Math.max(0.12, Math.min(6, vo.k * (snap.dist / (g.initial.dist || 1))));
-      onCanvasViewChange?.({ k, vx: vo.vx + (snap.midX - g.initial.midX), vy: vo.vy + (snap.midY - g.initial.midY) });
+      /* ★ 骨钉是独立空间：双指改【视野】，不改纸 —— 纸的坐标一个字节都不写。 */
+      if (rigMode) {
+        /* ★★ 基准必须是【起手那一刻】的视野，不能用当前值 ——
+           用当前值 = 每一帧都在已经缩过的基础上再缩一次，指数级乱跑
+           （用户 2026-09-26：「画布不受控，乱跑乱飘，不是巨大就是巨小」）。 */
+        const r0 = (g as any).rigView0 || { k: 1, vx: 0, vy: 0 };
+        /* ★ 缩放下限不能是 0.12 —— 那样纸会缩成一个小点，等于把它弄丢了。
+           用户 2026-09-26：「我画布飘走了」① 缩得没底 ② 平移没有边界。 */
+        const k2 = Math.max(0.35, Math.min(4, r0.k * (snap.dist / (g.initial.dist || 1))));
+        let vx2 = r0.vx + (snap.midX - g.initial.midX);
+        let vy2 = r0.vy + (snap.midY - g.initial.midY);
+        /* ★ 夹住平移：纸心永远留在屏幕【中间那一半】里，怎么拖都不会飘走 */
+        const sr = stageRef.current?.getBoundingClientRect();
+        if (sr && sr.width > 0) {
+          const cxWant = sr.width / 2 + paper.x * k2 + vx2;
+          const cyWant = sr.height / 2 + paper.y * k2 + vy2;
+          const cxIn = Math.min(sr.width * 0.75, Math.max(sr.width * 0.25, cxWant));
+          const cyIn = Math.min(sr.height * 0.75, Math.max(sr.height * 0.25, cyWant));
+          vx2 += cxIn - cxWant;
+          vy2 += cyIn - cyWant;
+        }
+        onRigViewChange?.({ k: k2, vx: vx2, vy: vy2 });
+        return;
+      }
+      const ratio = snap.dist / (g.initial.dist || 1);
+      /* ★ 双指 = 动【手里这一张纸】，别的纸一个字都不碰。
+         用户 2026-09-26 原话：「纸是独立的，各玩各的。我拖谁谁走，我没拖谁就给我留在原地」
+         「我拖一张纸，所有纸都跟着走」← 这是把双指做成"镜头"的后果，已经拆掉。
+         缩放取手指间距比，位移取两指中点的移动量。 */
+      const nextScale = Math.max(0.12, Math.min(6, (g.initial.scale || 1) * ratio));
+      const nextX = (g.initial.x || 0) + (snap.midX - g.initial.midX);
+      const nextY = (g.initial.y || 0) + (snap.midY - g.initial.midY);
+      /* 两指在【别的纸】上 → 直接缩放那张纸（不切当前页，切页会重挂载、手势断掉） */
+      if (g.pinchPageId && g.pinchPageId !== page.id) {
+        onUpdatePageTransformRef.current?.(g.pinchPageId, {
+          x: nextX, y: nextY, scale: nextScale, rotate: g.initial.rotate || 0,
+        });
+      } else {
+        setPaper((prev) => (prev.x === nextX && prev.y === nextY && prev.scale === nextScale
+          ? prev
+          : { ...prev, x: nextX, y: nextY, scale: nextScale }));
+      }
     }
     if (g.mode === "scaleText" && g.pointers.size === 2 && g.dragTextId) {
       const snap = getTwoFingerSnapshot();
@@ -2877,39 +3263,36 @@ export default function Editor({
       const dxStage = local.x - g.boxMoveStart.x;
       const dyStage = local.y - g.boxMoveStart.y;
 
-      if (g.boxIncludePaper) {
-        const nextTexts = textsRef.current.map((t) => {
-          const om = g.boxOriginalMembers.find((m) => m.id === t.id);
-          if (!om) return t;
-          if (t.layer === "background") {
-            return { ...t, x: om.x + dxStage, y: om.y + dyStage };
-          }
-          return t;
-        });
-        textsRef.current = nextTexts;
-        onUpdateRef.current({ texts: nextTexts });
+      /* ══ ★ 按下之后往哪走 —— 方向定死（用户 2026-09-26 口头定的规则）══════
+         手指按住【往上滑】= 框选；手指按住【往下拖】= 移动。
+         ⚠️ 这一条【不】在手稿第七张里 —— 第七张写的是「不用判断，把拖拽和框选融合」、
+            「点击框选对象【中间】不松手并出现拖就是移动」（只看按在哪，不看方向）。
+            用户明确说「按我现在说的来」，所以按方向走；两者冲突时以这一条为准。
+         只认"明显竖着走"的那一下：横着拖（|dx| > |dy|）不算，仍按原来移动。 */
+      if (dyStage < -MOVE_OR_SELECT_PX && Math.abs(dyStage) >= Math.abs(dxStage)) {
+        /* 转成框选：先把这一小段已经产生的位移原样撤回去，再从按下点重新拉框 */
+        const a0 = g.boxPaperOrigin;
+        if (a0) applyBoxRemap(a0, a0);
+        clearBox();
+        g.mode = "boxSelect";
+        g.boxStartPoint = { ...g.boxMoveStart };
+        g.pendingBox = false;
+        return;
+      }
 
+      /* ★ 拖着框走 = 把框里的【所有东西】一起平移（原来只搬文字，图形纹丝不动）。
+         位移量按纸张坐标算，所以缩放/旋转过的纸也跟手。 */
+      const a0 = g.boxPaperOrigin;
+      const b0now = stageBoxToPaper(boxRef.current);
+      (window as any).__g2 = { inDragBox: true, a0: a0 || null, b0now: b0now || null, members: (g.boxOriginalMembers || []).length };   /* TEMP-DEBUG */
+      if (a0 && b0now) applyBoxRemap(a0, b0now);
+
+      if (g.boxIncludePaper) {
         setPaper((prev) => ({
           ...prev,
           x: g.boxOriginalPaper.x + dxStage,
           y: g.boxOriginalPaper.y + dyStage,
         }));
-      } else {
-        const p = paperStateRef.current;
-        const rad = (-p.rotate * Math.PI) / 180;
-        const cos = Math.cos(rad); const sin = Math.sin(rad);
-        const nextTexts = textsRef.current.map((t) => {
-          const om = g.boxOriginalMembers.find((m) => m.id === t.id);
-          if (!om) return t;
-          if (t.layer === "background") {
-            return { ...t, x: om.x + dxStage, y: om.y + dyStage };
-          }
-          const rx = (dxStage * cos - dyStage * sin) / (p.scale || 1);
-          const ry = (dxStage * sin + dyStage * cos) / (p.scale || 1);
-          return { ...t, x: om.x + rx, y: om.y + ry };
-        });
-        textsRef.current = nextTexts;
-        onUpdateRef.current({ texts: nextTexts });
       }
 
       if (g.boxOriginalOtherPages.length > 0 && onUpdatePageTransformRef.current) {
@@ -2957,51 +3340,33 @@ export default function Editor({
       if (o.w > 1 && o.h > 1) {
         const ratioX = nw / o.w;
         const ratioY = nh / o.h;
-        const ratio = Math.max(0.05, Math.min(ratioX, ratioY));
+        /* 四角 = 等比（拉大小）；四条边 = 只拉那一维（拉长 / 拉宽窄）。
+           边的方向由图里定死：拉 e/w 只改宽、拉 n/s 只改高。 */
+        const onlyX = g.boxResizeHandle === "e" || g.boxResizeHandle === "w";
+        const onlyY = g.boxResizeHandle === "n" || g.boxResizeHandle === "s";
+        const ratio = Math.max(0.05, onlyX ? ratioX : onlyY ? ratioY : Math.min(ratioX, ratioY));
         const ocx = o.x + o.w / 2;
         const ocy = o.y + o.h / 2;
         const ncx = nx + nw / 2;
         const ncy = ny + nh / 2;
         const sr = stageRef.current?.getBoundingClientRect();
         if (!sr) return;
-        const p = paperStateRef.current;
 
-        const nextTexts = textsRef.current.map((t) => {
-          const om = g.boxOriginalMembers.find((m) => m.id === t.id);
-          if (!om) return t;
-
-          if (g.boxIncludePaper && t.layer === "paper") {
-            return t;
-          }
-
-          let localX = 0, localY = 0;
-          if (t.layer === "background") {
-            localX = om.x; localY = om.y;
-          } else {
-            const px = om.x - sr.width / 2;
-            const py = om.y - sr.height / 2;
-            const rad = (p.rotate * Math.PI) / 180;
-            const cos = Math.cos(rad); const sin = Math.sin(rad);
-            localX = (px * cos - py * sin) * p.scale + sr.width / 2 + p.x;
-            localY = (px * sin + py * cos) * p.scale + sr.height / 2 + p.y;
-          }
-          const nlx = ncx + (localX - ocx) * ratio;
-          const nly = ncy + (localY - ocy) * ratio;
-          const nextFontSize = Math.max(4, om.fontSize * ratio);
-          if (t.layer === "background") {
-            return { ...t, x: nlx, y: nly, fontSize: nextFontSize };
-          } else {
-            const rx0 = nlx - sr.width / 2 - p.x;
-            const ry0 = nly - sr.height / 2 - p.y;
-            const rad2 = (-p.rotate * Math.PI) / 180;
-            const cos2 = Math.cos(rad2); const sin2 = Math.sin(rad2);
-            const plx = (rx0 * cos2 - ry0 * sin2) / (p.scale || 1) + sr.width / 2;
-            const ply = (rx0 * sin2 + ry0 * cos2) / (p.scale || 1) + sr.height / 2;
-            return { ...t, x: plx, y: ply, fontSize: nextFontSize };
-          }
-        });
-        textsRef.current = nextTexts;
-        onUpdateRef.current({ texts: nextTexts });
+        /* ★ 框里的【所有东西】按「框从纸张矩形 a0 变到 b1」一起重排 ——
+           原来这一段只处理文字、只处理一个等比 ratio，图形/线条完全不动，
+           于是用户"想拉小一根画出来的线"永远只能变成拖走。
+           现在统一走 remapMember：图形的 x1..y2 与 points 也会跟着缩。
+           四条边的单轴拉伸用一个"只放一维"的目标矩形表达。 */
+        const a0 = g.boxPaperOrigin;
+        const bAll = stageBoxToPaper(b);
+        if (a0 && bAll) {
+          const b1 = onlyX
+            ? { x: bAll.x, y: a0.y, w: bAll.w, h: a0.h }
+            : onlyY
+              ? { x: a0.x, y: bAll.y, w: a0.w, h: bAll.h }
+              : bAll;
+          applyBoxRemap(a0, b1);
+        }
 
         if (g.boxIncludePaper) {
           const stageW = sr.width;
@@ -3290,9 +3655,11 @@ export default function Editor({
     const boxSourceLayer = g.boxSourceLayer;
     const pendingSwitch = g.pendingSwitchPageId;
     const pendingClearBoxOnUp = g.pendingClearBoxOnUp;
+    (window as any).__up = { pendingClearBoxOnUp, wasMode, wasMoved, wasLongPressed, hasBox: !!boxRef.current };   /* TEMP-DEBUG */
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
     g.pointers.delete(e.pointerId);
     clearTimeout(g.longPressTimer);
+    clearTimeout((g as any).boxArmTimer);
 
     if (pendingSwitch && !wasMoved) {
       g.pendingSwitchPageId = null;
@@ -3303,7 +3670,19 @@ export default function Editor({
     }
     g.pendingSwitchPageId = null;
 
-    if (pendingClearBoxOnUp && wasMode === "idle" && !wasMoved && !wasLongPressed) {
+    /* ══ ★ 单击 = 退出当前做的事（用户 2026-09-26 第七条 / 第八条）═══════════
+       第七条：单击前没有活动 → 定死不动作。
+       第八条：单击前活动频繁 → 突然单击就退出当前做的事。
+       两条合起来就是这一句：**按在框外空白、没拖没长按 = 一下点掉，退出框选态**。
+       没有框的时候它自然什么都不做（= 第七条），不用再单独判"有没有活动"。
+       ★ 原来这里还多一个 `wasMode === "idle"` 的条件 —— 从"点中对象"（mode 是
+         dragShape）过来时就不清了，实测「点了图形再点空白，框还在」。
+         按第八条去掉它：只要没拖没长按，点空白就该退。 */
+    /* ★ 不依赖 pointerdown 走了哪条分支 —— 那条路会被别的分支截走，
+       实测「点了图形再点空白，框还在」。这里自己判：没拖、没长按的一下点击，
+       落点在【当前框的外面】就退出（框内点击不算，那是选中框里的东西）。 */
+    const 空点击 = !wasMoved && !wasLongPressed && !isInsideBox(g.startPoint.x, g.startPoint.y);
+    if ((pendingClearBoxOnUp || 空点击) && !wasMoved && !wasLongPressed) {
       clearBox();
     }
     g.pendingClearBoxOnUp = false;
@@ -3721,9 +4100,14 @@ export default function Editor({
 
   /** 元素/组合的框要外扩 2px 并保证最小 4px：
       细长的笔迹（h≈0）也要能过 getSelectedRefs 的 w/h>=4 判定。 */
+  /* ★ 框必须和内容【1:1 贴边】，不许在外面多让出一圈。
+     用户 2026-09-26：「太大了，所有框选都要按照点击的内容做 1:1 的框选空间，
+     不要非常大一个框装一个小内容」。原来这里往外扩 2px（渲染时还再加 4px），
+     于是一个小内容被一个大框套着。现在只保留"最小 4px"这道保护
+     （细长笔迹不缩到 0，后面 getSelectedRefs 的 w/h>=4 判定还要用），
+     【不再外扩】。 */
   function padBox(b: BoxState): BoxState {
-    const pad = 2;
-    return { x: b.x - pad, y: b.y - pad, w: Math.max(b.w, 4) + pad * 2, h: Math.max(b.h, 4) + pad * 2 };
+    return { x: b.x, y: b.y, w: Math.max(b.w, 4), h: Math.max(b.h, 4) };
   }
 
   /* ══ 「组合」= 一个物体 ══════════════════════════════════════════════
@@ -4741,6 +5125,9 @@ function handleSheetAction(kind: string) {
      位图只在「进骨钉模式 / 换纸 / 换规格」时重拍一次；
      拖关节时只重跑形变，不重拍 —— 这是能实时拖的关键。 */
   const rigCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  /* ★ 进骨钉【之前】把笔迹那一层缓存下来 —— 骨钉模式下纸变成了位图，
+     笔迹那层 svg 就不在 DOM 里了，做位图时会抓空（用户报「我的画不见了」）。 */
+  const strokesCacheRef = useRef<string>(STROKES_CACHE);
   const [rigSrc, setRigSrc] = useState<HTMLCanvasElement | null>(null);
   const [rigDragId, setRigDragId] = useState<string | null>(null);
   const rigDragRef = useRef<string | null>(null);
@@ -4786,12 +5173,26 @@ function handleSheetAction(kind: string) {
   }, [rigMode, page.id, rigW, rigH]);
 
   useEffect(() => {
+    if (rigMode) return;   /* 骨钉模式下这层已经没了，别把缓存覆盖成空 */
+    const el = stageRef.current?.querySelector("[data-shapes-svg]");
+    if (el && el.innerHTML) { strokesCacheRef.current = el.innerHTML; STROKES_CACHE = el.innerHTML; }
+  });
+
+  useEffect(() => {
     if (!rigMode || !rigSrc) return;
     const out = rigCanvasRef.current;
     const g = out?.getContext("2d");
     if (!out || !g) return;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, out.width, out.height);
+    /* ★★ 一个关节都还没钉的时候：【原样把画铺上去，不做形变】。
+       用户 2026-09-26：「我进入骨钉连接，我的画布不见了，只有一张纸」——
+       根因就是这里：进来不给自动布点了，关节是空的，而形变函数拿到 0 个关节
+       什么都不画 → 纸变成空白。没有关节 = 没有形变 = 应该就是原画。 */
+    if (!(rigJoints || []).length) {
+      g.drawImage(rigSrc, 0, 0, out.width, out.height);
+      return;
+    }
     const R = rigRadius && rigRadius > 0 ? rigRadius : defaultRadius(out.width, out.height);
     warpTo(g, rigSrc, out.width, out.height, rigJoints || [], bonesOf(rigJoints), R, 16, 32);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4851,6 +5252,12 @@ function handleSheetAction(kind: string) {
         onPointerUp={onRigUp}
         onPointerCancel={onRigUp}
       >
+        {/* ★ 关节定点图：还没钉的位置给一个淡淡的虚线圈（钉过就不再画） */}
+        {(rigGuide || []).filter((gd) => !(rigJoints || []).some((j) => j.id === gd.id)).map((gd) => (
+          <circle key={"guide-" + gd.id} cx={gd.x} cy={gd.y} r={11} fill="none"
+            stroke="rgba(201,138,60,.5)" strokeWidth={1.5} strokeDasharray="3 5"
+            style={{ pointerEvents: "none" }} />
+        ))}
         {/* 骨架：4 根骨画成粗线，让人看清这是一副骨架 */}
         {rigBones.map((b) => {
           const A = (rigJoints || []).find((j) => j.id === b.a);
@@ -4991,6 +5398,7 @@ function handleSheetAction(kind: string) {
         </div>
       ))}
       <svg
+        data-shapes-svg
         width="100%"
         height="100%"
         viewBox={paper.w > 0 && paper.h > 0 ? `0 0 ${paper.w} ${paper.h}` : undefined}
@@ -5199,6 +5607,75 @@ function handleSheetAction(kind: string) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  /* ★ 模板三种壳要用的「纸有多大」——
+     没选规格的纸（paperW/paperH 是空的）铺满整个画布，壳也必须照样画。
+     以前壳全挂在「纸宽>0 且 纸高>0」上，没规格的纸 → 电视机/漫画书册/连环画一个都不出来
+     （用户 2026-09-26：「反正电视机漫画书还有连环画都没有」）。 */
+  const 壳W = paper.w > 0 ? paper.w : (stageBox.w > 0 ? stageBox.w : 390);
+  const 壳H = paper.h > 0 ? paper.h : (stageBox.h > 0 ? stageBox.h : 844);
+
+  /* ── 模板的呈现层 · ⑦ 漫画书册 ＋ 翻页折角（手稿第五张中下 / 右下）
+     定义【一处】，两种纸（选了规格的 / 没规格铺满全屏的）都用它 —— 不摆两套。
+     · 漫画书册：一整页切成小格，3 格＝竖着三条，6 格＝两列三行
+       （用户 2026-09-26：「可以按 3 格和 6 格来做」）。
+       格与格之间留缝，缝里【盖住你的画】——盖的色就是纸色，
+       所以看上去是画被切成了分镜，不是画上划了几道线。
+     · 折角：手稿第五张「连环画右下角有翻页折角」。折角不是画着看的，
+       点它才翻页（动作就是动作本身）。 */
+  const 纸面呈现层 = (() => {
+    const 书册层 = rigMode && rigTemplate === "book" ? (() => {
+      const 缝 = 9;
+      const 列 = rigCells === 3 ? 1 : 2, 行 = 3;
+      const cw = (壳W - 缝 * (列 + 1)) / 列;
+      const ch = (壳H - 缝 * (行 + 1)) / 行;
+      const 格: { x: number; y: number; w: number; h: number }[] = [];
+      for (let r = 0; r < 行; r++) for (let c = 0; c < 列; c++) {
+        格.push({ x: 缝 + c * (cw + 缝), y: 缝 + r * (ch + 缝), w: cw, h: ch });
+      }
+      /* 外框一整张纸 + 每个格挖空，evenodd 一挖，剩下的正好是「缝」 */
+      const d = `M0 0H${壳W}V${壳H}H0Z ` +
+        格.map((g) => `M${g.x} ${g.y}H${g.x + g.w}V${g.y + g.h}H${g.x}Z`).join(" ");
+      return (
+        <svg
+          data-rig-book
+          viewBox={`0 0 ${壳W} ${壳H}`}
+          style={{
+            position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
+            zIndex: 310, pointerEvents: "none",
+          }}
+        >
+          <path d={d} fillRule="evenodd" fill={paperColor} />
+          {格.map((g, i) => (
+            <rect key={i} x={g.x} y={g.y} width={g.w} height={g.h}
+              fill="none" stroke="rgba(58,53,46,.5)" strokeWidth={1.5} />
+          ))}
+        </svg>
+      );
+    })() : null;
+    const 折角层 = rigMode && (rigTemplate === "book" || rigTemplate === "strip") ? (
+      <div
+        data-rig-fold
+        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+        onPointerUp={(e) => { e.stopPropagation(); onRigFlip?.(); }}
+        style={{
+          position: "absolute", right: 0, bottom: 0,
+          width: 46, height: 46, zIndex: 320, cursor: "pointer",
+          touchAction: "none",
+        }}
+      >
+        {/* 折起来的那一页：一个三角，斜边上一道阴影 */}
+        <div style={{
+          position: "absolute", right: 0, bottom: 0,
+          width: 40, height: 40,
+          clipPath: "polygon(0% 100%, 100% 0%, 100% 100%)",
+          background: "linear-gradient(315deg, #fffdfa 0%, #f3eee6 55%, #ddd5c8 100%)",
+          filter: "drop-shadow(-2px -2px 3px rgba(58,53,46,.35))",
+        }} />
+      </div>
+    ) : null;
+    return 书册层 || 折角层 ? <>{书册层}{折角层}</> : null;
+  })();
   /* ── 连接模式：把纸并排排开 ─────────────────────────────
      纸是竖的。竖着摞两张会顶出屏幕、又窄又长，看不出「左→右承接」的关系；
      并排反而省地方，横向关系也更像「这边点一下、那边接住」。 */
@@ -5214,6 +5691,10 @@ function handleSheetAction(kind: string) {
 
   /* 命中测试（screenToPaperLocal）读 paperStateRef —— 平时就是这张纸的真实坐标；
      演示时改成"固定视口"的那一份（见下），否则演示里点不中对象。 */
+  /* ★ 演示：固定视口，一次一页 —— 只按【屏幕大小】算比例，纸张本身不改尺寸。
+     用户 2026-09-26：「规格里面的纸都要按照真实的尺寸去做，对标」——
+     所以【绝不为了躲 UI 去缩纸】（我一度按"舞台减工具栏"算，把 390 的纸缩成 338，
+     被当场叫停）。纸张的真实坐标 / 尺寸一个字节都不写。 */
   const demoScale = (() => {
     if (!demoOn) return 1;
     if (paper.w > 0 && paper.h > 0) {
@@ -5227,16 +5708,28 @@ function handleSheetAction(kind: string) {
      ★ 拖动位移的换算也走它（除以 scale），所以视野缩放下拖东西依然跟手。 */
   paperStateRef.current = demoOn
     ? { ...paper, x: 0, y: 0, scale: demoScale, rotate: 0 }
-    : { ...paper, x: paper.x * view.k + view.vx, y: paper.y * view.k + view.vy, scale: paper.scale * view.k };
+    : rigMode
+      ? { ...paper, x: paper.x * (rigView?.k ?? 1) + (rigView?.vx ?? 0), y: paper.y * (rigView?.k ?? 1) + (rigView?.vy ?? 0), scale: paper.scale * (rigView?.k ?? 1) }
+      : { ...paper };
 
   /* 连接过程中，点"别的纸"＝确定承接页面（上层只在需要时传 onPaperPick） */
   const papersPickable = !!onPaperPick;
   papersPickableRef.current = papersPickable;
   /* 演示 = 固定视口，一屏一页：当前页摆正在屏幕中央，不按它自己存的偏移画。
      ★ 只改"怎么看"，绝不写回页面保存的位置和尺寸。 */
+  /* ★ 无限画布：【镜头】必须同时作用在"画"和"算"两边。
+     以前只写进了命中换算（paperStateRef / paperDisplay），渲染层完全没用它 ——
+     所以加页或双指之后，画面纹丝不动，但手指的落点已经按另一个坐标系在算了：
+     实测「加页前拖 100×100 → 框 100×100」，「加页后同样拖 100×100 → 框 200×400、起点跑到 (0,0)」，
+     纸还被推到屏幕外 (x=450)。这就是用户报的"纸卡的死死的动不了"。
+     镜头口径 = 以【舞台中心】为原点：纸心 = 舞台中心 + 纸坐标 × k + 平移。
+     和 paperDisplay / screenToPaperLocal 用的是同一个口径，所以两边严格对齐。 */
+  const rk = rigView?.k ?? 1, rvx = rigView?.vx ?? 0, rvy = rigView?.vy ?? 0;
   const mainPaperTransform = demoOn
     ? `translate(0px, 0px) scale(${demoScale}) rotate(0deg)`
-    : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
+    : rigMode
+      ? `translate(${paper.x * rk + rvx}px, ${paper.y * rk + rvy}px) scale(${paper.scale * rk}) rotate(${paper.rotate}deg)`
+      : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
 
   /* ── 连接线：闭环的可见证据 ─────────────────────────────
      连接不是一条记录，是一条看得见的线：起点对象 → 延伸物那张纸 → 延伸物里的对象 → 回到起点。
@@ -5270,7 +5763,7 @@ function handleSheetAction(kind: string) {
   function paperDisplay(pgId: string) {
     if (demoOn && pgId === page.id) return { tx: 0, ty: 0, s: demoScale };
     const tr = (allPages || []).find((x) => x.id === pgId)?.transform || { x: 0, y: 0, scale: 1 };
-    return { tx: tr.x * view.k + view.vx, ty: tr.y * view.k + view.vy, s: tr.scale * view.k };
+    return { tx: tr.x, ty: tr.y, s: tr.scale };
   }
 
   /** 某张纸里某个元素的中心，换算到画布坐标 */
@@ -5364,7 +5857,6 @@ function handleSheetAction(kind: string) {
   /* ★ 点中一条连接线 → 弹出这个小条，问要不要删掉它。
      连接以前只能加不能删（唯一写入口在父组件"闭环那一步"），
      上次测试的连接一直堆在文档里、点不了也删不掉，新的测试没法做。 */
-  const [connMenu, setConnMenu] = useState<{ x: number; y: number; ix: Interaction } | null>(null);
 
   /** 这个对象身上的连接（长按菜单里列出来，逐条删） */
   const connsOfElement = (() => {
@@ -5379,59 +5871,124 @@ function handleSheetAction(kind: string) {
       }));
   })();
 
-  /* ★ 连接选框 —— 让用户【看得见自己点了谁、从哪来、准备从哪回】。
-     手稿第一张：「点击对象 高亮选框 不产生线」。
-     用户返工单要求：「操作过程中，起点、去程和返程对象始终清楚可辨」
-     「你连刚才选中的对象在哪里都找不到，怎么继续操作？」
-     ⇒ 所以**两个框一旦选上就一直亮着**，不再"走过的那一端降下去变暗"
-       （那是上一版的做法，用户实测反馈"选中状态不清晰"）。 */
+  /* ══ ★ 连接可视化（只在连接编辑状态显示）═══════════════════════════════
+     用户 2026-09-26：普通创作状态【不显示】连接线；进「页 → 连接 → 手机模式」
+     才显示完整连接关系。演示态也不显示（演示只管跑跳转）。
+     ⚠️ 全部只读文档里的连接记录 + 纸张真实坐标来画，绝不摆位、绝不猜端点。 */
+  const connView = !!connectViewOn && !demoOn && stageBox.w > 0;
+
+  /** 某张纸此刻在画布上的矩形（线头要停在纸边上，所以需要整块，不只是中心） */
+  function paperRectOnStage(pgId: string) {
+    const pg = (allPages || []).find((x) => x.id === pgId);
+    if (!pg) return null;
+    const d = paperDisplay(pgId);
+    if (!d) return null;
+    const pw = pg.paperW && pg.paperW > 0 ? pg.paperW : 390;
+    const ph = pg.paperH && pg.paperH > 0 ? pg.paperH : 844;
+    const w = pw * d.s, h = ph * d.s;
+    const cx = stageBox.w / 2 + d.tx, cy = stageBox.h / 2 + d.ty;
+    return { x: cx - w / 2, y: cy - h / 2, w, h, cx, cy };
+  }
+
+  /** 从 a 朝这张纸的中心走，落在纸【边框】上的那个点。
+      去程/返程的终点是「承接页面 / 原页面」本身，所以线头停在纸边上，不扎进纸里。
+      纯几何求交，不看画面上谁离得近 —— 端点只由记录里的 id 决定。 */
+  function paperEdgeToward(pgId: string, a: { x: number; y: number } | null) {
+    if (!a) return null;
+    const r = paperRectOnStage(pgId);
+    if (!r) return null;
+    /* 从纸心朝 a 的方向射出去，撞到纸框的那个点 = 线头要停的地方。
+       ★ 这里第一版写错过：拿「纸半宽 / a到纸心的横向距离」当比例去缩 a→纸心 的向量，
+         算出来停在离纸边还差十几像素的地方（实测端点落到了【起点那张纸】的边上）。
+         正确做法是【从纸心往外走】：先求方向单位向量，再按半宽/半高反推撞框的距离。 */
+    const dx = a.x - r.cx, dy = a.y - r.cy;
+    const D = Math.hypot(dx, dy);
+    if (D < 1e-6) return { x: r.cx, y: r.cy };
+    const ux = dx / D, uy = dy / D;
+    const hw = r.w / 2, hh = r.h / 2;
+    const sx = Math.abs(ux) > 1e-6 ? hw / Math.abs(ux) : Infinity;
+    const sy = Math.abs(uy) > 1e-6 ? hh / Math.abs(uy) : Infinity;
+    const s = Math.min(sx, sy);
+    if (!Number.isFinite(s)) return { x: r.cx, y: r.cy };
+    /* a 落在纸里面（纸叠在一起了）→ 没有"边"可停，线头就停在 a 上 */
+    if (D <= s) return { x: a.x, y: a.y };
+    return { x: r.cx + ux * s, y: r.cy + uy * s };
+  }
+
+  /* ★ 连接选框 —— 起点对象、返程对象【一直亮着】。
+     以前只画"正在搭的那一份草稿"的框：刷新/重开 App 后草稿是空的，框全灭。
+     现在改成读【已存进文档的连接记录】，所以刷新后照样在。
+     用户要求：「起点对象和返程对象持续高亮」。 */
   const connMarks = (() => {
-    if (demoOn || stageBox.w <= 0) return [] as { id: string; x: number; y: number; w: number; h: number; active: boolean }[];
-    const mk = (key: string, pgId?: string, type?: string, id?: string) => {
-      if (!pgId || !id) return null;
+    type Mark = { id: string; x: number; y: number; w: number; h: number; now: boolean };
+    if (!connView) return [] as Mark[];
+    const out: Mark[] = [];
+    const push = (key: string, pgId?: string, type?: string, id?: string, now = false) => {
+      if (!pgId || !id) return;
       const r = elemRectOnStage(pgId, type || "note", id);
-      return r ? { id: key, ...r, active: true } : null;
+      if (r) out.push({ id: key, ...r, now });
     };
-    return [
-      mk("from", connectDraft?.fromPageId, connectDraft?.fromElementType, connectDraft?.fromElementId),
-      mk("to", connectDraft?.toPageId, connectDraft?.toElementType, connectDraft?.toElementId),
-    ].filter(Boolean) as { id: string; x: number; y: number; w: number; h: number; active: boolean }[];
+    (interactions || []).forEach((ix) => {
+      push("s-" + ix.id, ix.fromPageId, ix.fromElementType, ix.fromElementId);
+      push("t-" + ix.id, ix.toPageId, ix.toElementType, ix.toElementId);
+    });
+    /* 正在搭的这条：两个框更亮，一眼看出"当前操作的是它" */
+    push("draft-from", connectDraft?.fromPageId, connectDraft?.fromElementType, connectDraft?.fromElementId, true);
+    push("draft-to", connectDraft?.toPageId, connectDraft?.toElementType, connectDraft?.toElementId, true);
+    return out;
   })();
 
-  /** 连接线：已完成的闭环 + 正在形成的这条 */
+  /** ★ 双向路线：每一组完整连接画【两条有方向的线】
+      ① 去程：起点对象 → 承接页面（实线，箭头指承接页）
+      ② 返程：承接页面里指定的返程对象 → 原页面（虚线，箭头指原页）
+      用户：「去程和返程同时显示，分别使用实线和虚线，并显示方向箭头」
+      「保留已有连接数据，不能根据画面上看起来最近的对象猜测端点」。 */
   const connLines = (() => {
-    if (demoOn || stageBox.w <= 0) return [] as { id: string; d: string; x1: number; y1: number; x2: number; y2: number; done: boolean }[];
-    const seg = (id: string, a: { x: number; y: number } | null, b: { x: number; y: number } | null, done: boolean) => {
+    type Line = { id: string; d: string; arrow: string; back: boolean; now: boolean };
+    if (!connView) return [] as Line[];
+    const seg = (id: string, a: { x: number; y: number } | null, b: { x: number; y: number } | null, back: boolean, now: boolean) => {
       if (!a || !b) return null;
       const dy = (b.y - a.y) * 0.45;
-      return { id, x1: a.x, y1: a.y, x2: b.x, y2: b.y, done, d: `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}` };
+      const c1 = { x: a.x, y: a.y + dy };
+      const c2 = { x: b.x, y: b.y - dy };
+      /* 箭头按曲线【末端切线】定向（末控制点 → 终点），才不会跟线脱节 */
+      let ux = b.x - c2.x, uy = b.y - c2.y;
+      const len = Math.hypot(ux, uy) || 1;
+      ux /= len; uy /= len;
+      const px = -uy, py = ux;
+      const L = 13, W = 5.5;
+      const bx = b.x - ux * L, by = b.y - uy * L;
+      const arrow = `${b.x},${b.y} ${bx + px * W},${by + py * W} ${bx - px * W},${by - py * W}`;
+      return { id, back, now, arrow, d: `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}` };
     };
-    const out: { id: string; d: string; x1: number; y1: number; x2: number; y2: number; done: boolean }[] = [];
-    /* 正在形成的线：起点 → 承接纸 → 承接对象，一段一段长出来 */
+    const out: Line[] = [];
+    /* ① 已存进文档的闭环：去程 + 返程，两条 */
+    (interactions || []).forEach((ix) => {
+      const 起点 = elemCenterOnStage(ix.fromPageId, ix.fromElementType || "note", ix.fromElementId);
+      const 返程对象 = elemCenterOnStage(ix.toPageId, ix.toElementType || "note", ix.toElementId);
+      /* 去程终点 = 承接纸的边框点（朝起点方向那一侧） */
+      const go = seg("go-" + ix.id, 起点, paperEdgeToward(ix.toPageId, 起点), false, false);
+      if (go) out.push(go);
+      /* 返程终点 = 原纸的边框点（朝返程对象方向那一侧） */
+      const bk = seg("bk-" + ix.id, 返程对象, paperEdgeToward(ix.fromPageId, 返程对象), true, false);
+      if (bk) out.push(bk);
+    });
+    /* ② 正在搭的这条：起点 → 承接纸（还没选返程对象时先搭到纸的中心） */
     if (connectDraft?.fromPageId && connectDraft?.fromElementId) {
       const a = elemCenterOnStage(connectDraft.fromPageId, connectDraft.fromElementType || "note", connectDraft.fromElementId);
       const c = connectDraft.toPageId && connectDraft.toElementId
         ? elemCenterOnStage(connectDraft.toPageId, connectDraft.toElementType || "note", connectDraft.toElementId)
         : null;
-      /* 第二步（已选承接页、还没选返程对象）：去程线先搭到那张纸的【真实中心】。
-         以前这里是"排开槽位"的中心 —— 纸一被排开，线就画到别处去了。 */
       const toPageId = connectDraft.toPageId;
       const d2 = toPageId ? paperDisplay(toPageId) : null;
       const pb = d2 ? { x: stageBox.w / 2 + d2.tx, y: stageBox.h / 2 + d2.ty } : null;
-      const s1 = seg("draft1", a, c || pb, false);
+      const s1 = seg("draft-go", a, c || pb, false, true);
       if (s1) out.push(s1);
       if (connectDone) {
-        const back = seg("draft2", c || pb, a, true);
+        const back = seg("draft-bk", c || pb, a, true, true);
         if (back) out.push(back);
       }
     }
-    /* 已存进文档的闭环 */
-    (interactions || []).forEach((ix) => {
-      const a = elemCenterOnStage(ix.fromPageId, ix.fromElementType || "note", ix.fromElementId);
-      const b = elemCenterOnStage(ix.toPageId, ix.toElementType || "note", ix.toElementId);
-      const s = seg("ix-" + ix.id, a, b, true);
-      if (s) out.push(s);
-    });
     return out;
   })();
 
@@ -5475,89 +6032,51 @@ function handleSheetAction(kind: string) {
       <style>{`
         @keyframes ranjingFlashIn { from { opacity: 0; transform: translateX(-50%) translateY(-4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
       `}</style>
-      {/* 连接线：闭环的可见证据。正在形成的线是虚线，闭环后变实线 */}
+      {/* ★ 连接线 = 纯显示层。用户 2026-09-26：「所有连接线只负责显示，不得拦截触摸操作」
+          —— 所以这一层整体 pointerEvents:none，线上没有任何可点区
+          （原来那条 26px 的隐形点击带已删除，连带它的"点线删"弹窗一起删）。
+          去程【实线】箭头指承接页；返程【虚线】箭头指原页，一眼分得清哪条去、哪条回。 */}
       {connLines.length > 0 && (
-        <svg style={{
+        <svg data-conn-lines style={{
           position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
           pointerEvents: "none", zIndex: 8, overflow: "visible",
         }}>
-          {connLines.map((L) => (
-            <g key={L.id}>
-              <path
-                d={L.d}
-                fill="none"
-                stroke={L.done ? "rgba(122,90,52,.9)" : "rgba(122,90,52,.55)"}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeDasharray={L.done ? undefined : "7 6"}
-              />
-              <circle cx={L.x1} cy={L.y1} r={5} fill="rgba(122,90,52,.95)" stroke="#fffdfa" strokeWidth={2} />
-              {L.done && <circle cx={L.x2} cy={L.y2} r={5} fill="rgba(122,90,52,.95)" stroke="#fffdfa" strokeWidth={2} />}
-              {/* ★ 线的可点区：看不见，但手指够得着（26px）。
-                  手稿里连接就是一条看得见的线，点它删最直觉。
-                  只有【已存进文档】的那些能删（draft 是正在长的，还没成连接）。 */}
-              {L.id.startsWith("ix-") && (
+          {connLines.map((L) => {
+            /* 有草稿在搭时，已存的那些【适当弱化】，当前这条突出（用户要求三.3） */
+            const dim = !L.now && connLines.some((x) => x.now);
+            const op = dim ? 0.3 : (L.back ? 0.85 : 1);
+            const col = `rgba(122,90,52,${(L.back ? 0.55 : 0.92) * op})`;
+            return (
+              <g key={L.id} opacity={dim ? 0.45 : 1}>
                 <path
                   d={L.d}
                   fill="none"
-                  stroke="transparent"
-                  strokeWidth={26}
+                  stroke={col}
+                  strokeWidth={L.now ? 2.8 : (L.back ? 2 : 2.4)}
                   strokeLinecap="round"
-                  data-no-canvas-gesture
-                  style={{ pointerEvents: "stroke", cursor: "pointer" }}
-                  onPointerDown={(ev) => {
-                    const ix = (interactions || []).find((x) => "ix-" + x.id === L.id);
-                    if (!ix) return;
-                    ev.stopPropagation();
-                    setConnMenu({ x: ev.clientX, y: ev.clientY, ix });
-                  }}
+                  strokeDasharray={L.back ? "7 6" : undefined}
                 />
-              )}
-            </g>
-          ))}
+                <polygon points={L.arrow} fill={col} />
+              </g>
+            );
+          })}
         </svg>
       )}
-      {/* ★ 点中一条连接线 → 问要不要删。遮罩用 onPointerDown 关（触摸抬手会补发 click，
-          用 onClick 会被那一下立刻关掉，长按菜单踩过这个坑）。 */}
-      {connMenu && (
-        <>
-          <div data-ctx-menu onPointerDown={() => setConnMenu(null)}
-            style={{ position: "fixed", inset: 0, zIndex: 2499, background: "transparent" }} />
-          <div data-ctx-menu onPointerDown={(ev) => ev.stopPropagation()}
-            style={{
-              position: "fixed",
-              left: Math.max(8, Math.min(connMenu.x - 70, window.innerWidth - 200)),
-              top: Math.min(connMenu.y + 12, window.innerHeight - 90),
-              zIndex: 2500, width: 190, padding: 8,
-              background: "rgba(251,250,247,.98)", backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)", borderRadius: 12,
-              boxShadow: "0 8px 32px rgba(58,53,46,.24)", border: "1px solid rgba(74,70,63,.08)",
-            }}>
-            <div style={{ fontSize: 11, color: "#8a8178", padding: "2px 4px 6px" }}>这条连接</div>
-            <button
-              type="button"
-              onClick={() => { onDeleteInteraction?.(connMenu.ix.id); setConnMenu(null); }}
-              style={{
-                width: "100%", padding: "8px 10px", border: 0, borderRadius: 8,
-                background: "rgba(192,57,43,.1)", color: "#c0392b", fontSize: 12.5,
-                cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-              }}
-            >删除这条连接</button>
-          </div>
-        </>
-      )}
 
-      {/* 连接选框：点了谁，一眼看得见（当前这一步亮，走过的降下去暗） */}
+      {/* ★ 连接选框：起点对象、返程对象【一直亮着】（读已存记录，刷新后照样在）。
+          「多条连接存在时，当前操作的连接应清晰突出」——正在搭的那条更粗更亮。 */}
       {connMarks.length > 0 && (
-        <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 9 }}>
+        <div data-conn-marks style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 9 }}>
           {connMarks.map((m) => (
             <div key={m.id} style={{
               position: "absolute",
-              left: m.x - 4, top: m.y - 4, width: m.w + 8, height: m.h + 8,
-              border: m.active ? "2px solid rgba(122,90,52,.95)" : "2px solid rgba(122,90,52,.30)",
+              /* ★ 1:1 贴边：不再往外让 4px（用户：「太大了…要 1:1」） */
+              left: m.x, top: m.y, width: m.w, height: m.h,
+              boxSizing: "border-box",
+              border: m.now ? "2.5px solid rgba(122,90,52,.98)" : "2px solid rgba(122,90,52,.7)",
               borderRadius: 5,
-              background: m.active ? "rgba(122,90,52,.08)" : "transparent",
-              boxShadow: m.active ? "0 0 0 3px rgba(122,90,52,.14)" : "none",
+              background: m.now ? "rgba(122,90,52,.12)" : "rgba(122,90,52,.06)",
+              boxShadow: m.now ? "0 0 0 4px rgba(122,90,52,.18)" : "none",
               transition: "border-color .18s ease-out, background .18s ease-out",
             }} />
           ))}
@@ -5602,7 +6121,40 @@ function handleSheetAction(kind: string) {
       {/* ★ 其他纸什么时候画：**创作时都画**（纸要看得见、点得到 ——「我纸呢？」），
           **演示时只画当前这一张**（固定视口，一屏一页）。
          判据只有一个：是不是在演示模式。不再拿"闭环没闭环""跳没跳过"当开关。 */}
-      {!demoOn && otherPages.map((p, i) => {
+      {/* ★★ 放大镜 —— 用户拿着骨钉在画布上滑的时候跟着手指。
+          用户 2026-09-26：「它的手滑到哪，那就有个放大镜放大各个局部，让它更好的钉住」。
+          用的是骨钉模式本来就有的那张页面位图（rigSrc），直接 drawImage 放大，
+          不重拍、不复制 DOM，所以不花钱。 */}
+      {rigMode && rigHolding && rigHover && rigSrc && (() => {
+        const R = 62, K = 2.4;
+        const lp = screenToPaperLocal(rigHover.x, rigHover.y, stageRef.current, paperStateRef.current);
+        if (!lp.inside) return null;
+        const span = (2 * R) / K;
+        return (
+          <div data-rig-lens style={{
+            position: "fixed", left: rigHover.x - R, top: rigHover.y - R - 118,
+            width: 2 * R, height: 2 * R, borderRadius: "50%", overflow: "hidden",
+            zIndex: 3002, pointerEvents: "none",
+            border: "2px solid rgba(201,138,60,.95)",
+            boxShadow: "0 8px 24px rgba(0,0,0,.35)", background: "#fffdfa",
+          }}>
+            <RigLens src={rigSrc} lx={lp.x} ly={lp.y} size={2 * R} span={span} />
+            {/* 十字准星：钉在哪一点，看这个交点 */}
+            <div style={{
+              position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)",
+              width: 14, height: 14, pointerEvents: "none",
+            }}>
+              <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "rgba(201,138,60,.85)" }} />
+              <div style={{ position: "absolute", top: "50%", left: 0, height: 1, width: "100%", background: "rgba(201,138,60,.85)" }} />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ★ 骨钉模式：10 张叠放，**只画当前这一张**（第一层）。
+          用户 2026-09-26：「十张页面在画布上时，不可以显示多层画布，只显示第一层画布」——
+          其余 9 张是叠在同一个位置的副本，画出来就是一堆重影。 */}
+      {!demoOn && !rigMode && otherPages.map((p, i) => {
         const tr = p.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
         const isSelected = selectedPageIds.has(p.id);
         const hasSize = !!(p.paperW && p.paperH && p.paperW > 0 && p.paperH > 0);
@@ -5610,8 +6162,10 @@ function handleSheetAction(kind: string) {
         const boxShadow = isSelected
           ? `0 0 0 3px ${SELECT_BLUE}, 0 4px 24px rgba(0,0,0,.1)`
           : "0 4px 24px rgba(0,0,0,.1)";
-        /* 其他纸也按各自的真实坐标画（不再有排开值） */
-        const transform = `translate(${tr.x}px, ${tr.y}px) scale(${tr.scale}) rotate(${tr.rotate}deg)`;
+        /* 其他纸也按各自的真实坐标画（不再有排开值），并且和当前纸一样吃【镜头】 ——
+           否则一拉远镜头，当前纸缩小了、别的纸还是原大小，位置全对不上。 */
+        const d = paperDisplay(p.id) || { tx: tr.x, ty: tr.y, s: tr.scale };
+        const transform = `translate(${d.tx}px, ${d.ty}px) scale(${d.s}) rotate(${tr.rotate}deg)`;
         const base: React.CSSProperties = {
           position: "absolute",
           transform,
@@ -5643,7 +6197,21 @@ function handleSheetAction(kind: string) {
           >
             <div
               style={style}
-              onClick={papersPickable ? () => onPaperPick?.(p.id) : undefined}
+              onClick={papersPickable ? (ev: React.MouseEvent) => {
+                /* ★★ 连接模式：「点谁就是谁」，不许有任何阻碍。
+                   用户 2026-09-26：「进入连接页面，没有任何阻碍去妨碍用户随意挑选点击；
+                   用户点击谁就是谁，点击谁就是连接的开头」「不允许出现左边点不了右边点，
+                   而是都可以点，只要用户点，你就记住路线」。
+                   原来这一下只交给"选页面"，于是【不是当前纸】那张纸上的对象永远点不中
+                   （实测：点当前纸上的对象 高亮框 1；点别的纸上的对象 高亮框 0 —— 完全失灵）。
+                   现在先在这张纸的坐标系里命中对象：命中就按"点对象"走，
+                   没命中才按"点这张纸"走。 */
+                if (connectPicking) {
+                  const hit = hitElementOnPage(p, ev.clientX, ev.clientY);
+                  if (hit) { onConnectPickObjectRef.current?.(hit, p.id); return; }
+                }
+                onPaperPick?.(p.id);
+              } : undefined}
             >{innerChildren}</div>
             {/* ★ 这里原来挂着一个「点这张纸」的虚线标签 —— 用户原话
                 「系统却不停提示你点这张纸、点那张纸」「系统不断出现《点这张纸》等提示，
@@ -5662,6 +6230,73 @@ function handleSheetAction(kind: string) {
         />
       ))}
 
+      {/* ── 模板的呈现层 · ⑦ 漫画书册 ＋ 翻页折角（手稿第五张中下 / 右下）
+          定义【一处】，两种纸（有规格的 / 没规格铺满全屏的）都用它 —— 不摆两套。
+          · 漫画书册：一整页切成小格，3 格＝竖着三条，6 格＝两列三行
+            （用户 2026-09-26：「可以按 3 格和 6 格来做」）。
+            格与格之间留缝，缝里【盖住你的画】——盖的色就是纸色，
+            所以看上去是画被切成了分镜，不是画上划了几道线。
+          · 折角：手稿第五张「连环画右下角有翻页折角」。折角不是画着看的，
+            点它才翻页（动作就是动作本身）。 */}
+      {/* ── 模板的呈现层 · ⑧ 电视机（手稿第五张左下角）──────────────
+          一个框，里面装着你的画：外圈是电视机身，纸就是【屏幕】。
+          纸的尺寸一点没动（300×600 原样），机身在纸外面一圈，所以钉骨钉照样看得见。
+          黑白/彩色还是走原来那个 rigMono（纸上的 grayscale），这里不重复一套。
+          只在骨钉空间里画，普通创作/连接/演示一律不渲染。 */}
+      {rigMode && rigTemplate === "anim" && 壳W > 0 && 壳H > 0 && (() => {
+        const 侧 = 24, 上 = 24, 下 = 46;   /* 机身边框：下面厚一点，放旋钮和指示灯 */
+        const W2 = 壳W + 侧 * 2, H2 = 壳H + 上 + 下;
+        const 圆角矩形 = (x: number, y: number, w: number, h: number, r: number) =>
+          `M${x + r} ${y}H${x + w - r}A${r} ${r} 0 0 1 ${x + w} ${y + r}V${y + h - r}` +
+          `A${r} ${r} 0 0 1 ${x + w - r} ${y + h}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + h - r}` +
+          `V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
+        /* ★ 机身画在纸【上面】的一圈（中间是透的），不是埋在纸底下一坨实体。
+           埋在底下的话：没选规格的纸铺满整屏，机身全被挤到屏幕外，等于白画
+           （实测截图 r26，只有左边一丝）。画成圈以后纸多大都看得见。
+           两种纸共用这一套，不摆两套。 */
+        return (
+          <svg
+            data-rig-tv
+            viewBox={`0 0 ${W2} ${H2}`}
+            style={{
+              position: "absolute", left: "50%", top: "50%",
+              width: W2, height: H2,
+              marginLeft: -W2 / 2, marginTop: -(壳H / 2 + 上),
+              transform: mainPaperTransform,
+              /* ★ 缩放/旋转要绕着【纸心】转，不是绕着机身中心 ——
+                 机身下面厚，中心比纸心低，绕机身中心转纸会往下滑。 */
+              transformOrigin: `${壳W / 2 + 侧}px ${壳H / 2 + 上}px`,
+              pointerEvents: "none", zIndex: 6,
+            }}
+          >
+            <defs>
+              <linearGradient id="rigTvBody" x1="0" y1="0" x2="0.85" y2="1">
+                <stop offset="0%" stopColor="#5c5349" />
+                <stop offset="55%" stopColor="#35302a" />
+                <stop offset="100%" stopColor="#26221f" />
+              </linearGradient>
+              <radialGradient id="rigTvKnob" cx="0.35" cy="0.3" r="0.75">
+                <stop offset="0%" stopColor="#e6bc78" />
+                <stop offset="72%" stopColor="#a4703a" />
+              </radialGradient>
+            </defs>
+            {/* 机身＝外圆角矩形挖掉内圆角矩形（evenodd），剩下的正好是一圈边框 */}
+            <path
+              fillRule="evenodd"
+              fill="url(#rigTvBody)"
+              d={圆角矩形(0, 0, W2, H2, 26) + " " + 圆角矩形(侧, 上, 壳W, 壳H, 14)}
+            />
+            {/* 屏幕那圈凹槽：贴着纸边一道黑，纸就是屏幕 */}
+            <rect x={侧 - 5} y={上 - 5} width={壳W + 10} height={壳H + 10} rx={16}
+              fill="none" stroke="#14110f" strokeWidth={10} />
+            {/* 旋钮（手稿上画在右下角） */}
+            <circle cx={W2 - 侧 - 9} cy={上 + 壳H + 下 / 2} r={9} fill="url(#rigTvKnob)" />
+            {/* 指示灯（左下角，绿的） */}
+            <circle cx={侧 + 5} cy={上 + 壳H + 下 / 2} r={4} fill="#6fbf73" />
+          </svg>
+        );
+      })()}
+
       {paper.w > 0 && paper.h > 0 ? (
         <div
           data-paper
@@ -5673,6 +6308,7 @@ function handleSheetAction(kind: string) {
             transform: mainPaperTransform,
             transformOrigin: "center center",
             background: toRgba(paperColor, paperAlpha),
+            filter: rigMode && rigMono ? "grayscale(1)" : undefined,
             boxShadow: mainPaperSelected
               ? `0 0 0 3px ${SELECT_BLUE}, 0 4px 24px rgba(0,0,0,.1)`
               : "0 4px 24px rgba(0,0,0,.1)",
@@ -5682,6 +6318,7 @@ function handleSheetAction(kind: string) {
           }}
         >
           {paperInner}
+          {纸面呈现层}
         </div>
       ) : (
         <div
@@ -5701,6 +6338,7 @@ function handleSheetAction(kind: string) {
           }}
         >
           {paperInner}
+          {纸面呈现层}
         </div>
       )}
 
@@ -5823,7 +6461,22 @@ function handleSheetAction(kind: string) {
               borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
               border: "1px solid rgba(74,70,63,.08)",
             }}>
-            {ctxMenu.sub === "edit" ? (
+            {ctxMenu.sub === "font" ? (
+              /* ★ 字体：从原来那个独立小面板搬进来的（大 / 中 / 小）。
+                 作用对象 = 这次长按的那一块文字。 */
+              <>
+                <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
+                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                {[{ label: "大", size: 28 }, { label: "中", size: 16 }, { label: "小", size: 12 }].map((f) => (
+                  <CtxItem key={f.label} label={f.label}
+                    onClick={() => {
+                      const id = ctxMenu.hitEl?.id;
+                      setCtxMenu(null);
+                      if (id) updateText(id, { fontSize: f.size });
+                    }} />
+                ))}
+              </>
+            ) : ctxMenu.sub === "edit" ? (
               /* ★ 编辑：图层位置。
                  水平翻面按产品决定不做（使用度不高、要动数据结构+渲染+导出+命中测试）。
                  边界说明：笔迹整体在同一 <svg> 内，是「一整层」，
@@ -5865,6 +6518,13 @@ function handleSheetAction(kind: string) {
               <>
                 <CtxItem label="复制" onClick={() => { setCtxMenu(null); copySelection(); }} />
                 <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); pasteSelection(); }} />
+                {/* ★ 字体：只在长按【文字】时出现 —— 字体属于"有内容的地方"，
+                    所以它只能挂在长弹窗里，不许再单独弹一个小面板。
+                    用户 2026-09-26：「点击字体的时候会出现一个关于字体的弹窗，
+                    把这个字体的弹窗移到长弹窗里，字体同属于有内容的区域，不准再出现」。 */}
+                {ctxMenu.hitEl?.type === "text" && (
+                  <CtxItem label="字体 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "font" })} />
+                )}
                 <CtxItem label="排列 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "align" })} />
                 <CtxItem label="组合" onClick={() => { setCtxMenu(null); handleSheetAction("box-compose"); }} />
                 <CtxItem label="编辑 →" onClick={() => setCtxMenu({ ...ctxMenu, sub: "edit" })} />
@@ -5900,30 +6560,6 @@ function handleSheetAction(kind: string) {
         </>
       )}
 
-      {textPanel && (
-        <div data-ctx-menu
-          onPointerDown={(ev) => ev.stopPropagation()}
-          style={{
-            position: "fixed",
-            left: Math.min(textPanel.x + 14, window.innerWidth - 160),
-            top: Math.max(20, textPanel.y - 60),
-            zIndex: 2400, width: 150, padding: 10,
-            background: "rgba(251,250,247,.98)",
-            backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-            borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
-            border: "1px solid rgba(74,70,63,.08)",
-          }}>
-          <div style={{ fontSize: 10, color: "#8a8178", marginBottom: 8, letterSpacing: ".1em" }}>字体</div>
-          <button type="button" onClick={() => { const t = textsRef.current.find(x => x.id === editingIdRef.current); if (t) updateText(t.id, { fontSize: 28 }); }}
-            style={{ display: "block", width: "100%", height: 30, marginBottom: 4, border: 0, borderRadius: 6, background: "rgba(74,70,63,.06)", fontSize: 12, cursor: "pointer" }}>大</button>
-          <button type="button" onClick={() => { const t = textsRef.current.find(x => x.id === editingIdRef.current); if (t) updateText(t.id, { fontSize: 16 }); }}
-            style={{ display: "block", width: "100%", height: 30, marginBottom: 4, border: 0, borderRadius: 6, background: "rgba(74,70,63,.06)", fontSize: 12, cursor: "pointer" }}>中</button>
-          <button type="button" onClick={() => { const t = textsRef.current.find(x => x.id === editingIdRef.current); if (t) updateText(t.id, { fontSize: 12 }); }}
-            style={{ display: "block", width: "100%", height: 30, marginBottom: 4, border: 0, borderRadius: 6, background: "rgba(74,70,63,.06)", fontSize: 12, cursor: "pointer" }}>小</button>
-          <button type="button" onClick={() => setTextPanel(null)}
-            style={{ width: "100%", height: 26, marginTop: 4, border: 0, borderRadius: 6, background: "transparent", color: "#a49a8f", fontSize: 11, cursor: "pointer" }}>关闭</button>
-        </div>
-      )}
 
       <textarea
         ref={editTaRef}
@@ -6083,4 +6719,20 @@ function TextElement({
       {t.text}
     </div>
   );
+}
+/** 骨钉放大镜的画布：把页面位图的一小块放大填满整个镜片。
+    纯 drawImage，不重拍位图、不复制 DOM。 */
+function RigLens({ src, lx, ly, size, span }: { src: HTMLCanvasElement; lx: number; ly: number; size: number; span: number }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const c = ref.current;
+    const g = c?.getContext("2d");
+    if (!c || !g) return;
+    g.clearRect(0, 0, size, size);
+    g.imageSmoothingEnabled = false;   /* 放大时看清笔画的边 */
+    try {
+      g.drawImage(src, lx - span / 2, ly - span / 2, span, span, 0, 0, size, size);
+    } catch { /* 位图还没准备好，这一帧先不画 */ }
+  });
+  return <canvas ref={ref} width={size} height={size} style={{ display: "block" }} />;
 }
