@@ -33,7 +33,13 @@ type Props = {
   connectStepText: string;
   /** 是否已完成闭环（用于提示条变绿） */
   connectDone: boolean;
+  /** 已存进文档的连接条数（删/撤那两个按钮要显示"现在有几条"） */
+  connectCount: number;
   onConnectCancel: () => void;
+  /** 撤销刚建的那一条连接 */
+  onConnUndo: () => void;
+  /** 清空全部连接 */
+  onConnClear: () => void;
   /** 骨钉模式里点了「① 线条骨钉」：把当前页复制成 10 张叠放 */
   onStartRig: () => void;
   /** 连接动作正在等用户点某个页面时，页面列表把点击交给它。
@@ -63,7 +69,10 @@ export default function PageSheet({
   connectStage,
   connectStepText,
   connectDone,
+  connectCount,
   onConnectCancel,
+  onConnUndo,
+  onConnClear,
   onStartRig,
   onConnectPickPage,
 }: Props) {
@@ -470,7 +479,45 @@ export default function PageSheet({
                       border: "1px solid rgba(74,70,63,.14)", background: "#fffdfa",
                       color: "#756f68", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
                     }}
-                  >取消连接</button>
+                  >结束这次设置</button>
+                  {/* 连接一闭环就【一直有效】了（手机的感觉：设置了就是设置了）。
+                      这个按钮只是退出"正在搭"的这几步，不会让已建好的连接失效 ——
+                      要拿掉连接用下面的删/撤/清空。 */}
+
+                  {/* ★ 连接的删/撤。以前连接只能加不能删，上次测试留下的
+                      一直堆在文档里、点不了也删不掉，新的测试没法做。 */}
+                  <SectionLabel>已有的连接（{connectCount} 条）</SectionLabel>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      disabled={connectCount === 0}
+                      onClick={onConnUndo}
+                      style={{
+                        flex: 1, height: 34, borderRadius: 9,
+                        border: "1px solid rgba(74,70,63,.14)",
+                        background: connectCount ? "#fffdfa" : "#f4f1ec",
+                        color: connectCount ? "#3a352e" : "#b3aaa0",
+                        fontSize: 12, cursor: connectCount ? "pointer" : "default",
+                        fontFamily: "inherit",
+                      }}
+                    >撤销上一条</button>
+                    <button
+                      type="button"
+                      disabled={connectCount === 0}
+                      onClick={onConnClear}
+                      style={{
+                        flex: 1, height: 34, borderRadius: 9,
+                        border: "1px solid rgba(192,57,43,.18)",
+                        background: connectCount ? "rgba(192,57,43,.08)" : "#f4f1ec",
+                        color: connectCount ? "#c0392b" : "#b3aaa0",
+                        fontSize: 12, cursor: connectCount ? "pointer" : "default",
+                        fontFamily: "inherit",
+                      }}
+                    >清空全部</button>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 10, color: "#a49a8f", lineHeight: 1.6 }}>
+                    也可以：在画布上点那条线删，或长按一个对象删它身上的那几条。
+                  </div>
                 </>
               )}
 

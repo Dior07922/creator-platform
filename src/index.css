@@ -447,7 +447,14 @@ button { -webkit-tap-highlight-color: transparent; }
   flex-direction: column;
   padding-top: calc(env(safe-area-inset-top) + 8px);
   box-shadow: 2px 0 16px rgba(0, 0, 0, .08);
-  touch-action: none; /* 拖动关闭手势不被浏览器原生滚动拦截 */
+  /* ★ 高度必须封顶，否则面板跟着内容一直长，长出屏幕顶出去，
+     下面的 .cd-body 永远拿不到一个有限高度，overflow-y:auto 就滚不起来
+     —— 表现就是「手机型号被遮挡、上下滑不动」。 */
+  max-height: 100%;
+  /* ★ 收起手势是【横向】的（clientX / translateX），所以竖滑还给浏览器。
+     原来写的 touch-action:none 把手指滚动整个禁掉了：
+     抽屉里的列表再长也滚不动。pan-y = 竖着让浏览器滚，横着仍归 App。 */
+  touch-action: pan-y;
 }
 .cd-tabs {
   flex: none;

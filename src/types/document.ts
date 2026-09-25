@@ -111,6 +111,9 @@ export type ShapeNode = {
   /** 实心填充自由笔迹（true 时 fill 用笔色，画成实心色块） */
   solid?: boolean;
   simulatePressure?: boolean;
+  /** 旋转角度（度，顺时针）。绕 x1/y1-x2/y2 包围盒的中心转。
+      缺省 0 = 不转，老文档读进来行为不变。 */
+  rot?: number;
 };
 
 export type PaperTransform = { x: number; y: number; scale: number; rotate: number };

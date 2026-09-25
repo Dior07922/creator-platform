@@ -1,19 +1,29 @@
 /* ════════════════════════════════════════════════════════════════════
-   线条骨钉 · 骨架带动蒙皮（木偶关节）
+   线条骨钉 · 骨架带动画面（人怎么动，画就怎么动）
 
-   为什么不是「每个点各算位移」：
-   那种做法下每个点各自拉扯，细线跨格就被扯断 —— 手臂会碎成几段。
-   真实的人体不是这样动的：关节一转，整条肢体作为一根刚体跟着走。
+   这一版是照【人体骨架的运动规律】写的，三条铁律：
 
-   所以这里用骨架：
-     · 6 个点是关节（肩/肘/手 × 2），两两成骨 —— 肩→肘、肘→手
-     · 每根骨算一个【刚体变换】：骨头怎么转、怎么移，骨上的东西就整体跟着去
-     · 画面上每个格子顶点，按「离哪根骨近」加权混合几根骨的刚体变换
-       → 贴着骨头的局部几乎是刚性的，所以不会散
-       → 只有关节交汇处才平滑过渡，所以会弯
-     · 离所有骨都远的地方权重为 0 → 定死不动
+     一、动一个关节，只有它的【下游】跟着走，上游纹丝不动。
+         转肩 → 上臂、前臂、手全动，躯干一点不动（躯干是肩的上游）。
+     二、运动的起点在最上游的关节。胳膊动的起点永远是肩。
+     三、关节只转不拉长，骨长不变 —— 所以是【刚体搬运】，不是拉伸。
 
-   这就是「局部可以移动但不能拆散」在数学上的写法。
+   ★ 关键：一个像素要么【属于】某根骨（权重 1，被那根骨整体搬走），
+     要么【不属于】（权重 0，定死）。**没有中间值。**
+
+   为什么不能按「离骨头多近」加权（上一版的做法）：
+     那种做法数学里根本没有「上游/下游」这个概念 —— 躯干离肩骨很近，
+     于是被算进了肩骨的势力范围，一抬胳膊整条裙子跟着糊走。
+     衰减再快也不是 0，所以那套写法做不到手稿上那句
+     「6 点以外全部定死不能动」。
+     而且平滑混合本质上是【拉伸 + 压扁 + 互相糊】—— 那是把用户的作品
+     改得面目全非。用户要的是作品【活过来】，不是被变形。
+
+   所以这里的判定是【归属】，界线按人体关节切：
+     · 近端以外（越过肩那一侧）→ 不属于，硬切，权重恒 0
+     · 骨身上（两关节之间）    → 横向在半宽 W 以内就属于
+     · 远端以外（越过手）      → 只管手那一小团，再往外不属于
+   切面垂直于骨 —— 这是关节的分界方向，不是球状扩散。
    ════════════════════════════════════════════════════════════════════ */
 
 /** 一颗骨钉（一个关节）：钉在画面的 (sx, sy)，被拖到了 (x, y) */
@@ -47,60 +57,49 @@ function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, b
   return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
 }
 
-/**
- * 相对一根骨的「有效距离」——这是不散的关键。
- *
- * 用「到线段的距离」当权重，等于横向和纵向衰减一样快，会同时出两个毛病：
- *   · 横向：肩骨离身子中轴只有二十几像素，身子被一起拽走（拖出灰影）
- *   · 纵向：骨头到手腕就截止，手掌远半边只分到两成力，被压扁
- *
- * 真实肢体的影响范围应该是细长的一条：横向窄（不碰隔壁），
- * 纵向顺着头尾延伸（末端的手掌跟着走）。
- * 所以把偏移拆成【垂直分量】和【越过端点的分量】，分别定标：
- *   · 垂直：原样（窄）
- *   · 越过近端（靠身体那头）：提前衰减，别把上一级拽走
- *   · 越过远端（手那端）：衰减慢，让掌/脚这类末端整体跟着
- */
-const ALONG_FAR = 0.34;   // 越过远端：衰减慢 3 倍
-const ALONG_NEAR = 1.7;   // 越过近端：衰减快 1.7 倍
-const CAP_R = 0.40;       // 末端球头半径 = R 的 0.40 倍
+/** 末端那一小团（手）的半径 = 半宽的倍数。手比骨头粗一点，但也不能没边。 */
+const CAP_R = 1.0;
 
-function boneDist(px: number, py: number, ax: number, ay: number, bx: number, by: number, R: number): number {
+/**
+ * 这根骨【管不管】这个像素。只有管 / 不管两种结果，没有中间值。
+ * 管的返回它到骨的距离（多根骨都管时，谁近归谁）；不管的返回 null。
+ *
+ * 界线按人体关节的切法：
+ *   t < 0  近端以外 —— 越过肩那一侧。**硬切，不属于。** 躯干不归胳膊管。
+ *   t ∈[0,1] 骨身上 —— 横向在半宽 W 以内就属于。
+ *   t > 1  远端以外 —— 只管手那一小团（半径 CAP_R×W），再往外不属于。
+ */
+function boneClaim(
+  px: number, py: number,
+  ax: number, ay: number, bx: number, by: number,
+  W: number,
+): number | null {
   const vx = bx - ax;
   const vy = by - ay;
   const len2 = vx * vx + vy * vy;
-  if (len2 < 1e-9) return Math.hypot(px - ax, py - ay);
+  if (len2 < 1e-9) {
+    const d = Math.hypot(px - ax, py - ay);
+    return d <= W ? d : null;
+  }
   const t = ((px - ax) * vx + (py - ay) * vy) / len2;
-  const cx = ax + vx * Math.max(0, Math.min(1, t));
-  const cy = ay + vy * Math.max(0, Math.min(1, t));
-  const perp = Math.hypot(px - cx, py - cy);
-  if (t > 1) {
-    /* ★ 末端球头。关节是「球关节」，球里头的东西整体跟着走。
-       没有球头的话，手掌这类末端会出问题：钉在掌心时，
-       靠身体那半边在骨头里侧、靠外那半边在骨头外侧，
-       两边分到的权重不一样，圆就被挤扁成一道。
-       球头把整个末端包进去，权重一样，掌/脚就整体跟着走。 */
-    const dB = Math.hypot(px - bx, py - by);
-    return Math.max(0, dB - R * CAP_R);
+  if (t < 0) return null;                       // ★ 近端硬切
+  if (t <= 1) {
+    const cx = ax + vx * t;
+    const cy = ay + vy * t;
+    const perp = Math.hypot(px - cx, py - cy);
+    return perp <= W ? perp : null;
   }
-  if (t < 0) {
-    const beyond = Math.hypot(px - ax, py - ay);
-    const over = Math.sqrt(Math.max(0, beyond * beyond - perp * perp));
-    return Math.hypot(perp, over * ALONG_NEAR);
-  }
-  return perp;
+  const dB = Math.hypot(px - bx, py - by);      // ★ 末端：手那一小团
+  return dB <= W * CAP_R ? dB : null;
 }
 
-/** 一根骨这一刻的刚体变换：把「静止时贴在骨上的东西」搬到「现在骨所在的位置」 */
+/** 一根骨这一刻的刚体变换：把「静止时贴在骨上的东西」整体搬到「现在骨所在的位置」。
+    只有旋转 + 平移，**没有缩放** —— 缩放就是把作品拉长压扁，那叫变形，不叫动。 */
 type BoneXform = {
-  /** 旋转角（弧度） */
-  rot: number;
   cos: number;
   sin: number;
   /** 近端关节：静止位置 → 当前位置 */
   arx: number; ary: number; acx: number; acy: number;
-  /** 骨长比：拉伸时按比例放缩，避免拉长骨头时把画撕开 */
-  stretch: number;
 };
 
 function boneXform(j: Map<string, RigPoint>, bone: RigBone): BoneXform | null {
@@ -113,16 +112,15 @@ function boneXform(j: Map<string, RigPoint>, bone: RigBone): BoneXform | null {
   const cvy = B.y - A.y;
   const rlen = Math.hypot(rvx, rvy);
   const clen = Math.hypot(cvx, cvy);
+  /* 骨静止时的朝向 → 骨现在的朝向。只取这个角，不管长度变了多少：
+     骨被拖动时长度会变，但画面只跟着【转】，不跟着【拉】。 */
+  if (rlen < 1e-6 || clen < 1e-6) {
+    return { cos: 1, sin: 0, arx: A.sx, ary: A.sy, acx: A.x, acy: A.y };
+  }
   return {
-    rot: Math.atan2(cvy, cvx) - Math.atan2(rvy, rvx),
-    cos: rlen > 1e-6 && clen > 1e-6
-      ? (rvx * cvx + rvy * cvy) / (rlen * clen)
-      : 1,
-    sin: rlen > 1e-6 && clen > 1e-6
-      ? (rvx * cvy - rvy * cvx) / (rlen * clen)
-      : 0,
+    cos: (rvx * cvx + rvy * cvy) / (rlen * clen),
+    sin: (rvx * cvy - rvy * cvx) / (rlen * clen),
     arx: A.sx, ary: A.sy, acx: A.x, acy: A.y,
-    stretch: rlen > 1e-6 ? clen / rlen : 1,
   };
 }
 
@@ -139,34 +137,30 @@ export function skinPoint(
   R: number,
 ): { x: number; y: number } {
   const jm = new Map(joints.map((p) => [p.id, p]));
-  let sw = 0;
-  let ox = 0;
-  let oy = 0;
+  /* 找出「谁管这个点」。都管就归最近的那根；都不管就定死。 */
+  let best: BoneXform | null = null;
+  let bestD = Infinity;
   for (const bone of bones) {
     const A = jm.get(bone.a);
     const B = jm.get(bone.b);
     if (!A || !B) continue;
-    const d = boneDist(px, py, A.sx, A.sy, B.sx, B.sy, R);
-    if (d >= R) continue;
-    /* ★ 四次方衰减 —— 这是「聚拢」的关键。
-       线性/smoothstep 衰减下，离骨头稍远的地方还留着不小的权重
-       （肩关节离身体中轴只有二十几像素，身子会被一起拽走，拖出一道灰影）。
-       四次方让权重贴着骨头才接近 1，稍微离开就迅速掉到接近 0：
-       能动的地方紧紧聚在骨头上，骨头外面很快归零。 */
-    const t = 1 - d / R;
-    const w = t * t * t * t;
-    if (w <= 0.001) continue;
+    const d = boneClaim(px, py, A.sx, A.sy, B.sx, B.sy, R);
+    if (d === null || d >= bestD) continue;
     const xf = boneXform(jm, bone);
     if (!xf) continue;
-    /* 把点相对「骨静止时的近端」的位置，旋转 + 按骨长比放缩，再搬到近端的当前位置 */
-    const rx = (px - xf.arx) * xf.stretch;
-    const ry = (py - xf.ary) * xf.stretch;
-    ox += w * (xf.acx + rx * xf.cos - ry * xf.sin);
-    oy += w * (xf.acy + rx * xf.sin + ry * xf.cos);
-    sw += w;
+    best = xf;
+    bestD = d;
   }
-  if (sw <= 0) return { x: px, y: py };
-  return { x: ox / sw, y: oy / sw };
+  /* ★ 没有骨管它 → 原地不动。这就是手稿上那句「6 点以外全部定死不能动」。 */
+  if (!best) return { x: px, y: py };
+  /* 整体搬走：相对「骨静止时的近端」的位置 → 转一下 → 摆到近端的当前位置。
+     不缩放，所以属于这根骨的笔画一根都不走样。 */
+  const rx = px - best.arx;
+  const ry = py - best.ary;
+  return {
+    x: best.acx + rx * best.cos - ry * best.sin,
+    y: best.acy + rx * best.sin + ry * best.cos,
+  };
 }
 
 /** 网格顶点：源坐标 + 目标坐标 */
@@ -267,12 +261,12 @@ export function warpTo(
   }
 }
 
-/** 骨钉的默认影响半径。
-    要盖得住肢体本身的粗细，但【不能大到够着别的部位】——
-    半径给大了，手骨的势力范围会一直伸到腿上，把腿也拽走；
-    肩骨的范围会伸进身子，把身子拖出灰影。
-    0.055 × 长边（390×844 的纸上约 46px）是「贴着骨头一条带」的宽度。
-    实际产品里这个值由用户手里的滑杆微调，不同画作不一样。 */
+/** 骨的默认半宽 —— 这条骨横着能管多宽。
+    要盖得住肢体本身的粗细，但【不能宽到够着别的部位】：
+    宽了，手骨会一直伸到裙子上把裙子带走；窄了，胳膊自己的笔画会掉在界线外。
+    这是「贴着骨头一条带」的宽度，实际产品里由用户手里的滑杆调，不同画作不一样。
+    ★ 注意语义变了：以前这是「影响半径」（向外平滑衰减），
+      现在是「半宽」（界线硬切，超出即不属于）。同一个数，行为完全不同。 */
 export function defaultRadius(srcW: number, srcH: number): number {
   return Math.max(srcW, srcH) * 0.055;
 }

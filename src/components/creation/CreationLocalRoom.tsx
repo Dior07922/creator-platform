@@ -262,15 +262,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     }
   }
 
-  /* 连接过程中的轻提示（1.8s 自隐） */
-  const [connTip, setConnTip] = useState("");
-  const connTipTimer = useRef<number | null>(null);
-  function flashConnTip(msg: string) {
-    setConnTip(msg);
-    if (connTipTimer.current != null) window.clearTimeout(connTipTimer.current);
-    connTipTimer.current = window.setTimeout(() => { connTipTimer.current = null; setConnTip(""); }, 1800);
-  }
-  useEffect(() => () => { if (connTipTimer.current != null) window.clearTimeout(connTipTimer.current); }, []);
+  /* ★ 原来这里有个 flashConnTip（临时弹一句字）。
+     删掉：动作的反馈就是动作的结果本身 ——
+     点错了不会发生任何事（线不长、框不亮），这就是手稿写的
+     「框没完整包住任何对象 → 框不成型（无效）」。不靠字幕提示对错。 */
 
   /* ══ 骨钉（线条骨钉）═════════════════════════════════════════
      选对象 → 点「线条骨钉」→ 当前页复制成 10 张叠放。
@@ -354,16 +349,37 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   }, [rigPlaying, rigBase]);
 
 
-  /* 闭环完成：亮一下「✓ 闭环完成」，然后自动退出连接模式 */
-  useEffect(() => {
-    if (connStage !== "done") return;
-    const t = window.setTimeout(() => {
-      setConnMode(null);
-      setConnStage("idle");
-      setConnDraft({});
-    }, 1400);
-    return () => window.clearTimeout(t);
-  }, [connStage]);
+  /* ★ 闭环之后【不退出】—— 这里原来是 1.4 秒后把连接模式清掉，等于刚闭环就把线收了。
+     手稿第三张：「单线不实现跳转，闭环产生才开始跳转。」
+     闭环的那一刻就是「设置完成」，同一个画布立刻进入运行态：
+     点对象直接跳过去（见 Editor 的 connectRun 分支）。
+     要退出运行态走抽屉里的「取消连接」。 */
+
+  /* 运行态的来路：跳过去之后，返回键按原路一步步退回来。
+     手稿第五张：「点击返回按键直接回到我的页面」。 */
+  const [connBackStack, setConnBackStack] = useState<string[]>([]);
+
+  /* （原来这里有一套 connTipHidden：用来收起画布顶上那条文字提示条。
+     提示条整条删掉了，这套状态机也就没有主人了，一并删掉。） */
+
+  /** ★ 运行态：点中一个有连接的对象 → 整个页面切过去。
+      手稿第五张：「点击对象，不显示连接线的过程，而是直接跳转到页面」
+      「它整个页面是切过去，而不是跳转到莫名其妙页面」。 */
+  function connJump(ix: Interaction) {
+    setConnBackStack((s) => [...s, ix.fromPageId]);
+    setCurrentPageId(ix.toPageId);
+    /* ★ 这里原来会弹一句"跳过去了 · 左上角 ◀ 可以回来"。
+       删掉：演示的时候屏幕上不该有任何文字 —— 点一下就整屏切过去，
+       切过去本身就是全部的表达。用户原话：「你老在上面打字干嘛」。 */
+  }
+
+  /** 运行态返回键：退回上一页 */
+  function connBack() {
+    const prev = connBackStack[connBackStack.length - 1];
+    if (!prev) return;
+    setCurrentPageId(prev);
+    setConnBackStack((s) => s.slice(0, -1));
+  }
 
   /* ★ 连接入口（长按弹窗里的「连接」）：
      长按的那个对象直接作为起点，进入连接模式后不必再点一次，
@@ -371,10 +387,9 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
      不开抽屉 —— 连接是在画布上的几张纸之间直接点出来的。 */
   function startConnectFromObject(el: { type: string; id: string }) {
     if (!el?.id) return;
-    if (doc.pages.length < 2) {
-      flashConnTip("当前页数不足，需要 2 组才能开启连接");
-      return;
-    }
+    /* 页数不够就【不开启】—— 无效的动作就是不发生，不弹一个字。
+       （手稿：「框没完整包住任何对象 → 框不成型（无效）」是同一个规矩。） */
+    if (doc.pages.length < 2) return;
     setConnMode("phone");
     setConnDraft({ fromPageId: currentPageId, fromElementId: el.id, fromElementType: el.type });
     setConnStage("pickTargetPage");
@@ -385,6 +400,29 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     setConnMode(null);
     setConnStage("idle");
     setConnDraft({});
+    setConnBackStack([]);
+  }
+
+  /* ══ 连接记录的删/撤 ═══════════════════════════════════════════════
+     以前这里只有"加一条"（走完四步那时）。删不掉 → 上次测试留下的连接一直堆着，
+     新的测试根本没法做（用户原话：删不掉又点不了）。下面三个是唯一的删入口：
+       · deleteInteraction —— 删掉一条（点那条线、或长按对象列出来的那一条）
+       · undoLastInteraction —— 撤销刚建的那一条
+       · clearInteractions —— 一口清光（旧数据一键扫干净） */
+  function deleteInteraction(id: string) {
+    applyDoc((prev) => ({ ...prev, interactions: (prev.interactions || []).filter((x) => x.id !== id) }));
+    /* 反馈就是"那条线没了"本身，不再弹字。 */
+  }
+  function undoLastInteraction() {
+    applyDoc((prev) => {
+      const list = prev.interactions || [];
+      if (!list.length) return prev;
+      const last = list.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
+      return { ...prev, interactions: list.filter((x) => x.id !== last.id) };
+    });
+  }
+  function clearInteractions() {
+    applyDoc((prev) => ({ ...prev, interactions: [] }));
   }
 
   /** 画布上点了对象（Editor 回调） */
@@ -639,6 +677,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       title: `白纸 ${doc.pages.length + 1}`,
       content: "",
       texts: [],
+      /* 新页摆在当前页旁边一屏 —— 创作态要看得见、点得到自己的纸
+         （用户：「在创作的过程每个页面都可以进行并排放」「我纸呢」）。
+         演示态（闭环后 / 跳转后）屏幕上的其他纸由 Editor 收起来，
+         所以"摆在旁边"不会破坏"一屏换一屏"的演示感。 */
       transform: active ? { x: baseX + offsetX, y: baseY, scale: 1, rotate: 0 } : { x: 0, y: 0, scale: 1, rotate: 0 },
       createdAt: now, updatedAt: now,
       paperColor: "#ffffff", paperAlpha: 1,
@@ -830,18 +872,32 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             connectPicking={connStage === "pickSource" || connStage === "pickTargetObj"}
             onConnectPickObject={onConnectPickObject}
             onStartConnect={startConnectFromObject}
-            /* 连接模式 = 纸排开 + 其他纸可点，全程在画布上完成，不经过抽屉 */
-            connectArrange={connMode !== null && connStage !== "idle"}
+            /* 连接模式 = 纸排开 + 其他纸可点，全程在画布上完成，不经过抽屉。
+               ★ 闭环之后（done）要【收起排开】：运行态的体验是「整个页面切过去」，
+               不是几张纸并排摆着。 */
+            connectArrange={connMode !== null && connStage !== "idle" && connStage !== "done"}
             onPaperPick={
               connStage === "pickTargetPage" || connStage === "returnHome"
-                ? (pid) => {
-                    if (!onConnectPickPage(pid)) flashConnTip("要闭环，得点回刚才那张纸");
-                  }
+                /* 点错纸 → 线不长出来、闭环不成立。这就是反馈，不弹字。 */
+                ? (pid) => { onConnectPickPage(pid); }
                 : undefined
             }
             interactions={doc.interactions || []}
+            onDeleteInteraction={deleteInteraction}
             connectDraft={connDraft}
             connectDone={connStage === "done"}
+            /* ★ 跳转 = 【建好就一直有效】，不再依赖"刚走完四步"这个临时状态。
+               手机的感觉：设置了就是设置了 —— 点设置就进设置，
+               不需要先"进入运行态"；刷新、重开 App 一样有效（连接存在文档里）。
+               只在"正在搭连接"那几步里点击才是选对象（见下面 connStage 的判断）。
+               要改东西：长按对象走元素菜单，或长按 →「连接」重新进设置。 */
+            connectRun={
+              (connStage === "idle" || connStage === "done") &&
+              (doc.interactions || []).length > 0
+            }
+            onConnectJump={connJump}
+            connectCanGoBack={connBackStack.length > 0}
+            onConnectBack={connBack}
             /* 骨钉：只在开启时挂载那一层，平时一行不动 */
             rigMode={rigOn}
             rigJoints={rigJoints || undefined}
@@ -944,7 +1000,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           connectStage={connStage}
           connectStepText={connStepText}
           connectDone={connStage === "done"}
+          connectCount={(doc.interactions || []).length}
           onConnectCancel={cancelConnect}
+          onConnUndo={undoLastInteraction}
+          onConnClear={clearInteractions}
           onStartRig={startRig}
           onConnectPickPage={onConnectPickPage}
           hasSelection={editorHasSelection}
@@ -1010,40 +1069,14 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         <LockDrawer onClose={closeDrawer} onPicked={closeDrawer} />
       )}
 
-      {/* ★ 连接模式提示条：画在画布上，不依赖抽屉 ——
-          连接是在面前的几张纸之间点出来的，指引必须一直看得见。 */}
-      {connMode && (connMode === "phone" || connMode === "site") && connStage !== "idle" && (
-        <div style={{
-          position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)",
-          zIndex: 3001, display: "flex", alignItems: "center", gap: 10,
-          padding: "9px 10px 9px 16px", borderRadius: 999,
-          background: connStage === "done" ? "rgba(63,92,51,.95)" : "rgba(58,53,46,.94)",
-          color: "#fffdfa", fontSize: 12.5, letterSpacing: ".03em",
-          boxShadow: "0 6px 22px rgba(0,0,0,.24)", whiteSpace: "nowrap",
-        }}>
-          <span>{connStepText}</span>
-          <button
-            type="button"
-            onClick={cancelConnect}
-            style={{
-              border: 0, borderRadius: 999, padding: "4px 10px",
-              background: "rgba(255,255,255,.16)", color: "#fffdfa",
-              fontSize: 11, cursor: "pointer", fontFamily: "inherit",
-            }}
-          >{connStage === "done" ? "知道了" : "取消"}</button>
-        </div>
-      )}
-
-      {connTip && (
-        <div style={{
-          position: "absolute", left: "50%", top: 72, transform: "translateX(-50%)",
-          zIndex: 3000, padding: "10px 18px", borderRadius: 10,
-          background: "rgba(58,53,46,.94)", color: "#fffdfa",
-          fontSize: 13, letterSpacing: ".04em", whiteSpace: "nowrap",
-          boxShadow: "0 6px 20px rgba(0,0,0,.22)",
-          pointerEvents: "none",
-        }}>{connTip}</div>
-      )}
+      {/* ★ 这里原来挂着一条"提示条"，把每一步该做什么写成字贴在画布顶上
+          （「点延伸物那张纸」「在延伸物里点一个连接对象」…）。
+          整条删掉 —— 手稿上那些字是【动作规则】，是给开发看的，
+          不是要显示给用户读的字幕。动作应该靠动作本身表达：
+            ① 点对象 → 那圈框亮起来（本身就是"选了它"）
+            ② 定延伸页 → 线当场长出来
+            ③ 闭环 → 线变实（route 成立了）
+          退出的路在抽屉里（「结束这次设置」），画布上不需要任何文字。 */}
 
       {/* ── 骨钉胶片条 ─────────────────────────────────────────
           10 格。活页（第 3、6、9 张 + 第 1 张）标出来 —— 只有活页能改。
