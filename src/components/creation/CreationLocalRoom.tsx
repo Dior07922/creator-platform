@@ -357,28 +357,39 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
 
   /* 运行态的来路：跳过去之后，返回键按原路一步步退回来。
      手稿第五张：「点击返回按键直接回到我的页面」。 */
-  const [connBackStack, setConnBackStack] = useState<string[]>([]);
+  /* ══ ★ 演示模式（固定视口）════════════════════════════════════════
+     用户 2026-09-26 定的三个模式边界：
+       · 普通创作 = 只管编辑和选择，点对象**不跳转**
+       · 连接模式 = 只建立关系，不动纸张位置
+       · 演示     = 固定视口、一次一页，**只有这时**点已连接的对象才整屏跳
+     所以跳转不再是"连接一建好就常驻"，而是**进入演示后才有**。
+     演示不写回任何纸张坐标；退出演示回到进演示时那一页，画布原样。 */
+  const [demoOn, setDemoOn] = useState(false);
+  const demoRootRef = useRef<string>("");
 
-  /* （原来这里有一套 connTipHidden：用来收起画布顶上那条文字提示条。
-     提示条整条删掉了，这套状态机也就没有主人了，一并删掉。） */
-
-  /** ★ 运行态：点中一个有连接的对象 → 整个页面切过去。
-      手稿第五张：「点击对象，不显示连接线的过程，而是直接跳转到页面」
-      「它整个页面是切过去，而不是跳转到莫名其妙页面」。 */
-  function connJump(ix: Interaction) {
-    setConnBackStack((s) => [...s, ix.fromPageId]);
-    setCurrentPageId(ix.toPageId);
-    /* ★ 这里原来会弹一句"跳过去了 · 左上角 ◀ 可以回来"。
-       删掉：演示的时候屏幕上不该有任何文字 —— 点一下就整屏切过去，
-       切过去本身就是全部的表达。用户原话：「你老在上面打字干嘛」。 */
+  function enterDemo() {
+    if (!(doc.interactions || []).length) return;   /* 没有连接就没什么可演示的，不弹字 */
+    demoRootRef.current = currentPageId;
+    setDemoOn(true);
+    closeDrawer();
+  }
+  function exitDemo() {
+    setDemoOn(false);
+    if (demoRootRef.current) setCurrentPageId(demoRootRef.current);
+    demoRootRef.current = "";
   }
 
-  /** 运行态返回键：退回上一页 */
-  function connBack() {
-    const prev = connBackStack[connBackStack.length - 1];
-    if (!prev) return;
-    setCurrentPageId(prev);
-    setConnBackStack((s) => s.slice(0, -1));
+  /** ★ 演示里：点中有连接的对象 → 整个页面切过去（不显示连线过程、不弹字）。
+      手稿第五张：「点击对象，不显示连接线的过程，而是直接跳转到页面。」
+      「它整个页面是切过去，而不是跳转到莫名其妙页面」。 */
+  function connJump(ix: Interaction) {
+    setCurrentPageId(ix.toPageId);
+  }
+
+  /** ★ 演示里点了【创作者指定的返程对象】→ 按那条记录回到它的起页。
+      这是第十张第③步选的那个对象，**不是**系统的默认返回按钮。 */
+  function connJumpBack(ix: Interaction) {
+    setCurrentPageId(ix.fromPageId);
   }
 
   /* ★ 连接入口（长按弹窗里的「连接」）：
@@ -400,7 +411,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     setConnMode(null);
     setConnStage("idle");
     setConnDraft({});
-    setConnBackStack([]);
+    /* (connArrival 已删除 —— 返回不再走系统记录，演示里只靠创作者指定的返程对象) */
   }
 
   /* ══ 连接记录的删/撤 ═══════════════════════════════════════════════
@@ -664,12 +675,46 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     });
   }
 
+  /* ★ 无限画布：视野（k 缩放 / vx,vy 平移）= "看画布的方式"，纸张坐标一个字节都不写。
+     状态放在这里，因为 Editor 按 editorKey 挂载、**一切换页就重挂载**，放里面会被清掉。 */
+  const [canvasView, setCanvasView] = useState({ k: 1, vx: 0, vy: 0 });
+  const fitCountRef = useRef(doc.pages.length);
+
+  /** 新页/副本落在源页右边多远：按源页【实际显示宽度】算（选过规格的纸更窄） */
+  function besideOffsetX(src: Page | null | undefined): number {
+    const sw = typeof window !== "undefined" ? window.innerWidth : 390;
+    return (src ? (src.paperW && src.paperW > 0 ? src.paperW : sw) * ((src.transform?.scale ?? 1) || 1) : 0) + 60;
+  }
+
+  /* ★ 只在【你按了加页/复制/粘贴】那一下，把镜头拉远到"看得见所有纸"。
+     ★ 绝不在启动时跑 —— 用户原话「我没增加新页 它就不需要出现」：
+       之前一打开就自动缩小平铺，屏幕上凭空多出一张平铺的纸，是错的。 */
+  useEffect(() => {
+    const n = doc.pages.length;
+    if (n <= fitCountRef.current) { fitCountRef.current = n; return; }
+    fitCountRef.current = n;
+    const sw = typeof window !== "undefined" ? window.innerWidth : 390;
+    const sh = typeof window !== "undefined" ? window.innerHeight : 844;
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (const p of doc.pages) {
+      const tr = p.transform || { x: 0, y: 0, scale: 1 };
+      const w = (p.paperW && p.paperW > 0 ? p.paperW : sw) * (tr.scale || 1);
+      const h = (p.paperH && p.paperH > 0 ? p.paperH : sh) * (tr.scale || 1);
+      x1 = Math.min(x1, tr.x - w / 2); y1 = Math.min(y1, tr.y - h / 2);
+      x2 = Math.max(x2, tr.x + w / 2); y2 = Math.max(y2, tr.y + h / 2);
+    }
+    if (!isFinite(x1)) return;
+    const pad = 14;
+    const k = Math.max(0.12, Math.min(1, (sw - pad * 2) / Math.max(1, x2 - x1), (sh - pad * 2) / Math.max(1, y2 - y1)));
+    setCanvasView({ k, vx: -((x1 + x2) / 2) * k, vy: -((y1 + y2) / 2) * k });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.pages.length]);
+
   function addNewPage(): boolean {
     if (doc.pages.length >= 30) { alert("最多 30 页"); return false; }
     const now = Date.now();
     const active = findPage(currentPageId) || doc.pages[doc.pages.length - 1];
-    const stageRect = (typeof window !== "undefined") ? { w: window.innerWidth } : { w: 800 };
-    const offsetX = active ? stageRect.w + 60 : 0;
+    const offsetX = besideOffsetX(active);   /* = 0：叠在原处 */
     const baseX = active?.transform?.x ?? 0;
     const baseY = active?.transform?.y ?? 0;
     const page: Page = {
@@ -713,7 +758,9 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       texts: clonedTexts,
       shapes: clonedShapes,
       transform: {
-        x: localX - sr.w / 2, y: localY - sr.h / 2,
+        /* ★ 贴在剪贴板那张纸的右边（用户要的是"复制出来一份"，不是压在原件上） */
+        x: (pageClipboard.transform?.x ?? 0) + besideOffsetX(pageClipboard),
+        y: pageClipboard.transform?.y ?? 0,
         scale: pageClipboard.transform?.scale ?? 1,
         rotate: pageClipboard.transform?.rotate ?? 0,
       },
@@ -746,7 +793,12 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
       content: src.content || "",
       texts: clonedTexts,
       shapes: clonedShapes,
-      transform: { ...(src.transform || { x: 0, y: 0, scale: 1, rotate: 0 }) },
+      /* ★ 副本摆在源页右边紧挨着 —— 不再照抄同一个坐标（那会精确重叠、"黏一块"） */
+      transform: {
+        ...(src.transform || { x: 0, y: 0, scale: 1, rotate: 0 }),
+        x: (src.transform?.x ?? 0) + besideOffsetX(src),
+        y: src.transform?.y ?? 0,
+      },
       createdAt: now, updatedAt: now,
       groups: undefined,
       paperColor: src.paperColor ?? "#ffffff",
@@ -875,7 +927,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             /* 连接模式 = 纸排开 + 其他纸可点，全程在画布上完成，不经过抽屉。
                ★ 闭环之后（done）要【收起排开】：运行态的体验是「整个页面切过去」，
                不是几张纸并排摆着。 */
-            connectArrange={connMode !== null && connStage !== "idle" && connStage !== "done"}
             onPaperPick={
               connStage === "pickTargetPage" || connStage === "returnHome"
                 /* 点错纸 → 线不长出来、闭环不成立。这就是反馈，不弹字。 */
@@ -886,18 +937,17 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             onDeleteInteraction={deleteInteraction}
             connectDraft={connDraft}
             connectDone={connStage === "done"}
-            /* ★ 跳转 = 【建好就一直有效】，不再依赖"刚走完四步"这个临时状态。
-               手机的感觉：设置了就是设置了 —— 点设置就进设置，
-               不需要先"进入运行态"；刷新、重开 App 一样有效（连接存在文档里）。
-               只在"正在搭连接"那几步里点击才是选对象（见下面 connStage 的判断）。
-               要改东西：长按对象走元素菜单，或长按 →「连接」重新进设置。 */
-            connectRun={
-              (connStage === "idle" || connStage === "done") &&
-              (doc.interactions || []).length > 0
-            }
+            /* ★ 三个模式互相独立（用户 2026-09-26 定的边界）：
+               · 普通创作：点对象**只负责选中/编辑**，绝不跳转
+               · 连接模式：只建立关系，不动任何纸张位置
+               · 演示：固定视口、一次一页，**只有这时点已连接的对象才跳**
+               所以 connectRun 现在只有一个来源：演示模式。 */
+            connectRun={demoOn}
+            canvasView={canvasView}
+            onCanvasViewChange={setCanvasView}
+            demoOn={demoOn}
             onConnectJump={connJump}
-            connectCanGoBack={connBackStack.length > 0}
-            onConnectBack={connBack}
+            onConnectJumpBack={connJumpBack}
             /* 骨钉：只在开启时挂载那一层，平时一行不动 */
             rigMode={rigOn}
             rigJoints={rigJoints || undefined}
@@ -1004,6 +1054,9 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           onConnectCancel={cancelConnect}
           onConnUndo={undoLastInteraction}
           onConnClear={clearInteractions}
+          demoOn={demoOn}
+          onDemoEnter={enterDemo}
+          onDemoExit={exitDemo}
           onStartRig={startRig}
           onConnectPickPage={onConnectPickPage}
           hasSelection={editorHasSelection}

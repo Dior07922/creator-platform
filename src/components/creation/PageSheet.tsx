@@ -40,6 +40,11 @@ type Props = {
   onConnUndo: () => void;
   /** 清空全部连接 */
   onConnClear: () => void;
+  /** 是否在演示模式（固定视口、一次一页；只有这时点对象才跳） */
+  demoOn: boolean;
+  /** 进入 / 退出演示 */
+  onDemoEnter: () => void;
+  onDemoExit: () => void;
   /** 骨钉模式里点了「① 线条骨钉」：把当前页复制成 10 张叠放 */
   onStartRig: () => void;
   /** 连接动作正在等用户点某个页面时，页面列表把点击交给它。
@@ -73,6 +78,9 @@ export default function PageSheet({
   onConnectCancel,
   onConnUndo,
   onConnClear,
+  demoOn,
+  onDemoEnter,
+  onDemoExit,
   onStartRig,
   onConnectPickPage,
 }: Props) {
@@ -480,9 +488,22 @@ export default function PageSheet({
                       color: "#756f68", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
                     }}
                   >结束这次设置</button>
-                  {/* 连接一闭环就【一直有效】了（手机的感觉：设置了就是设置了）。
-                      这个按钮只是退出"正在搭"的这几步，不会让已建好的连接失效 ——
+                  {/* 这个按钮只是退出"正在搭"的这几步，不会让已建好的连接失效 ——
                       要拿掉连接用下面的删/撤/清空。 */}
+
+                  {/* ★ 演示：固定视口、一次一页，只有这时候点已连接的对象才跳。
+                      普通创作画布里点对象永远只是选中/编辑（三个模式互相独立）。 */}
+                  <button
+                    type="button"
+                    onClick={demoOn ? onDemoExit : onDemoEnter}
+                    style={{
+                      marginTop: 10, width: "100%", height: 38, borderRadius: 9,
+                      border: demoOn ? "1px solid rgba(192,57,43,.25)" : "1px solid rgba(63,92,51,.3)",
+                      background: demoOn ? "rgba(192,57,43,.08)" : "#3f5c33",
+                      color: demoOn ? "#c0392b" : "#fffdfa",
+                      fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                    }}
+                  >{demoOn ? "退出演示" : "▶ 演示"}</button>
 
                   {/* ★ 连接的删/撤。以前连接只能加不能删，上次测试留下的
                       一直堆在文档里、点不了也删不掉，新的测试没法做。 */}

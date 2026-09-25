@@ -74,8 +74,7 @@ type Props = {
   onConnectPickObject?: (el: { type: string; id: string }) => void;
   /** 长按弹窗里点了「连接」：以这个对象为起点开启连接模式 */
   onStartConnect?: (el: { type: string; id: string }) => void;
-  /** 连接模式：把纸排开、其他纸变成可点（连接是在眼前的几张纸之间点出来的） */
-  connectArrange?: boolean;
+  /* （原 connectArrange：把纸排开 —— 整套已删除，连接不再动任何纸张的位置） */
   /** 骨钉模式：把当前纸拍平成位图 → 按 6 个关节形变 → 铺在纸上，
       再叠一层可拖的关节把手。只在开启时挂载，平时一行不动。 */
   rigMode?: boolean;
@@ -100,11 +99,17 @@ type Props = {
       手稿第五张：「在完成交互连接的设置后，就是实现路线跳转的时候。
       在我的页面，点击对象，不显示连接线的过程，而是直接跳转到页面。」 */
   connectRun?: boolean;
-  /** 运行态里点中了有连接的对象 */
+  /** ★ 演示模式：固定视口、一次只显示一个页面；只有这时点对象才跳转。
+      普通创作画布里点对象永远只是"选中/编辑"（用户 2026-09-26 定的边界）。 */
+  demoOn?: boolean;
+  /** ★ 无限画布：看画布的方式（k 缩放 / vx,vy 平移）。状态在父层，Editor 会随页切换重挂载。 */
+  canvasView?: { k: number; vx: number; vy: number };
+  onCanvasViewChange?: (v: { k: number; vx: number; vy: number }) => void;
+  /** 演示模式里点中了有连接的对象（去程） */
   onConnectJump?: (ix: Interaction) => void;
-  /** 运行态：当前页有来路 → 左上角画返回键（手稿第四张承接页那个 ◀） */
-  connectCanGoBack?: boolean;
-  onConnectBack?: () => void;
+  /** ★ 运行态里点中了【创作者指定的返程对象】（第十张第③步选的那个） */
+  onConnectJumpBack?: (ix: Interaction) => void;
+  /* （原 connectCanGoBack / onConnectBack：系统返回键 —— 已删除，返程走创作者指定的对象） */
   /** ★ 删掉一条连接（点那条线 / 长按对象列出来的那一条都用它） */
   onDeleteInteraction?: (id: string) => void;
   /** 跳转锚点：建立 本页→目标页 的 flow 关系（PageLink） */
@@ -502,15 +507,16 @@ export default function Editor({
   sheetAction,
   brush,
   onJumpAnchor,
-  connectArrange,
   onPaperPick,
   interactions,
   connectDraft,
   connectDone,
   connectRun,
+  demoOn,
+  canvasView,
+  onCanvasViewChange,
   onConnectJump,
-  connectCanGoBack,
-  onConnectBack,
+  onConnectJumpBack,
   onDeleteInteraction,
   rigMode,
   rigJoints,
@@ -549,6 +555,10 @@ export default function Editor({
   drawToolRef.current = drawTool ?? null;
   brushRef.current = brush;
   onDrawToolConsumedRef.current = onDrawToolConsumed;
+
+  const view = canvasView || { k: 1, vx: 0, vy: 0 };
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const [paper, setPaper] = useState<PaperState>(() => {
     const t = page.transform;
@@ -2532,6 +2542,7 @@ export default function Editor({
         x: cur.x, y: cur.y, scale: cur.scale, rotate: cur.rotate,
         dist: snap.dist, angle: snap.angle, midX: snap.midX, midY: snap.midY,
       };
+      (g as any).viewOrigin = { ...viewRef.current };
       g.mode = "pinch";
     }
   }
@@ -2831,14 +2842,15 @@ export default function Editor({
       return;
     }
 
+    /* ★ 双指缩放/平移 = 直接操作【当前这一张纸】（x/y/scale）。
+       用户 2026-09-26：「我点另一个 大小拉伸 两个一起大小拉伸」「还分不开」——
+       之前把双指改成动镜头，结果所有纸一起缩放、单张纸再也分不开。
+       这里改回来：手指动的是手里这张纸。 */
     if (g.mode === "pinch" && g.pointers.size === 2) {
       const snap = getTwoFingerSnapshot();
-      const scale = Math.max(0.02, Math.min(30, g.initial.scale * (snap.dist / (g.initial.dist || 1))));
-      const daRad = normalizeAngleDiff(snap.angle - g.initial.angle);
-      const rotate = g.initial.rotate + (daRad * 180) / Math.PI;
-      const x = g.initial.x + (snap.midX - g.initial.midX);
-      const y = g.initial.y + (snap.midY - g.initial.midY);
-      setPaper({ ...paperStateRef.current, x, y, scale, rotate });
+      const vo = ((g as any).viewOrigin as { k: number; vx: number; vy: number } | undefined) || { k: 1, vx: 0, vy: 0 };
+      const k = Math.max(0.12, Math.min(6, vo.k * (snap.dist / (g.initial.dist || 1))));
+      onCanvasViewChange?.({ k, vx: vo.vx + (snap.midX - g.initial.midX), vy: vo.vy + (snap.midY - g.initial.midY) });
     }
     if (g.mode === "scaleText" && g.pointers.size === 2 && g.dragTextId) {
       const snap = getTwoFingerSnapshot();
@@ -3049,15 +3061,24 @@ export default function Editor({
        分界线就是这条线有没有闭环：闭环前点对象是「接着搭」，闭环后才「跳」。 */
     if (connectRun && !g.moved && !g.longPressed && g.mode !== "drawing") {
       const hit = hitAnyElement(e.clientX, e.clientY) as { id: string } | null;
-      const ix = hit
+      /* 去程：这个对象是某条连接的起点 → 跳到那条连接的承接页 */
+      const fwd = hit
         ? (interactions || []).find((x) => x.fromPageId === page.id && x.fromElementId === hit.id)
         : null;
+      /* 返程：这个对象是某条连接的【返程对象】（第十张第③步选的那个）
+         → 按那条连接回到它的起页。规则：「点击返回对象，就按照事先建立的返程连接，
+         返回指定页面」。★ 不加任何额外限制 —— 连接是四步闭环走完才记下的，
+         每条记录本来就有返程；允许多页共用同一个返程目标。 */
+      const back = !fwd && hit
+        ? (interactions || []).find((x) => x.toPageId === page.id && x.toElementId === hit.id)
+        : null;
+      const ix = fwd || back;
       if (ix) {
         try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
         g.pointers.delete(e.pointerId);
         clearTimeout(g.longPressTimer);
         g.mode = "idle";
-        onConnectJump?.(ix);
+        if (fwd) onConnectJump?.(fwd); else onConnectJumpBack?.(back!);
         return;
       }
       /* 没点到有连接的对象 → 不拦。拦了的话运行态里除了那几个对象什么都点不动，
@@ -5166,8 +5187,6 @@ function handleSheetAction(kind: string) {
     </>
   );
 
-  const connArrangeOn = !!connectArrange;
-  const arrPaperH = paper.h > 0 ? paper.h : 844;
   /* 画布实测尺寸：排开的缩放要按它算，所以必须在排开之前就拿到。
      首帧 ref 还没挂上 → 先用兜底值，挂上后 ResizeObserver 会立刻纠正。 */
   const [stageBox, setStageBox] = useState({ w: 0, h: 0 });
@@ -5183,49 +5202,40 @@ function handleSheetAction(kind: string) {
   /* ── 连接模式：把纸并排排开 ─────────────────────────────
      纸是竖的。竖着摞两张会顶出屏幕、又窄又长，看不出「左→右承接」的关系；
      并排反而省地方，横向关系也更像「这边点一下、那边接住」。 */
-  const ARR_GAP = 14;
-  const ARR_EDGE = 18;
-  const arrAll = (allPages || []);
-  const arrMaxW = Math.max(
-    paper.w > 0 ? paper.w : 390,
-    ...arrAll.map((p) => (p.paperW && p.paperW > 0 ? p.paperW : 390)),
-  );
-  const arrMaxH = Math.max(
-    paper.h > 0 ? paper.h : 844,
-    ...arrAll.map((p) => (p.paperH && p.paperH > 0 ? p.paperH : 844)),
-  );
-  const arrCount = arrAll.length || 1;
-  const arrAvailW = (stageBox.w > 0 ? stageBox.w : 390) - ARR_EDGE * 2;
-  const arrAvailH = (stageBox.h > 0 ? stageBox.h : 700) - ARR_EDGE * 2;
-  const ARR_SCALE = Math.max(
-    0.08,
-    Math.min(1, (arrAvailW - ARR_GAP * (arrCount - 1)) / (arrMaxW * arrCount), arrAvailH / arrMaxH),
-  );
-  const arrStepX = arrMaxW * ARR_SCALE + ARR_GAP;
-  const arrLeft = -((arrCount - 1) * arrStepX) / 2;
-  /* ★ 格子是固定的：起点纸永远在第一格（最左），其余纸按文档顺序往右。
-     这样点延伸物时只有「谁是当前纸」变，纸本身不会跳位置 ——
-     否则用户刚点的那张会突然窜到左边，看着像出了 bug。 */
-  const arrOrder = [
-    ...(connectDraft?.fromPageId && arrAll.some((x) => x.id === connectDraft.fromPageId)
-      ? [connectDraft.fromPageId] : []),
-    ...arrAll.map((x) => x.id).filter((id) => id !== connectDraft?.fromPageId),
-  ];
-  const slotOf = (pgId: string) => Math.max(0, arrOrder.indexOf(pgId));
-  const slotX = (k: number) => arrLeft + k * arrStepX;
-  const arrMainX = slotX(slotOf(page.id));
+  /* ══ ★ 连接模式【不再动任何纸张的位置】═══════════════════════════════
+     这里原来有一整套"排开"：算格子、按角色排序（起点纸钉到最左）、把当前纸搬进槽位。
+     用户实测报的「主页莫名其妙跑到右边」「连接完位置全跑丢」就是它；
+     更糟的是这套排序同时喂给渲染、命中换算、连线端点、提示标签 —— 改一处动五处。
+     按用户定的边界（2026-09-26）：
+       · 创作画布是页面位置的**唯一**管理者，连接功能无权移动/交换/重算纸张位置
+       · 连接模式只负责：选对象、选目标、画连接线、记关系
+       · 连接线按纸张的**真实位置**计算，不靠重排纸张来定端点
+     所以现在纸就待在用户摆的地方不动，连线按真实坐标画。 */
 
-  /* 命中测试（screenToPaperLocal）读的是 paperStateRef。
-     连接模式下纸被排开，显示值和文档里存的不一样，
-     必须把显示值同步进去，否则点延伸物里的对象永远点不中。 */
-  if (connArrangeOn) paperStateRef.current = { ...paper, x: arrMainX, y: 0, scale: ARR_SCALE, rotate: 0 };
-  else paperStateRef.current = paper;
+  /* 命中测试（screenToPaperLocal）读 paperStateRef —— 平时就是这张纸的真实坐标；
+     演示时改成"固定视口"的那一份（见下），否则演示里点不中对象。 */
+  const demoScale = (() => {
+    if (!demoOn) return 1;
+    if (paper.w > 0 && paper.h > 0) {
+      const sw = stageBox.w > 0 ? stageBox.w : 390;
+      const sh = stageBox.h > 0 ? stageBox.h : 844;
+      return Math.min(sw / paper.w, sh / paper.h);
+    }
+    return 1;   /* 没设规格时纸本来就铺满屏幕 */
+  })();
+  /* 命中换算读的就是这一份：演示走固定视口；平时是"纸张坐标 × 视野"。
+     ★ 拖动位移的换算也走它（除以 scale），所以视野缩放下拖东西依然跟手。 */
+  paperStateRef.current = demoOn
+    ? { ...paper, x: 0, y: 0, scale: demoScale, rotate: 0 }
+    : { ...paper, x: paper.x * view.k + view.vx, y: paper.y * view.k + view.vy, scale: paper.scale * view.k };
 
-  /* 连接模式下其他纸可点：由上层决定何时传 onPaperPick */
-  const papersPickable = connArrangeOn && !!onPaperPick;
+  /* 连接过程中，点"别的纸"＝确定承接页面（上层只在需要时传 onPaperPick） */
+  const papersPickable = !!onPaperPick;
   papersPickableRef.current = papersPickable;
-  const mainPaperTransform = connArrangeOn
-    ? `translate(${arrMainX}px, 0px) scale(${ARR_SCALE}) rotate(0deg)`
+  /* 演示 = 固定视口，一屏一页：当前页摆正在屏幕中央，不按它自己存的偏移画。
+     ★ 只改"怎么看"，绝不写回页面保存的位置和尺寸。 */
+  const mainPaperTransform = demoOn
+    ? `translate(0px, 0px) scale(${demoScale}) rotate(0deg)`
     : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
 
   /* ── 连接线：闭环的可见证据 ─────────────────────────────
@@ -5255,15 +5265,12 @@ function handleSheetAction(kind: string) {
     return null;
   }
 
-  /** 某张纸此刻显示在画布上的位置与缩放（排开模式用排开值） */
+  /** 某张纸此刻显示在画布上的位置与缩放 —— 就是它自己的真实坐标（不再有"排开值"）。
+      演示模式下当前这一张按固定视口显示，换算跟着走，否则演示里点不中。 */
   function paperDisplay(pgId: string) {
-    if (!connArrangeOn) {
-      const tr = (allPages || []).find((x) => x.id === pgId)?.transform || { x: 0, y: 0, scale: 1 };
-      return { tx: tr.x, ty: tr.y, s: tr.scale };
-    }
-    if (pgId === page.id) return { tx: arrMainX, ty: 0, s: ARR_SCALE };
-    if (!(allPages || []).some((x) => x.id === pgId)) return null;
-    return { tx: slotX(slotOf(pgId)), ty: 0, s: ARR_SCALE };
+    if (demoOn && pgId === page.id) return { tx: 0, ty: 0, s: demoScale };
+    const tr = (allPages || []).find((x) => x.id === pgId)?.transform || { x: 0, y: 0, scale: 1 };
+    return { tx: tr.x * view.k + view.vx, ty: tr.y * view.k + view.vy, s: tr.scale * view.k };
   }
 
   /** 某张纸里某个元素的中心，换算到画布坐标 */
@@ -5372,27 +5379,28 @@ function handleSheetAction(kind: string) {
       }));
   })();
 
-  /* ★ 连接选框 —— 让用户【看得见自己点了谁】。
+  /* ★ 连接选框 —— 让用户【看得见自己点了谁、从哪来、准备从哪回】。
      手稿第一张：「点击对象 高亮选框 不产生线」。
-     之前这里一行都没有：点完对象画面上毫无变化，用户不知道点没点中、点到了谁。
-     当前这一步的框是亮的，走过的那一头降下去变暗（两个框都留着，好看清这一条的两端）。 */
+     用户返工单要求：「操作过程中，起点、去程和返程对象始终清楚可辨」
+     「你连刚才选中的对象在哪里都找不到，怎么继续操作？」
+     ⇒ 所以**两个框一旦选上就一直亮着**，不再"走过的那一端降下去变暗"
+       （那是上一版的做法，用户实测反馈"选中状态不清晰"）。 */
   const connMarks = (() => {
-    if (!connArrangeOn || stageBox.w <= 0) return [] as { id: string; x: number; y: number; w: number; h: number; active: boolean }[];
-    const toPicked = !!(connectDraft?.toPageId && connectDraft?.toElementId);
-    const mk = (key: string, pgId?: string, type?: string, id?: string, active?: boolean) => {
+    if (demoOn || stageBox.w <= 0) return [] as { id: string; x: number; y: number; w: number; h: number; active: boolean }[];
+    const mk = (key: string, pgId?: string, type?: string, id?: string) => {
       if (!pgId || !id) return null;
       const r = elemRectOnStage(pgId, type || "note", id);
-      return r ? { id: key, ...r, active: !!active } : null;
+      return r ? { id: key, ...r, active: true } : null;
     };
     return [
-      mk("from", connectDraft?.fromPageId, connectDraft?.fromElementType, connectDraft?.fromElementId, !toPicked),
-      mk("to", connectDraft?.toPageId, connectDraft?.toElementType, connectDraft?.toElementId, toPicked),
+      mk("from", connectDraft?.fromPageId, connectDraft?.fromElementType, connectDraft?.fromElementId),
+      mk("to", connectDraft?.toPageId, connectDraft?.toElementType, connectDraft?.toElementId),
     ].filter(Boolean) as { id: string; x: number; y: number; w: number; h: number; active: boolean }[];
   })();
 
   /** 连接线：已完成的闭环 + 正在形成的这条 */
   const connLines = (() => {
-    if (!connArrangeOn || stageBox.w <= 0) return [] as { id: string; d: string; x1: number; y1: number; x2: number; y2: number; done: boolean }[];
+    if (demoOn || stageBox.w <= 0) return [] as { id: string; d: string; x1: number; y1: number; x2: number; y2: number; done: boolean }[];
     const seg = (id: string, a: { x: number; y: number } | null, b: { x: number; y: number } | null, done: boolean) => {
       if (!a || !b) return null;
       const dy = (b.y - a.y) * 0.45;
@@ -5405,10 +5413,11 @@ function handleSheetAction(kind: string) {
       const c = connectDraft.toPageId && connectDraft.toElementId
         ? elemCenterOnStage(connectDraft.toPageId, connectDraft.toElementType || "note", connectDraft.toElementId)
         : null;
+      /* 第二步（已选承接页、还没选返程对象）：去程线先搭到那张纸的【真实中心】。
+         以前这里是"排开槽位"的中心 —— 纸一被排开，线就画到别处去了。 */
       const toPageId = connectDraft.toPageId;
-      const pb = toPageId
-        ? { x: stageBox.w / 2 + slotX(slotOf(toPageId)), y: stageBox.h / 2 }
-        : null;
+      const d2 = toPageId ? paperDisplay(toPageId) : null;
+      const pb = d2 ? { x: stageBox.w / 2 + d2.tx, y: stageBox.h / 2 + d2.ty } : null;
       const s1 = seg("draft1", a, c || pb, false);
       if (s1) out.push(s1);
       if (connectDone) {
@@ -5585,31 +5594,15 @@ function handleSheetAction(kind: string) {
           }}
         >↻</div>
       )}
-      {/* ★ 运行态的返回键：手稿第四张承接页左上角那个「◀」。
-          点它直接回到来路那一页。 */}
-      {connectRun && connectCanGoBack && (
-        <button
-          type="button"
-          onClick={onConnectBack}
-          data-no-canvas-gesture
-          style={{
-            position: "absolute", left: 14, top: 14, zIndex: 30,
-            width: 42, height: 42, borderRadius: 999,
-            border: "1px solid rgba(74,70,63,.18)", background: "rgba(255,253,250,.95)",
-            color: "#3a352e", fontSize: 17, lineHeight: 1, cursor: "pointer",
-            fontFamily: "inherit", boxShadow: "0 2px 10px rgba(0,0,0,.14)",
-          }}
-        >◀</button>
-      )}
+      {/* ★ 这里原来画了一个系统返回键（画布左上角的 ◀）—— 已删除。
+          用户返工单第 5 条：「返程对象由创作者指定，不能擅自生成脱离纸张的返回按钮」；
+          用户截图原话：「返回键也不是从页面返回了，直接从手机外面返回了」。
+          返程现在只能靠【创作者在页面里画的那个对象】执行（见 pointerup 里的返程反查）。 */}
 
-      {/* ★ 其他纸什么时候画、什么时候不画 —— 按用户的原话分两态：
-           · 创作态：纸摆在画布上，看得见、点得到（「每个页面都可以进行并排放」）
-           · 演示态：闭环之后就开始"把纸叠在一起"，屏幕上只留当前这一张
-             （「没有两张纸的平铺在上面的跳转」）
-         演示态 = 刚闭环（connectDone）或 已经跳过一次（connectCanGoBack，返回栈非空）。
-         跳过一次之后还留一张在旁边，正是用户报的"两张纸在平铺着"。
-         ★ 上一版我错在拿"搭连接那几步"当分界，结果创作时也把纸藏了 —— 用户当场问"我纸呢"。 */}
-      {(!connectDone && !connectCanGoBack || connArrangeOn) && otherPages.map((p, i) => {
+      {/* ★ 其他纸什么时候画：**创作时都画**（纸要看得见、点得到 ——「我纸呢？」），
+          **演示时只画当前这一张**（固定视口，一屏一页）。
+         判据只有一个：是不是在演示模式。不再拿"闭环没闭环""跳没跳过"当开关。 */}
+      {!demoOn && otherPages.map((p, i) => {
         const tr = p.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
         const isSelected = selectedPageIds.has(p.id);
         const hasSize = !!(p.paperW && p.paperH && p.paperW > 0 && p.paperH > 0);
@@ -5617,9 +5610,8 @@ function handleSheetAction(kind: string) {
         const boxShadow = isSelected
           ? `0 0 0 3px ${SELECT_BLUE}, 0 4px 24px rgba(0,0,0,.1)`
           : "0 4px 24px rgba(0,0,0,.1)";
-        const transform = connArrangeOn
-          ? `translate(${slotX(slotOf(p.id))}px, 0px) scale(${ARR_SCALE}) rotate(0deg)`
-          : `translate(${tr.x}px, ${tr.y}px) scale(${tr.scale}) rotate(${tr.rotate}deg)`;
+        /* 其他纸也按各自的真实坐标画（不再有排开值） */
+        const transform = `translate(${tr.x}px, ${tr.y}px) scale(${tr.scale}) rotate(${tr.rotate}deg)`;
         const base: React.CSSProperties = {
           position: "absolute",
           transform,
@@ -5647,29 +5639,15 @@ function handleSheetAction(kind: string) {
             /* zIndex 只在连接模式给：平时必须是 auto，
                靠 DOM 顺序被后面那张不透明的当前纸盖住；
                一旦给 5，其他纸就会浮到当前纸上面，屏幕上糊成一片。 */
-            style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: connArrangeOn ? 5 : undefined }}
+            style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: undefined }}
           >
             <div
               style={style}
               onClick={papersPickable ? () => onPaperPick?.(p.id) : undefined}
             >{innerChildren}</div>
-            {connArrangeOn && papersPickable && (
-              <div style={{
-                position: "absolute", left: "50%", top: "50%",
-                width: (p.paperW || 390) * ARR_SCALE, height: arrPaperH * ARR_SCALE,
-                marginLeft: -((p.paperW || 390) * ARR_SCALE) / 2 + slotX(slotOf(p.id)),
-                marginTop: -(arrPaperH * ARR_SCALE) / 2,
-                borderRadius: 10,
-                pointerEvents: "none",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <span style={{
-                  fontSize: 12, color: "rgba(122,90,52,.9)",
-                  background: "rgba(255,253,250,.94)", padding: "4px 10px", borderRadius: 999,
-                  border: "1px dashed rgba(122,90,52,.5)",
-                }}>点这张纸</span>
-              </div>
-            )}
+            {/* ★ 这里原来挂着一个「点这张纸」的虚线标签 —— 用户原话
+                「系统却不停提示你点这张纸、点那张纸」「系统不断出现《点这张纸》等提示，
+                 反而限制了你的操作」，已删除。用户自己决定点哪个页面。 */}
           </div>
         );
       })}
