@@ -208,7 +208,7 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange, onC
     border: 0,
     borderRadius: 8,
     background: active ? "#fff" : "transparent",
-    color: active ? "#3a352e" : "#756f68",
+    color: active ? "#1E1C19" : "#8B857C",
     fontWeight: active ? 600 : 400,
     fontSize: 12,
     fontFamily: "inherit",
@@ -243,7 +243,7 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange, onC
   const sliderLabelStyle: React.CSSProperties = {
     width: 16,
     fontSize: 12,
-    color: "#756f68",
+    color: "#8B857C",
     flex: "none",
     textAlign: "center",
   };

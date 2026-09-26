@@ -28,3 +28,7 @@ android/app/build/
 # 测试证据与临时脚本（不入库）
 _测试证据/
 *.tmp.mjs
+
+# Next.js 自动生成的 AI 规则文件（每次 build 重新生成）
+AGENTS.md
+CLAUDE.md

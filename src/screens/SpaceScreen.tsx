@@ -100,7 +100,7 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
 
   return (
     <div style={{
-      position: "absolute", inset: 0, zIndex: 20, background: "#fbfaf7",
+      position: "absolute", inset: 0, zIndex: 20, background: "#FAF9F6",
       display: "flex", flexDirection: "column", overflow: "hidden",
       fontFamily: "'LXGW WenKai', 'Noto Serif SC', serif",
     }}>
@@ -115,21 +115,21 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
           aria-label="返回画布"
           style={{
             width: 36, height: 36, border: 0, borderRadius: 10, background: "rgba(74,70,63,.05)",
-            color: "#57524c", fontSize: 20, lineHeight: 1, cursor: "pointer",
+            color: "#4C4842", fontSize: 20, lineHeight: 1, cursor: "pointer",
           }}
         >‹</button>
-        <strong style={{ fontSize: 15, letterSpacing: ".14em", color: "#3a352e", fontWeight: 500 }}>
+        <strong style={{ fontSize: 15, letterSpacing: ".14em", color: "#1E1C19", fontWeight: 500 }}>
           专属 3D 记忆空间
         </strong>
       </header>
 
       <main style={{ flex: 1, overflowY: "auto", padding: "18px 18px calc(env(safe-area-inset-bottom) + 28px)" }}>
         <div style={{
-          padding: "16px 16px", borderRadius: 14, background: "#fffdfa",
+          padding: "16px 16px", borderRadius: 14, background: "#FAF9F6",
           border: "1px solid rgba(74,70,63,.08)", marginBottom: 18,
         }}>
-          <div style={{ fontSize: 12, letterSpacing: ".14em", color: "#8a8178", marginBottom: 8 }}>会员专属</div>
-          <div style={{ fontSize: 13, color: "#3a352e", lineHeight: 1.8 }}>
+          <div style={{ fontSize: 12, letterSpacing: ".14em", color: "#8B857C", marginBottom: 8 }}>会员专属</div>
+          <div style={{ fontSize: 13, color: "#1E1C19", lineHeight: 1.8 }}>
             {loadState === "loading" && "正在读取会员状态…"}
             {loadState === "error" && (
               <>
@@ -139,7 +139,7 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
                   onClick={() => { void refresh(); }}
                   style={{
                     border: 0, background: "transparent", padding: "0 2px",
-                    color: "#75655a", fontSize: 13, fontFamily: "inherit",
+                    color: "#8B857C", fontSize: 13, fontFamily: "inherit",
                     textDecoration: "underline", cursor: "pointer",
                   }}
                 >重试</button>
@@ -161,16 +161,16 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "18px 16px", borderRadius: 14, textAlign: "left", cursor: "pointer",
-                  border: active ? "1.5px solid #75655a" : "1px solid rgba(128,107,92,.15)",
-                  background: active ? "#f3eee8" : "#fffdfa",
+                  border: active ? "1.5px solid #8B857C" : "1px solid rgba(128,107,92,.15)",
+                  background: active ? "#f3eee8" : "#FAF9F6",
                   fontFamily: "inherit",
                 }}
               >
                 <span>
-                  <strong style={{ display: "block", fontSize: 16, fontWeight: 500, color: "#3a352e" }}>{p.label}</strong>
-                  <span style={{ display: "block", marginTop: 6, fontSize: 12, color: "#918981" }}>{p.sub}</span>
+                  <strong style={{ display: "block", fontSize: 16, fontWeight: 500, color: "#1E1C19" }}>{p.label}</strong>
+                  <span style={{ display: "block", marginTop: 6, fontSize: 12, color: "#8B857C" }}>{p.sub}</span>
                 </span>
-                <span style={{ fontSize: 18, color: "#3a352e", whiteSpace: "nowrap" }}>{p.price}</span>
+                <span style={{ fontSize: 18, color: "#1E1C19", whiteSpace: "nowrap" }}>{p.price}</span>
               </button>
             );
           })}
@@ -182,7 +182,7 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
           onClick={buy}
           style={{
             width: "100%", height: 48, marginTop: 16, border: 0, borderRadius: 12,
-            background: "#5f554d", color: "#fff", fontSize: 14, letterSpacing: ".06em",
+            background: "#4C4842", color: "#fff", fontSize: 14, letterSpacing: ".06em",
             fontFamily: "inherit",
             cursor: plan && !loading && loadState === "ready" ? "pointer" : "default",
             opacity: plan && !loading && loadState === "ready" ? 1 : 0.5,

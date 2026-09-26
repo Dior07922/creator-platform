@@ -1,5 +1,4 @@
 "use client";
-import { isLooseLeaf as __looseLeaf } from "../../lib/rigPages";
 import React, { useEffect, useRef, useState } from "react";
 import type { Page, PageLink, SheetAction } from "../../types/document";
 
@@ -12,9 +11,6 @@ type Props = {
   onSelectPage: (id: string) => void;
   onAddPage: () => void;
   onDeletePage: (id: string) => void;
-  /** ★ 骨钉叠放的 10 张 id（按顺序）。有它才能把 10 张收成 1 张卡片 + 3 张活页，
-      不然三十多张全列出来，用户删都要删累死。 */
-  rigStackIds?: string[];
   onRenamePage: (id: string, title: string) => void;
   onDuplicatePage: (id: string) => void;
   onExit: () => void;
@@ -29,8 +25,8 @@ type Props = {
   /* ── 连接（动作驱动）───────────────────────────────
      状态由父层持有：连接动作要跨页进行（连接页面 → 承接页面 → 回连接页面），
      放在 PageSheet 内部会因为抽屉开合而丢失。 */
-  connectMode: "phone" | "site" | "rig" | null;
-  onConnectModeChange: (m: "phone" | "site" | "rig" | null) => void;
+  connectMode: "phone" | "site" | null;
+  onConnectModeChange: (m: "phone" | "site" | null) => void;
   /** 动作进行到哪一步（用于自动切到「页面」tab —— 该选页了就别让用户自己找） */
   connectStage: "idle" | "pickSource" | "pickTargetPage" | "pickTargetObj" | "returnHome" | "done";
   /** 当前该做的动作，人话提示 */
@@ -49,8 +45,6 @@ type Props = {
   /** 进入 / 退出演示 */
   onDemoEnter: () => void;
   onDemoExit: () => void;
-  /** 骨钉模式里点了「① 线条骨钉」：把当前页复制成 10 张叠放 */
-  onStartRig: () => void;
   /** 连接动作正在等用户点某个页面时，页面列表把点击交给它。
       返回 true = 这次点击被连接消费掉了，不再执行普通切页 */
   onConnectPickPage?: (pageId: string) => boolean;
@@ -65,7 +59,6 @@ export default function PageSheet({
   onSelectPage,
   onAddPage,
   onDeletePage,
-  rigStackIds,
   onRenamePage,
   onDuplicatePage,
   onExit,
@@ -86,7 +79,6 @@ export default function PageSheet({
   demoOn,
   onDemoEnter,
   onDemoExit,
-  onStartRig,
   onConnectPickPage,
 }: Props) {
   const [tab, setTab] = useState<Tab>("page");
@@ -248,7 +240,7 @@ export default function PageSheet({
 
   const tabBtnStyle = (t: Tab): React.CSSProperties => ({
     flex: 1, height: 40, border: 0, background: "transparent",
-    color: tab === t ? "#3a352e" : "#8a8178",
+    color: tab === t ? "#1E1C19" : "#8B857C",
     fontWeight: tab === t ? 600 : 400,
     fontSize: 13, fontFamily: "inherit", cursor: "pointer",
     position: "relative", padding: 0,
@@ -289,7 +281,7 @@ export default function PageSheet({
           maxHeight: drawerH === "full" ? 720 : 420,
           borderTopLeftRadius: 22,
           borderTopRightRadius: 22,
-          background: "#fbfaf7",
+          background: "#FAF9F6",
           boxShadow: "0 -8px 32px rgba(58,53,46,.16)",
           display: "flex", flexDirection: "column",
           overflow: "hidden",
@@ -316,7 +308,7 @@ export default function PageSheet({
           <div style={{
             flex: "none", margin: "6px 12px 0", padding: "8px 12px",
             borderRadius: 10, background: "rgba(122,90,52,0.12)",
-            color: "#7a5a34", fontSize: 12, textAlign: "center",
+            color: "#4C4842", fontSize: 12, textAlign: "center",
             transition: "opacity 0.2s",
           }}>{flash}</div>
         )}
@@ -327,7 +319,7 @@ export default function PageSheet({
           <button
             type="button"
             onClick={onClose}
-            style={{ width: 36, height: 40, border: 0, background: "transparent", color: "#8a8178", fontSize: 18, cursor: "pointer", padding: 0 }}
+            style={{ width: 36, height: 40, border: 0, background: "transparent", color: "#8B857C", fontSize: 18, cursor: "pointer", padding: 0 }}
           >×</button>
         </div>
 
@@ -335,7 +327,7 @@ export default function PageSheet({
           {tab === "page" && (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <span style={{ fontSize: 12, color: "#8a8178" }}>{pages.length} / {PAGE_LIMIT}</span>
+                <span style={{ fontSize: 12, color: "#8B857C" }}>{pages.length} / {PAGE_LIMIT}</span>
                 <div style={{ display: "flex", gap: 4 }}>
                   {(["left", "center", "right"] as const).map((v) => (
                     <button
@@ -344,8 +336,8 @@ export default function PageSheet({
                       onClick={() => setAlignPersist(v)}
                       style={{
                         width: 34, height: 28, borderRadius: 7, border: 0,
-                        background: align === v ? "#3a352e" : "rgba(74,70,63,.06)",
-                        color: align === v ? "#fff" : "#57524c",
+                        background: align === v ? "#1E1C19" : "rgba(74,70,63,.06)",
+                        color: align === v ? "#fff" : "#4C4842",
                         fontSize: 14, cursor: "pointer", padding: 0,
                       }}
                     >{v === "left" ? "⇤" : v === "center" ? "⇹" : "⇥"}</button>
@@ -358,9 +350,6 @@ export default function PageSheet({
                 alignItems: align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
               }}>
                 {pages.map((p, idx) => {
-                  /* ★ 骨钉叠放：只画第 1 张 + 3 张活页（3/6/9），中间那些「保持」的收进卡片里 */
-                  const __stackIdx = (rigStackIds || []).indexOf(p.id);
-                  if (__stackIdx >= 0 && __stackIdx !== 0 && !__looseLeaf(__stackIdx)) return null;
                   const active = p.id === currentPageId;
                   const label = p.title || "未命名";
                   const wRatio = p.paperW && p.paperH ? p.paperW / p.paperH : 0.75;
@@ -379,9 +368,9 @@ export default function PageSheet({
                         width: 160,
                         display: "flex", alignItems: "center", gap: 8,
                         padding: 6,
-                        border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
+                        border: active ? "1.5px solid #1E1C19" : "1px solid rgba(74,70,63,.10)",
                         borderRadius: 10,
-                        background: active ? "#f1ece4" : "#fffdfa",
+                        background: active ? "#EFEDE8" : "#FAF9F6",
                         cursor: "pointer", textAlign: "left",
                         transform: pressed ? "scale(0.96)" : "scale(1)",
                         boxShadow: pressed ? "0 0 0 2px rgba(58,53,46,.18)" : "none",
@@ -392,7 +381,7 @@ export default function PageSheet({
                       <div style={{
                         flex: "none", width: 44, height: thumbH, maxHeight: 76,
                         borderRadius: 6, background: p.paperColor || "#ffffff",
-                        border: pressed ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
+                        border: pressed ? "1.5px solid #1E1C19" : "1px solid rgba(74,70,63,.10)",
                         position: "relative", overflow: "hidden",
                       }}>
                         <div style={{ position: "absolute", left: 4, top: 3, fontSize: 8, color: "rgba(74,70,63,.4)" }}>{idx + 1}</div>
@@ -410,12 +399,12 @@ export default function PageSheet({
                               if (e.key === "Escape") cancelEdit();
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            style={{ width: "100%", height: 22, padding: "0 5px", border: "1px solid #75655a", borderRadius: 5, background: "#fff", color: "#3a352e", fontSize: 11, outline: "none", boxSizing: "border-box" }}
+                            style={{ width: "100%", height: 22, padding: "0 5px", border: "1px solid #8B857C", borderRadius: 5, background: "#fff", color: "#1E1C19", fontSize: 11, outline: "none", boxSizing: "border-box" }}
                           />
                         ) : (
-                          <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? "#2b241c" : "#57524c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+                          <span style={{ fontSize: 11, fontWeight: active ? 600 : 400, color: active ? "#1E1C19" : "#4C4842", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
                         )}
-                        {active && <span style={{ fontSize: 9, color: "#a49a8f", letterSpacing: ".06em" }}>当前</span>}
+                        {active && <span style={{ fontSize: 9, color: "#B7B1A8", letterSpacing: ".06em" }}>当前</span>}
                       </div>
                     </button>
                   );
@@ -425,14 +414,14 @@ export default function PageSheet({
                   <button
                     type="button"
                     onClick={() => { onAddPage(); onClose(); }}
-                    style={{ width: 160, height: 36, borderRadius: 10, border: "1.5px dashed rgba(74,70,63,.24)", background: "transparent", color: "#756f68", fontSize: 12, cursor: "pointer", letterSpacing: ".04em" }}
+                    style={{ width: 160, height: 36, borderRadius: 10, border: "1.5px dashed rgba(74,70,63,.24)", background: "transparent", color: "#8B857C", fontSize: 12, cursor: "pointer", letterSpacing: ".04em" }}
                   >＋ 新增页面</button>
                 )}
 
                 <button
                   type="button"
                   onClick={onExit}
-                  style={{ width: 160, height: 36, borderRadius: 10, border: 0, background: "#5f554d", color: "#fff", fontSize: 12, cursor: "pointer", letterSpacing: ".06em", marginTop: 4 }}
+                  style={{ width: 160, height: 36, borderRadius: 10, border: 0, background: "#4C4842", color: "#fff", fontSize: 12, cursor: "pointer", letterSpacing: ".06em", marginTop: 4 }}
                 >← 退出创作</button>
               </div>
             </>
@@ -449,26 +438,22 @@ export default function PageSheet({
                 {([
                   { id: "phone",  label: "① 手机模式", desc: "手机 UI 的交互连接" },
                   { id: "site",   label: "② 网站模式", desc: "网站设计的交互连接" },
-                  { id: "rig",    label: "③ 骨钉模式", desc: "让画作动起来" },
                 ] as const).map((m) => {
                   const active = connectMode === m.id;
                   return (
                     <button
                       key={m.id}
                       type="button"
-                      /* ★ 骨钉不设二级入口 —— 用户 2026-09-26：
-                         「把线条骨钉入口也可以删掉 直接点击骨钉模式不就进来了」「不要留 2 套」。
-                         点「③ 骨钉模式」这一步本身就是入口，直接进骨钉空间。 */
-                      onClick={() => (m.id === "rig" ? onStartRig() : onConnectModeChange(active ? null : m.id))}
+                      onClick={() => onConnectModeChange(active ? null : m.id)}
                       style={{
                         textAlign: "left", padding: "10px 12px", borderRadius: 10,
-                        border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
-                        background: active ? "#f1ece4" : "#fffdfa",
+                        border: active ? "1.5px solid #1E1C19" : "1px solid rgba(74,70,63,.10)",
+                        background: active ? "#EFEDE8" : "#FAF9F6",
                         cursor: "pointer", fontFamily: "inherit",
                       }}
                     >
-                      <div style={{ fontSize: 13, color: "#3a352e", fontWeight: active ? 600 : 400 }}>{m.label}</div>
-                      <div style={{ fontSize: 10, color: "#a49a8f", marginTop: 2 }}>{m.desc}</div>
+                      <div style={{ fontSize: 13, color: "#1E1C19", fontWeight: active ? 600 : 400 }}>{m.label}</div>
+                      <div style={{ fontSize: 10, color: "#B7B1A8", marginTop: 2 }}>{m.desc}</div>
                     </button>
                   );
                 })}
@@ -480,14 +465,14 @@ export default function PageSheet({
                   <SectionLabel>连接中</SectionLabel>
                   <div style={{
                     padding: "10px 12px", borderRadius: 10,
-                    background: connectDone ? "#eef4ea" : "#f6f1e9",
+                    background: connectDone ? "#EFEDE8" : "#F4F2EE",
                     border: connectDone ? "1px solid rgba(96,140,80,.28)" : "1px solid rgba(122,90,52,.18)",
                     fontSize: 12, lineHeight: 1.7,
-                    color: connectDone ? "#3f5c33" : "#6b5942",
+                    color: connectDone ? "#6E8A70" : "#4C4842",
                   }}>
                     {connectStepText}
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 10, color: "#a49a8f", lineHeight: 1.6 }}>
+                  <div style={{ marginTop: 8, fontSize: 10, color: "#B7B1A8", lineHeight: 1.6 }}>
                     走完四步，两个页面之间才会长出线。<br />
                     只选一个还不成线。
                   </div>
@@ -496,8 +481,8 @@ export default function PageSheet({
                     onClick={onConnectCancel}
                     style={{
                       marginTop: 10, width: "100%", height: 34, borderRadius: 9,
-                      border: "1px solid rgba(74,70,63,.14)", background: "#fffdfa",
-                      color: "#756f68", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+                      border: "1px solid rgba(74,70,63,.14)", background: "#FAF9F6",
+                      color: "#8B857C", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
                     }}
                   >结束这次设置</button>
                   {/* 这个按钮只是退出"正在搭"的这几步，不会让已建好的连接失效 ——
@@ -511,8 +496,8 @@ export default function PageSheet({
                     style={{
                       marginTop: 10, width: "100%", height: 38, borderRadius: 9,
                       border: demoOn ? "1px solid rgba(192,57,43,.25)" : "1px solid rgba(63,92,51,.3)",
-                      background: demoOn ? "rgba(192,57,43,.08)" : "#3f5c33",
-                      color: demoOn ? "#c0392b" : "#fffdfa",
+                      background: demoOn ? "rgba(192,57,43,.08)" : "#6E8A70",
+                      color: demoOn ? "#B4544A" : "#FAF9F6",
                       fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
                     }}
                   >{demoOn ? "退出演示" : "▶ 演示"}</button>
@@ -528,8 +513,8 @@ export default function PageSheet({
                       style={{
                         flex: 1, height: 34, borderRadius: 9,
                         border: "1px solid rgba(74,70,63,.14)",
-                        background: connectCount ? "#fffdfa" : "#f4f1ec",
-                        color: connectCount ? "#3a352e" : "#b3aaa0",
+                        background: connectCount ? "#FAF9F6" : "#F4F2EE",
+                        color: connectCount ? "#1E1C19" : "#B7B1A8",
                         fontSize: 12, cursor: connectCount ? "pointer" : "default",
                         fontFamily: "inherit",
                       }}
@@ -541,14 +526,14 @@ export default function PageSheet({
                       style={{
                         flex: 1, height: 34, borderRadius: 9,
                         border: "1px solid rgba(192,57,43,.18)",
-                        background: connectCount ? "rgba(192,57,43,.08)" : "#f4f1ec",
-                        color: connectCount ? "#c0392b" : "#b3aaa0",
+                        background: connectCount ? "rgba(192,57,43,.08)" : "#F4F2EE",
+                        color: connectCount ? "#B4544A" : "#B7B1A8",
                         fontSize: 12, cursor: connectCount ? "pointer" : "default",
                         fontFamily: "inherit",
                       }}
                     >清空全部</button>
                   </div>
-                  <div style={{ marginTop: 6, fontSize: 10, color: "#a49a8f", lineHeight: 1.6 }}>
+                  <div style={{ marginTop: 6, fontSize: 10, color: "#B7B1A8", lineHeight: 1.6 }}>
                     也可以：在画布上点那条线删，或长按一个对象删它身上的那几条。
                   </div>
                 </>
@@ -564,7 +549,7 @@ export default function PageSheet({
               {links.length > 0 && (
                 <>
                   <SectionLabel>已连成</SectionLabel>
-                  <div style={{ fontSize: 11, color: "#6b5942", lineHeight: 1.8 }}>
+                  <div style={{ fontSize: 11, color: "#4C4842", lineHeight: 1.8 }}>
                     本页已有 {links.length} 条连接
                   </div>
                 </>
@@ -583,13 +568,13 @@ export default function PageSheet({
           />
           <div style={{
             position: "fixed", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
-            zIndex: 1101, background: "#fffdfa", borderRadius: 14, padding: 8,
+            zIndex: 1101, background: "#FAF9F6", borderRadius: 14, padding: 8,
             boxShadow: "0 16px 40px rgba(58,53,46,.28)",
             border: "1px solid rgba(74,70,63,.08)",
             display: "flex", flexDirection: "column", minWidth: 180,
           }}>
             <div style={{
-              fontSize: 11, color: "#a49a8f", padding: "6px 12px 10px",
+              fontSize: 11, color: "#B7B1A8", padding: "6px 12px 10px",
               maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
               borderBottom: "1px solid rgba(74,70,63,.06)", marginBottom: 4,
             }}>{menuPage.title || "未命名"}</div>
@@ -609,7 +594,7 @@ export default function PageSheet({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 11, color: "#8a8178", letterSpacing: ".08em", marginTop: 14, marginBottom: 8, paddingLeft: 2 }}>{children}</div>
+    <div style={{ fontSize: 11, color: "#8B857C", letterSpacing: ".08em", marginTop: 14, marginBottom: 8, paddingLeft: 2 }}>{children}</div>
   );
 }
 
@@ -627,10 +612,10 @@ function ActBtn({ label, onClick, active, disabled }: { label: string; onClick: 
       disabled={disabled}
       style={{
         height: 44,
-        border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
+        border: active ? "1.5px solid #1E1C19" : "1px solid rgba(74,70,63,.10)",
         borderRadius: 10,
-        background: disabled ? "rgba(74,70,63,.03)" : active ? "#f1ece4" : "#fffdfa",
-        color: disabled ? "#cbc6c0" : "#3a352e",
+        background: disabled ? "rgba(74,70,63,.03)" : active ? "#EFEDE8" : "#FAF9F6",
+        color: disabled ? "#C9C4BC" : "#1E1C19",
         fontSize: 13, cursor: disabled ? "not-allowed" : "pointer",
         fontFamily: "inherit", padding: 0,
       }}
@@ -646,7 +631,7 @@ function MenuItem({ label, onClick, danger }: { label: string; onClick: () => vo
       style={{
         width: "100%", height: 40, border: 0, borderRadius: 9,
         background: "transparent",
-        color: danger ? "#c0392b" : "#3a352e",
+        color: danger ? "#B4544A" : "#1E1C19",
         fontSize: 13, cursor: "pointer",
         textAlign: "left", padding: "0 14px",
         fontFamily: "inherit",

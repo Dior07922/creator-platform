@@ -2,12 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { makeEmptyDoc } from "../../lib/documents";
 import { loadLocalDoc, saveLocalDoc } from "../../lib/localDocuments";
-import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode, Interaction, RigJoint } from "../../types/document";
-import {
-  isLooseLeaf, looseLeafIndices, resolveJoints, inheritFrom,
-  hasOwnPose, withJoints, makeStack, distinctPoseCount,
-} from "../../lib/rigPages";
-import { defaultRadius } from "../../lib/rigWarp";
+import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode, TableNode, LinkNode, Interaction } from "../../types/document";
 import Editor from "./Editor";
 import type { BrushParams } from "./Editor";
 import {
@@ -28,11 +23,6 @@ type SideKind = "lock" | "page" | "object" | "color" | "shape" | "font" | "spec"
 /** 演示态「左边缘往右滑」的方向提示播过没有（只播一次） */
 const DEMO_HINT_KEY = "ranjing.demoRailHintPlayed";
 
-/* ★ 6 个关节位：左右各 肩/肘/手。骨架在某一侧三个都钉上时自动成骨。 */
-const RIG_SLOTS = [
-  { id: "sh-L", label: "肩左" }, { id: "el-L", label: "肘左" }, { id: "hd-L", label: "手左" },
-  { id: "sh-R", label: "肩右" }, { id: "el-R", label: "肘右" }, { id: "hd-R", label: "手右" },
-];
 
 const SIDE_ITEMS: { id: string; def: string; kind: SideKind }[] = [
   { id: "spec",   def: "规格", kind: "spec" },
@@ -80,7 +70,7 @@ function RenameDialog({ initial, onConfirm, onCancel }: { initial: string; onCon
           style={{
             width: "100%", height: 36, padding: "0 10px", boxSizing: "border-box",
             border: "1px solid rgba(74,70,63,.2)", borderRadius: 8,
-            background: "#fff", color: "#3a352e", fontSize: 14, outline: "none",
+            background: "#fff", color: "#1E1C19", fontSize: 14, outline: "none",
             textAlign: "center", marginBottom: 14,
           }}
         />
@@ -249,7 +239,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
      状态放在这里而不是 PageSheet 里：连接动作要跨页进行
      （连接页面 → 承接页面 → 回连接页面），抽屉一开一合就会丢。
      「只高亮框选还不成线」—— 第 1 步选完不算完成，必须走完第 4 步。 */
-  const [connMode, setConnMode] = useState<"phone" | "site" | "rig" | null>(null);
+  const [connMode, setConnMode] = useState<"phone" | "site" | null>(null);
   const [connStage, setConnStage] = useState<"idle" | "pickSource" | "pickTargetPage" | "pickTargetObj" | "returnHome" | "done">("idle");
   const [connDraft, setConnDraft] = useState<{
     fromPageId?: string; fromElementId?: string; fromElementType?: string;
@@ -257,7 +247,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   }>({});
 
   /** 选模式：进入连接动作序列 */
-  function changeConnMode(m: "phone" | "site" | "rig" | null) {
+  function changeConnMode(m: "phone" | "site" | null) {
     setConnMode(m);
     if (m === "phone" || m === "site") {
       setConnDraft({});
@@ -276,168 +266,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
      点错了不会发生任何事（线不长、框不亮），这就是手稿写的
      「框没完整包住任何对象 → 框不成型（无效）」。不靠字幕提示对错。 */
 
-  /* ══ 骨钉（线条骨钉）═════════════════════════════════════════
-     选对象 → 点「线条骨钉」→ 当前页复制成 10 张叠放。
-     每隔 2 张有 1 张活页（第 3、6、9 张）；活页存自己的关节姿势，
-     其余纸不存，用【往前找最近一张有姿势的纸】的结果 ——
-     所以改一张活页，后面自动跟上，是算法天然的结果而不是同步逻辑。 */
-  const [rigOn, setRigOn] = useState(false);
-  /* ★ 关节定点图：原来那套自动布点，现在只当参考图（淡淡的），不再直接长到画面上 */
-  const [rigGuide, setRigGuide] = useState<{ id: string; x: number; y: number }[]>([]);
-  /* ★ 用户正"拿在手里"的那根骨钉 + 手指当前在哪（给画布画放大镜用）。
-     用户 2026-09-26：「骨钉放在底部抽屉显示 12345 的上面，放一排骨钉，
-     用户自己拿着去选择自己要钉的关节处」——不预判、不自动长，用户自己钉。 */
-  /* ★ 骨钉是【独立空间】：里面有自己的视野缩放/平移（镜头）。
-     用户 2026-09-26：「这个是独立空间」「手指缩放也不管用了，我都没办法拖动移动它」。
-     镜头只在这里存在 —— 它改的是"怎么看"，纸的真实坐标一个字节都不写，
-     所以 10 张之间照样不会互相拉扯。 */
-  const [rigView, setRigView] = useState({ k: 1, vx: 0, vy: 0 });
-  /* ★ 抽卡：页卡平时只露一张活页，点开才滑下另外两张 */
-  const [rigCardOpen, setRigCardOpen] = useState(false);
-  /* 工作台上选中的那个工具（单变 / 页数）—— 功能本体还没做，先把入口摆到工作台上 */
-  const [rigTool, setRigTool] = useState<string | null>(null);
-  /* ★ 模板库（手稿 4.4 / 第五张底部三块）：电视机 / 漫画书册 / 连环画 + 黑白·彩色。
-     用户 2026-09-26：「把页数里的模板先做出来，页数里的模板拿出来放在骨钉下面」，
-     随后：「现在你开始做电视机 还有漫画书册 还有连环画的翻页」。
-     三个 id 沿用旧的（anim/strip/book），只换名字和呈现，不做两套。 */
-  const [rigTemplate, setRigTemplate] = useState<"anim" | "strip" | "book" | null>(null);
-  const [rigMono, setRigMono] = useState(false);
-  /* 漫画书册一页切几格 —— 用户 2026-09-26：「可以按 3 格和 6 格来做」 */
-  const [rigCells, setRigCells] = useState<3 | 6>(6);
-  const [rigHolding, setRigHolding] = useState<string | null>(null);
-  const [rigHover, setRigHover] = useState<{ x: number; y: number } | null>(null);
-
-  /** 屏幕点 → 当前这张纸的局部坐标（钉在纸外 = 无效，返回 null） */
-  function rigDropPoint(cx: number, cy: number): { x: number; y: number } | null {
-    const stage = document.querySelector("[data-stage]") as HTMLElement | null;
-    const pg = doc.pages.find((p) => p.id === currentPageId);
-    if (!stage || !pg) return null;
-    const sr = stage.getBoundingClientRect();
-    const tr = pg.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
-    const pw = pg.paperW && pg.paperW > 0 ? pg.paperW : sr.width;
-    const ph = pg.paperH && pg.paperH > 0 ? pg.paperH : sr.height;
-    const s = tr.scale || 1;
-    const dx = cx - (sr.left + sr.width / 2 + tr.x);
-    const dy = cy - (sr.top + sr.height / 2 + tr.y);
-    const lx = dx / s + pw / 2;
-    const ly = dy / s + ph / 2;
-    if (lx < 0 || lx > pw || ly < 0 || ly > ph) return null;
-    return { x: lx, y: ly };
-  }
-
-  /** 把某根骨钉钉到当前这张纸上（它就成了活页）。钉过的再钉一次 = 换地方。 */
-  function placeRigJoint(id: string, x: number, y: number) {
-    /* 钉在【现在看的这一格】上，不是「文档当前页」—— 翻到第 5 张就钉第 5 张 */
-    const idx = doc.pages.findIndex((p) => p.id === rigFrameId);
-    if (idx < 0) return;
-    applyDoc((prev) => {
-      const cur = prev.pages[idx];
-      const own = cur?.rig?.joints;
-      const src = own && own.length ? own : (resolveJoints(prev.pages, idx) || []);
-      const next = [...src.filter((j) => j.id !== id), { id, sx: x, sy: y, x, y }];
-      return { ...prev, pages: withJoints(prev.pages, idx, next) };
-    });
-  }
-  const [rigBase, setRigBase] = useState<{ baseId: string; ids: string[] } | null>(null);
-  const [rigPlaying, setRigPlaying] = useState(false);
-  const [rigFrame, setRigFrame] = useState(0);
-  const [rigRadius, setRigRadius] = useState(0);
-
-  /** 自动布点：用户不知道点哪时先给打个样。
-      按纸张尺寸放 6 个关节在「双手」该在的位置：左右各 肩/肘/手。 */
-  function autoPlaceJoints(w: number, h: number): RigJoint[] {
-    const W = w > 0 ? w : 390;
-    const H = h > 0 ? h : 844;
-    const mk = (id: string, fx: number, fy: number): RigJoint => ({
-      id, sx: W * fx, sy: H * fy, x: W * fx, y: H * fy,
-    });
-    return [
-      mk("sh-L", 0.42, 0.36), mk("el-L", 0.32, 0.45), mk("hd-L", 0.24, 0.52),
-      mk("sh-R", 0.58, 0.36), mk("el-R", 0.68, 0.45), mk("hd-R", 0.76, 0.52),
-    ];
-  }
-
-  /** 开始线条骨钉：把当前页复制成 10 张叠放 */
-  function startRig() {
-    if (rigBase) { setRigOn(true); closeDrawer(); return; }
-    const base = doc.pages.find((p) => p.id === currentPageId);
-    if (!base) return;
-    /* ★ 进去【不自动长 6 个点】—— 用户 2026-09-26：
-       「不是自动长的，不是一进来就看见画面上 6 个点，这样会劝退用户」。
-       关节一开始是空的：用户从底部那排骨钉里自己拿、自己钉。
-       原来那套自动位置留着，但只当【关节定点图】的参考（淡淡的、钉一个少一个）。 */
-    const guide = autoPlaceJoints(base.paperW || 0, base.paperH || 0);
-    setRigGuide(guide);
-    const stack = makeStack(base, 10, []);
-    applyDoc((prev) => ({ ...prev, pages: [...prev.pages, ...stack] }));
-    setRigBase({ baseId: base.id, ids: stack.map((p) => p.id) });
-    setRigRadius(defaultRadius(base.paperW || 390, base.paperH || 844));
-    setRigOn(true);
-    setRigView({ k: 1, vx: 0, vy: 0 });
-    setRigCardOpen(false);
-    setRigFrame(0);
-    setCurrentPageId(stack[0].id);
-    closeDrawer();
-  }
-
-  function exitRig() {
-    setRigOn(false);
-    setRigView({ k: 1, vx: 0, vy: 0 });
-    setRigPlaying(false);
-    if (rigBase) setCurrentPageId(rigBase.baseId);
-  }
-
-  /* ★★ 骨钉空间里「现在是第几张」只有【一个】来源：rigFrame。
-     以前是「换页」＝换 currentPageId，而 Editor 拿页面 id 当 key（见 editorKey），
-     一换页整个编辑器卸载重建、骨钉位图从零重生成，中间那一瞬画面是白的 ——
-     用户报的「点电视机 图片画布就一直在闪屏」就是这个。
-     实测：选完电视机 2.8 秒里画布被换掉 7 次（播放 450ms 一换）。
-     这 10 张纸的【画是同一张】（原页复制 10 份），不一样的只有关节姿势，
-     所以播放/翻页根本不用换页 —— 只动 rigFrame，纸和画一动不动。 */
-  const rigFrameId = rigBase && rigFrame >= 0 && rigFrame < rigBase.ids.length ? rigBase.ids[rigFrame] : null;
-  /** 现在看的/正在改的是叠放里的第几格（-1 = 不在叠放里） */
-  const rigIdx = rigFrameId ? rigFrame : -1;
-  /** 这一格实际用的关节（活页继承解算的结果） */
-  const rigJoints = rigFrameId
-    ? resolveJoints(doc.pages, doc.pages.findIndex((p) => p.id === rigFrameId))
-    : null;
-  /** 这一格能不能改：活页、或第 1 张（起始页）才能改 */
-  const rigEditable = rigIdx >= 0 && (rigIdx === 0 || isLooseLeaf(rigIdx));
-
-  /** 翻下一页（漫画书册「书本的翻页」/ 连环画「右下角折角」共用同一个动作）——
-      点右下角的折角、或按面板上那个「翻下一页」按钮，走的是这一处，不摆两套。 */
-  function flipRigPage() {
-    if (!rigBase) return;
-    const n = ((rigFrame < 0 ? 0 : rigFrame) + 1) % rigBase.ids.length;
-    setRigFrame(n);   /* 只翻页，不换 document 的当前页 —— 换页会整块重挂、白一下 */
-  }
-
-  /** 拖关节：写到【现在看的这一格】上（它就成了活页）。第一次拖会自动把继承来的姿势落地。 */
-  function onRigJointMove(id: string, x: number, y: number) {
-    const idx = doc.pages.findIndex((p) => p.id === rigFrameId);
-    if (idx < 0) return;
-    applyDoc((prev) => {
-      const cur = prev.pages[idx];
-      const own = cur?.rig?.joints;
-      const src = own && own.length ? own : (resolveJoints(prev.pages, idx) || []);
-      if (!src.length) return prev;
-      const next = src.map((j) => (j.id === id ? { ...j, x, y } : { ...j }));
-      return { ...prev, pages: withJoints(prev.pages, idx, next) };
-    });
-  }
-
-  /* 播放：按顺序快速翻这 10 张 */
-  useEffect(() => {
-    if (!rigPlaying || !rigBase) return;
-    if (rigTemplate === "book") return;   /* 漫画书＝一页一页自己翻，不自动播 */
-    const 速度 = rigTemplate === "strip" ? 140 : 450;   /* 连环画＝快速翻动；电视机＝动态效果 */
-    /* ★ 只推 rigFrame，【不换 currentPageId】—— 换页会让 Editor 整块重挂、画面白一下，
-       播放就变成一直闪屏（用户报的正是这个）。纸和画自始至终是同一张。 */
-    const t = window.setInterval(() => {
-      setRigFrame((f) => (f + 1) % rigBase.ids.length);
-    }, 速度);
-    return () => window.clearInterval(t);
-  }, [rigPlaying, rigBase, rigTemplate]);
 
 
   /* ★ 闭环之后【不退出】—— 这里原来是 1.4 秒后把连接模式清掉，等于刚闭环就把线收了。
@@ -615,7 +443,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   const _curPage = doc.pages.find((p) => p.id === currentPageId) || null;
   const paperColor = _curPage?.paperColor ?? "#ffffff";
   const paperAlpha = _curPage?.paperAlpha ?? 1;
-  const [stageColor, setStageColor] = useState("#f8f5ef");
+  const [stageColor, setStageColor] = useState("#F4F2EE");
   const [stageAlpha, setStageAlpha] = useState(1);
   const [currentFont, setCurrentFont] = useState<string>('"Noto Sans SC", sans-serif');
   const [showAssets, setShowAssets] = useState(false);
@@ -760,7 +588,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             x: W / 2 - 40,
             y: H / 2 - 20,
             fontSize: 22,
-            color: "#3a352e",
+            color: "#1E1C19",
             layer: "paper",
             fontFamily: currentFont,
           };
@@ -789,7 +617,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             y1: H / 2 - size / 2,
             x2: W / 2 + size / 2,
             y2: H / 2 + size / 2,
-            color: "#3a352e",
+            color: "#1E1C19",
             strokeWidth: 2,
           };
           return { ...p, shapes: [...(p.shapes || []), shape], updatedAt: Date.now() };
@@ -914,23 +742,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   function requestDeletePage(pageId: string) {
     const page = findPage(pageId);
     if (!page) return;
-    /* ★ 骨钉叠放的 10 张是【一整套】—— 删一张就删整叠。
-       用户 2026-09-26：「不然三十多张用户删除都要删累死」。 */
-    const 在叠放里 = !!rigBase && rigBase.ids.includes(pageId);
     setConfirmState({
-      message: 在叠放里
-        ? `确认删除整套骨钉吗？（这一套共 ${rigBase!.ids.length} 张，删除后不可恢复）`
-        : `确认删除页面 "${page.title}" 吗？（删除后不可恢复）`,
+      message: `确认删除页面 "${page.title}" 吗？（删除后不可恢复）`,
       onConfirm: () => {
         setConfirmState(null);
-        if (在叠放里 && rigBase) {
-          const ids = rigBase.ids;
-          applyDoc((prev) => ({ ...prev, pages: prev.pages.filter((p) => !ids.includes(p.id)) }));
-          setRigOn(false);
-          setRigBase(null);
-          setCurrentPageId(rigBase.baseId);
-          return;
-        }
         deletePage(pageId);
       },
     });
@@ -1004,7 +819,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     : "none";
 
   return (
-    <div className="creation-room" style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#f8f5ef" }}>
+    <div className="creation-room" style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#F4F2EE" }}>
       <main style={{ position: "absolute", inset: 0, display: "flex" }}>
         {currentPage && (
           <Editor
@@ -1079,21 +894,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             onRevealRail={() => setDemoRailOut(true)}
             onConnectJump={connJump}
             onConnectJumpBack={connJumpBack}
-            /* 骨钉：只在开启时挂载那一层，平时一行不动 */
-            rigMode={rigOn}
-            rigHolding={rigHolding}
-            rigHover={rigHover}
-            rigGuide={rigGuide}
-            rigView={rigView}
-            rigMono={rigMono}
-            /* ★ 模板呈现形态（手稿第五张底部三块）：电视机 / 漫画书册 / 连环画 */
-            rigTemplate={rigTemplate}
-            rigCells={rigCells}
-            onRigFlip={flipRigPage}
-            onRigViewChange={setRigView}
-            rigJoints={rigJoints || undefined}
-            rigRadius={rigRadius}
-            onRigJointMove={rigEditable ? onRigJointMove : undefined}
             onDeletePage={() => { if (doc.pages.length > 1) deletePage(currentPageId); }}
             paperColor={paperColor}
             paperAlpha={paperAlpha}
@@ -1115,8 +915,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         )}
       </main>
 
-      {/* ★ 骨钉模式下左侧那排工具栏【用不上】，腾出来给骨钉工具箱当独立空间 */}
-      {openDrawer === null && !rigOn && (
+      {openDrawer === null && (
         <div
           className="cd-side-entries"
           /* ★ 演示态：没收着就滑出屏幕左边外面（纸零遮挡）。CSS 里已经有
@@ -1140,12 +939,12 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
                   {/* 替换掉原来那两个 span 拼接的简陋方块，换成这个 SVG */}
                   <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ writingMode: "horizontal-tb" }}>
                 {/* 胖拱门主体 */}
-                <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#C9A87C" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#B08A4F" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                 {/* 门缝（比中线略偏，显得门更厚） */}
-                <line x1="10" y1="0" x2="10" y2="20" stroke="#C9A87C" strokeWidth="0.8"/>
+                <line x1="10" y1="0" x2="10" y2="20" stroke="#B08A4F" strokeWidth="0.8"/>
                 {/* 门环 */}
-                <circle cx="7" cy="11" r="1" fill="#C9A87C"/>
-                <circle cx="13" cy="11" r="1" fill="#C9A87C"/>
+                <circle cx="7" cy="11" r="1" fill="#B08A4F"/>
+                <circle cx="13" cy="11" r="1" fill="#B08A4F"/>
               </svg>
                 </button>
               );
@@ -1177,10 +976,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         }}
       >
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#C9A87C" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-          <line x1="10" y1="0" x2="10" y2="20" stroke="#C9A87C" strokeWidth="0.8"/>
-          <circle cx="7" cy="11" r="1" fill="#C9A87C"/>
-          <circle cx="13" cy="11" r="1" fill="#C9A87C"/>
+          <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#B08A4F" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          <line x1="10" y1="0" x2="10" y2="20" stroke="#B08A4F" strokeWidth="0.8"/>
+          <circle cx="7" cy="11" r="1" fill="#B08A4F"/>
+          <circle cx="13" cy="11" r="1" fill="#B08A4F"/>
         </svg>
       </button></div>
       )}
@@ -1232,7 +1031,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           onSelectPage={(id) => { setCurrentPageId(id); closeDrawer(); }}
           onAddPage={() => { addNewPage(); }}
           onDeletePage={(id) => requestDeletePage(id)}
-          rigStackIds={rigBase ? rigBase.ids : []}
           onRenamePage={(id, title) => renamePage(id, title)}
           onDuplicatePage={(id) => duplicatePage(id)}
           onExit={() => onBack && onBack()}
@@ -1250,7 +1048,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
           demoOn={demoOn}
           onDemoEnter={enterDemo}
           onDemoExit={exitDemo}
-          onStartRig={startRig}
           onConnectPickPage={onConnectPickPage}
           hasSelection={editorHasSelection}
           framesCount={(currentPage as any)?.frames?.length || 0}
@@ -1324,238 +1121,6 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             ③ 闭环 → 线变实（route 成立了）
           退出的路在抽屉里（「结束这次设置」），画布上不需要任何文字。 */}
 
-      {/* ══ ★ 骨钉工具箱（左侧竖向"货架"）═══════════════════════════════
-          用户 2026-09-26：「进入骨钉连接时候，侧面菜单栏是用不上的，可以当做独立空间；
-          把底部的卡片抽屉放到侧边栏，以货架商品上下滑动的方式；进行图片翻看、骨钉钉取
-          都方便；而且骨钉放一个上面有个计数器，这样节省空间看着不乱」。
-          所以：① 骨钉模式下左侧那排工具栏【不渲染】 ② 原来压在底部的
-          「骨钉排 + 10 格卡片」整块挪到这里，竖着滚 ③ 六根骨钉收成一条 + 计数器。 */}
-      {rigOn && rigBase && (() => {
-        const 未钉 = RIG_SLOTS.filter((sp) => !(rigJoints || []).some((j) => j.id === sp.id));
-        const 下一根 = 未钉[0] || null;
-        return (
-          <div style={{
-            position: "absolute", left: 0, top: 0, bottom: 0, width: 132,
-            zIndex: 3001, display: "flex", flexDirection: "column", gap: 8,
-            padding: "10px 8px", overflowY: "auto", overscrollBehavior: "contain",
-            background: "linear-gradient(to right, rgba(28,25,22,.94), rgba(28,25,22,.82))",
-            boxShadow: "2px 0 16px rgba(0,0,0,.22)",
-          }} data-no-canvas-gesture>
-
-            {/* 退出 */}
-            <button type="button" onClick={exitRig}
-              style={{
-                flex: "0 0 auto", border: 0, borderRadius: 8, height: 30,
-                background: "rgba(255,255,255,.16)", color: "#fffdfa",
-                fontSize: 11.5, cursor: "pointer", fontFamily: "inherit",
-              }}>退出骨钉</button>
-
-            {/* 播放 */}
-            <button type="button" onClick={() => setRigPlaying((v) => !v)}
-              style={{
-                flex: "0 0 auto", border: 0, borderRadius: 8, height: 32,
-                background: rigPlaying ? "#c98a3c" : "#fffdfa", color: rigPlaying ? "#fffdfa" : "#3a352e",
-                fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-              }}>{rigPlaying ? "■ 停" : "▶ 播放"}</button>
-
-            {/* ★ 骨钉：收成一条 + 计数器（省地方、不乱） */}
-            <button type="button"
-              data-rig-pin-item
-              disabled={!rigEditable || !下一根}
-              onPointerDown={(e) => {
-                if (!rigEditable || !下一根) return;
-                e.stopPropagation();
-                try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
-                setRigHolding(下一根.id);
-                setRigHover({ x: e.clientX, y: e.clientY });
-              }}
-              onPointerMove={(e) => { if (rigHolding) setRigHover({ x: e.clientX, y: e.clientY }); }}
-              onPointerUp={(e) => {
-                if (!rigHolding) return;
-                const p = rigDropPoint(e.clientX, e.clientY);
-                const id = rigHolding;
-                setRigHolding(null); setRigHover(null);
-                if (p) placeRigJoint(id, p.x, p.y);
-              }}
-              onPointerCancel={() => { setRigHolding(null); setRigHover(null); }}
-              style={{
-                flex: "0 0 auto", borderRadius: 8, padding: "8px 6px",
-                border: rigHolding ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.3)",
-                background: rigHolding ? "rgba(201,138,60,.85)" : "rgba(255,253,250,.1)",
-                color: "#fffdfa", fontSize: 11.5, cursor: rigEditable && 下一根 ? "grab" : "default",
-                fontFamily: "inherit", touchAction: "none",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 2, lineHeight: 1.15,
-              }}>
-              <span style={{ fontSize: 18 }}>📌</span>
-              <span>骨钉 ×{未钉.length}</span>
-              <span style={{ fontSize: 10, color: "rgba(255,253,250,.65)" }}>
-                {下一根 ? "拿下一根：" + 下一根.label : "六根都钉上了"}
-              </span>
-            </button>
-
-            {/* ★★ 模板库 —— 从「页数」里拿出来，单独摆在【骨钉下面】（用户 2026-09-26）。
-                手稿 4.4：动画片＝动态效果演示 / 连环画＝快速翻动 / 漫画书＝做成书册可以翻页；
-                外加 黑白 / 彩色 两个呈现选项。预览套在【你自己的画】上，不用示例图。 */}
-            <button type="button" data-rig-tool="tpl"
-              onClick={() => setRigTool((v) => (v === "tpl" ? null : "tpl"))}
-              style={{
-                width: "100%", minHeight: 60, borderRadius: 8, padding: "8px 6px", flex: "0 0 auto",
-                border: rigTool === "tpl" ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.3)",
-                background: rigTool === "tpl" ? "rgba(201,138,60,.85)" : "rgba(255,253,250,.1)",
-                color: "#fffdfa", fontSize: 11.5, cursor: "pointer", fontFamily: "inherit",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, lineHeight: 1.15,
-              }}>
-              <span style={{ fontSize: 18 }}>🎞️</span>
-              <span>模板</span>
-              <span style={{ fontSize: 10, color: "rgba(255,253,250,.65)" }}>
-                {rigTemplate === "anim" ? "电视机" : rigTemplate === "strip" ? "连环画" : rigTemplate === "book" ? "漫画书册" : "选一个"}
-                {rigMono ? " · 黑白" : " · 彩色"}
-              </span>
-            </button>
-            {rigTool === "tpl" && (
-              <div data-rig-tool-panel="tpl" style={{
-                flex: "0 0 auto", borderRadius: 8, padding: 6,
-                background: "rgba(255,253,250,.1)",
-                display: "flex", flexDirection: "column", gap: 5,
-                maxHeight: 200, overflowY: "auto", overscrollBehavior: "contain",
-              }}>
-                {([
-                  { id: "anim", label: "电视机", hint: "框里装画 · 动态效果" },
-                  { id: "book", label: "漫画书册", hint: "切成小格 · 装订成册" },
-                  { id: "strip", label: "连环画", hint: "折角大画布 · 快速翻动" },
-                ] as const).map((tpl) => (
-                  <button key={tpl.id} type="button" data-rig-tpl={tpl.id}
-                    onClick={() => { setRigTemplate(tpl.id); setRigPlaying(tpl.id !== "book"); }}
-                    style={{
-                      border: rigTemplate === tpl.id ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.25)",
-                      background: rigTemplate === tpl.id ? "rgba(201,138,60,.7)" : "rgba(255,253,250,.08)",
-                      color: "#fffdfa", borderRadius: 7, padding: "6px 8px", cursor: "pointer",
-                      fontFamily: "inherit", textAlign: "left", lineHeight: 1.2,
-                    }}>
-                    <div style={{ fontSize: 11.5 }}>{tpl.label}</div>
-                    <div style={{ fontSize: 9.5, color: "rgba(255,253,250,.6)" }}>{tpl.hint}</div>
-                  </button>
-                ))}
-                <div style={{ display: "flex", gap: 5 }}>
-                  {([{ id: false, label: "彩色" }, { id: true, label: "黑白" }] as const).map((m) => (
-                    <button key={String(m.id)} type="button" data-rig-mono={String(m.id)}
-                      onClick={() => setRigMono(m.id)}
-                      style={{
-                        flex: 1, height: 26, borderRadius: 7,
-                        border: rigMono === m.id ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.25)",
-                        background: rigMono === m.id ? "rgba(201,138,60,.7)" : "rgba(255,253,250,.08)",
-                        color: "#fffdfa", fontSize: 10.5, cursor: "pointer", fontFamily: "inherit",
-                      }}>{m.label}</button>
-                  ))}
-                </div>
-                {/* 漫画书册：一页切几格（用户 2026-09-26：「可以按 3 格和 6 格来做」） */}
-                {rigTemplate === "book" && (
-                  <div style={{ display: "flex", gap: 5 }}>
-                    {([3, 6] as const).map((n) => (
-                      <button key={n} type="button" data-rig-cells={n}
-                        onClick={() => setRigCells(n)}
-                        style={{
-                          flex: 1, height: 26, borderRadius: 7,
-                          border: rigCells === n ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.25)",
-                          background: rigCells === n ? "rgba(201,138,60,.7)" : "rgba(255,253,250,.08)",
-                          color: "#fffdfa", fontSize: 10.5, cursor: "pointer", fontFamily: "inherit",
-                        }}>{n} 格</button>
-                    ))}
-                  </div>
-                )}
-                {rigTemplate === "book" && (
-                  <button type="button" data-rig-flip
-                    onClick={flipRigPage}
-                    style={{
-                      height: 30, borderRadius: 7, border: 0, background: "#fffdfa",
-                      color: "#3a352e", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-                    }}>翻下一页</button>
-                )}
-              </div>
-            )}
-
-            {/* ★ 单变 / 页数 —— 和骨钉那条【一样大】：整条宽、一样高（用户 2026-09-26） */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "0 0 auto" }}>
-              {[{ id: "morph", label: "单变", hint: "浅淡·颜色·大小·粗细" }, { id: "count", label: "页数", hint: "张数" }].map((t) => (
-                <button key={t.id} type="button" data-rig-tool={t.id}
-                  onClick={() => setRigTool((v) => (v === t.id ? null : t.id))}
-                  style={{
-                    width: "100%", minHeight: 60, borderRadius: 8, padding: "8px 6px",
-                    border: rigTool === t.id ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.3)",
-                    background: rigTool === t.id ? "rgba(201,138,60,.85)" : "rgba(255,253,250,.1)",
-                    color: "#fffdfa", fontSize: 11.5, cursor: "pointer", fontFamily: "inherit",
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, lineHeight: 1.15,
-                  }}>
-                  <span style={{ fontSize: 18 }}>{t.id === "morph" ? "🎨" : "📄"}</span>
-                  <span>{t.label}</span>
-                  <span style={{ fontSize: 10, color: "rgba(255,253,250,.65)" }}>{t.hint}</span>
-                </button>
-              ))}
-            </div>
-            {rigTool && (
-              <div data-rig-tool-panel={rigTool} style={{
-                flex: "0 0 auto", borderRadius: 8, padding: "8px 8px",
-                background: "rgba(255,253,250,.1)", color: "rgba(255,253,250,.85)",
-                fontSize: 10.5, lineHeight: 1.6,
-              }}>
-                {rigTool === "morph" ? "浅淡 / 颜色 / 大小 / 粗细" : "张数"}
-              </div>
-            )}
-
-            {/* ★ 抽卡式页卡 —— 用户 2026-09-26：
-                「把上面显示的 1-10，把 1 活页做成抽卡的那种，所有页数全部折叠成一个，
-                 点击活页再滑下来 2 张活页」。
-                所以：10 张不再全铺出来，只露【1 张活页】；点它 → 滑下另外 2 张活页（3/6/9）。 */}
-            {(() => {
-              const 活页卡 = [2, 5, 8].map((i) => ({ i, pid: rigBase.ids[i] })).filter((x) => x.pid);
-              const 当前在活页 = 活页卡.findIndex((x) => x.pid === rigFrameId);
-              const 展开 = rigCardOpen || 当前在活页 >= 0;
-              const 露出的 = 展开 ? 活页卡 : 活页卡.slice(0, 1);
-              return (
-                <div data-rig-cardwrap style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {露出的.map(({ i, pid }) => {
-                    const here = pid === rigFrameId;
-                    const own = hasOwnPose(doc.pages.find((p) => p.id === pid));
-                    return (
-                      <button key={pid} type="button"
-                        data-rig-cell={i}
-                        onClick={() => {
-                          if (!展开 && 活页卡.length > 1) { setRigCardOpen(true); return; }
-                          setRigPlaying(false); setRigFrame(i);
-                        }}
-                        style={{
-                          flex: "0 0 auto", height: 54, borderRadius: 9,
-                          border: here ? "2px solid #c98a3c" : "1px solid rgba(255,253,250,.3)",
-                          background: here ? "rgba(255,253,250,.96)" : "rgba(255,253,250,.88)",
-                          color: "#3a352e", fontSize: 11, lineHeight: 1.2,
-                          cursor: "pointer", fontFamily: "inherit",
-                          display: "flex", alignItems: "center", gap: 8, padding: "0 10px", textAlign: "left",
-                        }}>
-                        <span style={{ fontSize: 16, fontWeight: 700, flex: "0 0 auto" }}>{i + 1}</span>
-                        <span style={{ color: "#7a5a34" }}>{own ? "活页·有姿势" : "活页"}</span>
-                        {!展开 && 活页卡.length > 1 && (
-                          <span style={{ marginLeft: "auto", fontSize: 14, color: "#a49a8f" }}>▾</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {展开 && (
-                    <button type="button" onClick={() => setRigCardOpen(false)}
-                      style={{
-                        flex: "0 0 auto", height: 24, border: 0, borderRadius: 7,
-                        background: "transparent", color: "rgba(255,253,250,.6)",
-                        fontSize: 10.5, cursor: "pointer", fontFamily: "inherit",
-                      }}>收起</button>
-                  )}
-                </div>
-              );
-            })()}
-            <span style={{ flex: "0 0 auto", fontSize: 10, color: "rgba(255,253,250,.55)", paddingTop: 2 }}>
-              共 {rigBase.ids.length} 张 · 真姿势 {distinctPoseCount(doc.pages.filter((p) => rigBase.ids.includes(p.id)))} 个
-            </span>
-          </div>
-        );
-      })()}
 
       {confirmState && (
         <Confirm message={confirmState.message} onConfirm={confirmState.onConfirm} onCancel={() => setConfirmState(null)} />
@@ -1571,7 +1136,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
 
       <div style={{ position: "absolute", right: 18, bottom: 18, zIndex: 1600 }}>
         {saveStatus === "error" && (
-          <div style={{ background: "#ffecee", color: "#a06f64", padding: 8, borderRadius: 8 }}>{saveError}</div>
+          <div style={{ background: "#F6EDEB", color: "#B4544A", padding: 8, borderRadius: 8 }}>{saveError}</div>
         )}
       </div>
 

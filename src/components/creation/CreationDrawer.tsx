@@ -114,10 +114,10 @@ export function PageDrawer({
         padding: "calc(env(safe-area-inset-top) + 12px) 12px 10px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
-        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: ".1em", color: "#3a352e" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: ".1em", color: "#1E1C19" }}>
           页面
         </span>
-        <span style={{ fontSize: 10, color: "#a49a8f" }}>
+        <span style={{ fontSize: 10, color: "#B7B1A8" }}>
           {pages.length}/{PAGE_LIMIT}
         </span>
       </div>
@@ -128,8 +128,8 @@ export function PageDrawer({
           margin: "0 10px 8px",
           padding: "8px 10px",
           borderRadius: 8,
-          background: "#f0e8dc",
-          color: "#75655a",
+          background: "#F4F2EE",
+          color: "#8B857C",
           fontSize: 11,
           lineHeight: 1.5,
         }}>
@@ -138,7 +138,7 @@ export function PageDrawer({
             type="button"
             onClick={onCancelConnect}
             style={{
-              border: 0, background: "transparent", color: "#5f554d",
+              border: 0, background: "transparent", color: "#4C4842",
               fontSize: 11, textDecoration: "underline", cursor: "pointer", padding: 0,
             }}
           >取消</button>
@@ -161,9 +161,9 @@ export function PageDrawer({
                 style={{
                   display: "flex", alignItems: "center", gap: 8,
                   padding: 6,
-                  border: active ? "1.5px solid #3a352e" : "1px solid rgba(74,70,63,.10)",
+                  border: active ? "1.5px solid #1E1C19" : "1px solid rgba(74,70,63,.10)",
                   borderRadius: 10,
-                  background: active ? "#f1ece4" : "#fffdfa",
+                  background: active ? "#EFEDE8" : "#FAF9F6",
                   cursor: "pointer",
                   textAlign: "left",
                   transform: pressedId === p.id ? "scale(0.96)" : "scale(1)",
@@ -181,7 +181,7 @@ export function PageDrawer({
                   borderRadius: 6,
                   background: p.paperColor || "#ffffff",
                   border: pressedId === p.id
-                    ? "1.5px solid #3a352e"
+                    ? "1.5px solid #1E1C19"
                     : "1px solid rgba(74,70,63,.10)",
                   position: "relative",
                   overflow: "hidden",
@@ -210,10 +210,10 @@ export function PageDrawer({
                         width: "100%",
                         height: 22,
                         padding: "0 5px",
-                        border: "1px solid #75655a",
+                        border: "1px solid #8B857C",
                         borderRadius: 5,
                         background: "#fff",
-                        color: "#3a352e",
+                        color: "#1E1C19",
                         fontSize: 11,
                         outline: "none",
                         boxSizing: "border-box",
@@ -225,7 +225,7 @@ export function PageDrawer({
                       style={{
                         fontSize: 11,
                         fontWeight: active ? 600 : 400,
-                        color: active ? "#2b241c" : "#57524c",
+                        color: active ? "#2b241c" : "#4C4842",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -233,7 +233,7 @@ export function PageDrawer({
                     >{label}</span>
                   )}
                   {active && (
-                    <span style={{ fontSize: 9, color: "#a49a8f", letterSpacing: ".06em" }}>当前</span>
+                    <span style={{ fontSize: 9, color: "#B7B1A8", letterSpacing: ".06em" }}>当前</span>
                   )}
                 </div>
 
@@ -247,7 +247,7 @@ export function PageDrawer({
                     flex: "none",
                     width: 18, height: 18,
                     borderRadius: 9,
-                    color: active ? "#c0392b" : "#cbc6c0",
+                    color: active ? "#B4544A" : "#C9C4BC",
                     fontSize: 13, lineHeight: 1,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     cursor: "pointer",
@@ -267,7 +267,7 @@ export function PageDrawer({
                 borderRadius: 10,
                 border: "1.5px dashed rgba(74,70,63,.24)",
                 background: "transparent",
-                color: "#756f68",
+                color: "#8B857C",
                 fontSize: 12,
                 cursor: "pointer",
                 letterSpacing: ".04em",
@@ -282,10 +282,10 @@ export function PageDrawer({
             paddingTop: 8,
             borderTop: "1px solid rgba(74,70,63,.08)",
           }}>
-            <div style={{ fontSize: 10, color: "#8b857a", marginBottom: 6 }}>连接</div>
+            <div style={{ fontSize: 10, color: "#8B857C", marginBottom: 6 }}>连接</div>
             {links.map((l) => (
               <div key={`${l.from}-${l.to}`} style={{
-                fontSize: 10, color: "#57524c", margin: "3px 0",
+                fontSize: 10, color: "#4C4842", margin: "3px 0",
                 whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
               }}>
                 {pages.find((p) => p.id === l.from)?.title || "?"} → {pages.find((p) => p.id === l.to)?.title || "?"}
@@ -302,7 +302,7 @@ export function PageDrawer({
           style={{
             width: "100%", height: 36,
             border: 0, borderRadius: 10,
-            background: "#5f554d", color: "#fff",
+            background: "#4C4842", color: "#fff",
             fontSize: 12, cursor: "pointer",
             letterSpacing: ".06em",
           }}
@@ -410,13 +410,13 @@ export function ShapeDrawer({
   const tabsWrapStyle: React.CSSProperties = {
     display: "flex", gap: 2, padding: 4, margin: "0 0 10px 0",
     position: "sticky", top: 0, zIndex: 3,
-    background: "#fbfaf7", borderRadius: 10,
+    background: "#FAF9F6", borderRadius: 10,
     boxShadow: "0 2px 4px rgba(74,70,63,.04)",
   };
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, height: 30, border: 0, borderRadius: 8,
     background: active ? "#fff" : "transparent",
-    color: active ? "#3a352e" : "#756f68",
+    color: active ? "#1E1C19" : "#8B857C",
     fontWeight: active ? 600 : 400,
     fontSize: 10, fontFamily: "inherit", cursor: "pointer",
     boxShadow: active ? "0 1px 3px rgba(0,0,0,.06)" : "none",
@@ -424,16 +424,16 @@ export function ShapeDrawer({
   });
   const fixBtnStyle: React.CSSProperties = {
     flex: 1, height: 30, border: 0, borderRadius: 6,
-    background: "rgba(74,70,63,.06)", color: "#4a463f",
+    background: "rgba(74,70,63,.06)", color: "#4C4842",
     fontSize: 14, cursor: "pointer", padding: 0,
   };
   const sectionLabel: React.CSSProperties = {
-    fontSize: 11, color: "#8a8178", letterSpacing: ".1em",
+    fontSize: 11, color: "#8B857C", letterSpacing: ".1em",
     margin: "14px 2px 10px",
   };
   const toggleStyle = (on: boolean): React.CSSProperties => ({
     width: 36, height: 20, borderRadius: 10, border: 0, padding: 0,
-    background: on ? "#5f554d" : "rgba(74,70,63,.15)",
+    background: on ? "#4C4842" : "rgba(74,70,63,.15)",
     position: "relative", cursor: "pointer", flex: "none",
   });
   const knobStyle = (on: boolean): React.CSSProperties => ({
@@ -479,7 +479,7 @@ export function ShapeDrawer({
                     <path
                       d="M4 20 L7 17 L17 7 Q19 5 21 7 Q23 9 21 11 L11 21 L8 21 L4 20 Z"
                       fill="none"
-                      stroke="#3a352e"
+                      stroke="#1E1C19"
                       strokeWidth={t.sw / 2}
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -496,7 +496,7 @@ export function ShapeDrawer({
               marginTop: 14, padding: "12px 10px",
               background: "rgba(74,70,63,.04)", borderRadius: 10,
             }}>
-              <div style={{ fontSize: 11, color: "#8a8178", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
+              <div style={{ fontSize: 11, color: "#8B857C", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
 
               <PenSlider label="尺寸" value={brush.size ?? 0} min={0} max={40} step={1}
                 onChange={(v) => onBrushChange({ size: v > 0 ? v : undefined })} />
@@ -507,14 +507,14 @@ export function ShapeDrawer({
 
               {/* 缓释（easing） */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: "#756f68", width: 52, flex: "none" }}>缓释</span>
+                <span style={{ fontSize: 11, color: "#8B857C", width: 52, flex: "none" }}>缓释</span>
                 <select
                   value={brush.easingName ?? "linear"}
                   onChange={(e) => onBrushChange({ easingName: e.target.value as EasingName })}
                   style={{
                     flex: 1, minWidth: 0, height: 26, padding: "0 6px",
                     border: "1px solid rgba(74,70,63,.15)", borderRadius: 6,
-                    background: "#fff", color: "#3a352e", fontSize: 11, outline: "none",
+                    background: "#fff", color: "#1E1C19", fontSize: 11, outline: "none",
                   }}
                 >
                   <option value="linear">线性</option>
@@ -529,7 +529,7 @@ export function ShapeDrawer({
 
               {/* 启动 cap */}
               <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "#756f68" }}>启动</span>
+                <span style={{ fontSize: 11, color: "#8B857C" }}>启动</span>
                 <button type="button" aria-pressed={!!brush.startCap}
                   onClick={() => onBrushChange({ startCap: !brush.startCap })} style={toggleStyle(!!brush.startCap)}>
                   <span style={knobStyle(!!brush.startCap)} />
@@ -542,7 +542,7 @@ export function ShapeDrawer({
 
               {/* 缓和结尾 cap */}
               <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "#756f68" }}>缓和结尾</span>
+                <span style={{ fontSize: 11, color: "#8B857C" }}>缓和结尾</span>
                 <button type="button" aria-pressed={!!brush.endCap}
                   onClick={() => onBrushChange({ endCap: !brush.endCap })} style={toggleStyle(!!brush.endCap)}>
                   <span style={knobStyle(!!brush.endCap)} />
@@ -551,7 +551,7 @@ export function ShapeDrawer({
 
               {/* 充满 */}
               <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "#756f68" }}>充满</span>
+                <span style={{ fontSize: 11, color: "#8B857C" }}>充满</span>
                 <button type="button" aria-pressed={!!brush.fill}
                   onClick={() => onBrushChange({ fill: !brush.fill })} style={toggleStyle(!!brush.fill)}>
                   <span style={knobStyle(!!brush.fill)} />
@@ -563,7 +563,7 @@ export function ShapeDrawer({
 
               {/* 模拟压力 */}
               <div style={{ ...rowStyle, marginTop: 10, marginBottom: 0 }}>
-                <span style={{ fontSize: 11, color: "#756f68" }}>模拟压力</span>
+                <span style={{ fontSize: 11, color: "#8B857C" }}>模拟压力</span>
                 <button type="button" aria-pressed={brush.simulatePressure}
                   onClick={() => onBrushChange({ simulatePressure: !brush.simulatePressure })}
                   style={toggleStyle(brush.simulatePressure)}>
@@ -578,7 +578,7 @@ export function ShapeDrawer({
                 style={{
                   width: "100%", height: 30, marginTop: 12, borderRadius: 6,
                   border: "1px solid rgba(74,70,63,.15)", background: "#fff",
-                  color: "#756f68", fontSize: 11, cursor: "pointer",
+                  color: "#8B857C", fontSize: 11, cursor: "pointer",
                 }}
               >重置选项</button>
             </div>
@@ -592,7 +592,7 @@ export function ShapeDrawer({
               <button key={t.kind} type="button" className="cd-item"
                 onClick={() => onPickTool(t.kind)}
                 style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", fontSize: 14, width: "100%" }}>
-                <span style={{ fontSize: 18, width: 26, textAlign: "center", color: "#5f554d" }}>{t.icon}</span>
+                <span style={{ fontSize: 18, width: 26, textAlign: "center", color: "#4C4842" }}>{t.icon}</span>
                 <span>{t.name}</span>
               </button>
             ))}
@@ -615,7 +615,7 @@ export function ShapeDrawer({
               <button key={t.kind} type="button" className="cd-item"
                 onClick={() => onInsertShape(t.kind)}
                 style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 12px", fontSize: 14, width: "100%" }}>
-                <span style={{ fontSize: 20, width: 26, textAlign: "center", color: "#5f554d" }}>{t.icon}</span>
+                <span style={{ fontSize: 20, width: 26, textAlign: "center", color: "#4C4842" }}>{t.icon}</span>
                 <span>{t.name}</span>
               </button>
             ))}
@@ -627,15 +627,15 @@ export function ShapeDrawer({
             <button type="button" onClick={() => onPickTool("eraser")}
               style={{
                 width: "100%", height: 72, borderRadius: 12, border: 0,
-                background: "linear-gradient(180deg,#fff 0%,#f7f3ec 100%)",
+                background: "linear-gradient(180deg,#fff 0%,#F4F2EE 100%)",
                 boxShadow: "0 2px 8px rgba(90,80,65,.12)",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                fontSize: 16, color: "#3a352e", cursor: "pointer",
+                fontSize: 16, color: "#1E1C19", cursor: "pointer",
               }}>
               <span style={{ fontSize: 24 }}>⌫</span>
               <span>橡皮擦</span>
             </button>
-            <div style={{ marginTop: 8, fontSize: 11, color: "#a49a8f", textAlign: "center", lineHeight: 1.6 }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: "#B7B1A8", textAlign: "center", lineHeight: 1.6 }}>
               划过已画的线条<br />即可擦除
             </div>
           </div>
@@ -679,21 +679,21 @@ export function WindowDrawer({ onClose }: { onClose: () => void }) {
     <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body">
         <div style={{
-          fontSize: 13, fontWeight: 600, color: "#3a352e",
+          fontSize: 13, fontWeight: 600, color: "#1E1C19",
           letterSpacing: ".1em", padding: "4px 4px 12px",
           display: "flex", alignItems: "center", gap: 6,
         }}>
           <span style={{ display: "flex", gap: 2 }}>
-            <span style={{ width: 5, height: 11, border: "1.2px solid #756f68", borderRight: "0.6px solid #756f68", borderRadius: "2px 0 0 2px" }} />
-            <span style={{ width: 5, height: 11, border: "1.2px solid #756f68", borderLeft: "0.6px solid #756f68", borderRadius: "0 2px 2px 0" }} />
+            <span style={{ width: 5, height: 11, border: "1.2px solid #8B857C", borderRight: "0.6px solid #8B857C", borderRadius: "2px 0 0 2px" }} />
+            <span style={{ width: 5, height: 11, border: "1.2px solid #8B857C", borderLeft: "0.6px solid #8B857C", borderRadius: "0 2px 2px 0" }} />
           </span>
           <span>门 · 社交</span>
         </div>
 
-        {loading && <div style={{ fontSize: 12, color: "#918981", padding: "12px 4px" }}>加载中…</div>}
+        {loading && <div style={{ fontSize: 12, color: "#8B857C", padding: "12px 4px" }}>加载中…</div>}
         {!loading && err && <div style={{ fontSize: 12, color: "#a06f64", padding: "12px 4px" }}>{err}</div>}
         {!loading && !err && items.length === 0 && (
-          <div style={{ fontSize: 12, color: "#918981", padding: "12px 4px" }}>暂无内容</div>
+          <div style={{ fontSize: 12, color: "#8B857C", padding: "12px 4px" }}>暂无内容</div>
         )}
         {!loading && !err && items.map((it, i) => (
           <button
@@ -707,23 +707,23 @@ export function WindowDrawer({ onClose }: { onClose: () => void }) {
               display: "flex", alignItems: "flex-start", gap: 8,
               width: "100%", padding: "10px 10px", marginBottom: 6,
               border: "1px solid rgba(74,70,63,.10)",
-              borderRadius: 10, background: "#fffdfa",
+              borderRadius: 10, background: "#FAF9F6",
               textAlign: "left", cursor: "pointer",
             }}
           >
-            <span style={{ fontSize: 10, color: "#a49a8f", flex: "none", paddingTop: 2, width: 16 }}>
+            <span style={{ fontSize: 10, color: "#B7B1A8", flex: "none", paddingTop: 2, width: 16 }}>
               {String(i + 1).padStart(2, "0")}
             </span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{
-                fontSize: 12, color: "#3a352e", lineHeight: 1.5,
+                fontSize: 12, color: "#1E1C19", lineHeight: 1.5,
                 overflow: "hidden", textOverflow: "ellipsis",
                 display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
               } as React.CSSProperties}>
                 {it.title || "(无标题)"}
               </span>
               {it.sourceLabel && (
-                <span style={{ display: "block", fontSize: 10, color: "#a49a8f", marginTop: 4 }}>
+                <span style={{ display: "block", fontSize: 10, color: "#B7B1A8", marginTop: 4 }}>
                   {it.sourceLabel}
                 </span>
               )}
@@ -790,7 +790,7 @@ export function ColorDrawer({
 const customInputStyle: React.CSSProperties = {
   flex: 1, minWidth: 0, height: 36, padding: "0 8px", boxSizing: "border-box",
   border: "1px solid rgba(74,70,63,.2)", borderRadius: 8,
-  background: "#fff", color: "#3a352e", fontSize: 14, outline: "none",
+  background: "#fff", color: "#1E1C19", fontSize: 14, outline: "none",
   textAlign: "center",
 };
 
@@ -803,7 +803,7 @@ function CustomSpecDialog({ onConfirm, onCancel }: { onConfirm: (w: number, h: n
         <div className="mini-confirm-msg" style={{ marginBottom: 12 }}>自定义尺寸（px）</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input autoFocus value={w} inputMode="numeric" onChange={(e) => setW(e.target.value.replace(/\D/g, ""))} style={customInputStyle} />
-          <span style={{ alignSelf: "center", color: "#8b857a" }}>×</span>
+          <span style={{ alignSelf: "center", color: "#8B857C" }}>×</span>
           <input value={h} inputMode="numeric" onChange={(e) => setH(e.target.value.replace(/\D/g, ""))} style={customInputStyle} />
         </div>
         <div className="mini-confirm-actions">
@@ -843,7 +843,7 @@ export function SpecDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
                       onClick={() => { setPicked(it.name); onPicked?.(it.w, it.h); }}>
                       {it.name}
                       {it.w > 0 && it.h > 0 && (
-                        <span style={{ color: "#aaa39b", fontSize: 10, marginLeft: 6 }}>{it.w}×{it.h}</span>
+                        <span style={{ color: "#B7B1A8", fontSize: 10, marginLeft: 6 }}>{it.w}×{it.h}</span>
                       )}
                     </button>
                   ))}
@@ -881,7 +881,7 @@ export function FontDrawer({
   return (
     <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
       <div className="cd-body">
-        <div style={{ fontSize: 11, color: "#918981", padding: "0 4px 12px", letterSpacing: ".08em" }}>字体</div>
+        <div style={{ fontSize: 11, color: "#8B857C", padding: "0 4px 12px", letterSpacing: ".08em" }}>字体</div>
         {FONT_LIBRARY.map((f) => {
           const active = currentFont === f.family;
           return (
@@ -889,10 +889,10 @@ export function FontDrawer({
               onClick={() => { onFontChange(f.family); onPicked?.(); }}
               style={{
                 width: "100%", padding: "16px 12px", marginBottom: 6,
-                border: active ? "1.5px solid #75655a" : "1px solid rgba(74,70,63,.12)",
-                borderRadius: 10, background: active ? "#f3eee8" : "#fffdfa",
+                border: active ? "1.5px solid #8B857C" : "1px solid rgba(74,70,63,.12)",
+                borderRadius: 10, background: active ? "#f3eee8" : "#FAF9F6",
                 textAlign: "left", cursor: "pointer",
-                fontFamily: f.family, fontSize: 17, color: "#3a352e",
+                fontFamily: f.family, fontSize: 17, color: "#1E1C19",
               }}>{f.name}</button>
           );
         })}
@@ -940,7 +940,7 @@ export function LockDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
           <div className="mini-confirm-box" onClick={(e) => e.stopPropagation()}>
             <div className="mini-confirm-msg" style={{ textAlign: "left", fontSize: 13, lineHeight: 1.6 }}>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>锁定方向</div>
-              <div style={{ fontSize: 11, color: "#918981", marginBottom: 14, lineHeight: 1.7 }}>锁定后需到系统设置里重新开启自动旋转。</div>
+              <div style={{ fontSize: 11, color: "#8B857C", marginBottom: 14, lineHeight: 1.7 }}>锁定后需到系统设置里重新开启自动旋转。</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="button" onClick={() => applyLock("landscape")}
                   style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid rgba(74,70,63,.15)", background: "#fff", fontSize: 13, cursor: "pointer" }}>横屏</button>
@@ -1054,7 +1054,7 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
           {/* ── 快照列表（新的在上，点一条就回滚到那一条） ── */}
           {snaps.length > 0 && (
             <div style={{ marginTop: 2 }}>
-              <div style={{ fontSize: 10, color: "#a49a8f", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>
+              <div style={{ fontSize: 10, color: "#B7B1A8", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>
                 快照 {snaps.length}/{MAX_SNAPSHOTS}
               </div>
               <div style={{ maxHeight: 168, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1062,21 +1062,21 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
                   <div key={s.id} style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "6px 7px", borderRadius: 8,
-                    background: "#fffdfa", border: "1px solid rgba(74,70,63,.10)",
+                    background: "#FAF9F6", border: "1px solid rgba(74,70,63,.10)",
                   }}>
                     <button type="button" onClick={() => setPendingRestore(s)}
                       style={{
                         flex: 1, minWidth: 0, border: 0, background: "transparent", cursor: "pointer",
                         textAlign: "left", padding: 0, fontFamily: "inherit",
                       }}>
-                      <div style={{ fontSize: 11, color: "#3a352e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <div style={{ fontSize: 11, color: "#1E1C19", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {formatSnapshotTime(s.createdAt)}
                       </div>
-                      <div style={{ fontSize: 9, color: "#a49a8f" }}>{s.pageCount} 页</div>
+                      <div style={{ fontSize: 9, color: "#B7B1A8" }}>{s.pageCount} 页</div>
                     </button>
                     <button type="button" onClick={() => { void removeSnapshot(s); }}
                       title="删除这张快照"
-                      style={{ border: 0, background: "transparent", color: "#b4ada5", fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                      style={{ border: 0, background: "transparent", color: "#B7B1A8", fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -1098,7 +1098,7 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
           <div className="mini-confirm-box" onClick={(e) => e.stopPropagation()}>
             <div className="mini-confirm-msg" style={{ fontSize: 13, lineHeight: 1.7 }}>
               回滚到 {formatSnapshotTime(pendingRestore.createdAt)} 的快照？<br />
-              <span style={{ fontSize: 11, color: "#918981" }}>当前的改动会被覆盖。</span>
+              <span style={{ fontSize: 11, color: "#8B857C" }}>当前的改动会被覆盖。</span>
             </div>
             <div className="mini-confirm-actions">
               <button type="button" className="mini-confirm-cancel" onClick={() => setPendingRestore(null)}>取消</button>
@@ -1120,13 +1120,13 @@ function PenSlider({ label, value, min, max, step, onChange }: {
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-      <span style={{ fontSize: 11, color: "#756f68", width: 52, flex: "none" }}>{label}</span>
+      <span style={{ fontSize: 11, color: "#8B857C", width: 52, flex: "none" }}>{label}</span>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        style={{ flex: 1, minWidth: 0, accentColor: "#5f554d", height: 4 }}
+        style={{ flex: 1, minWidth: 0, accentColor: "#4C4842", height: 4 }}
       />
-      <span style={{ fontSize: 10, color: "#a49a8f", width: 28, textAlign: "right", flex: "none" }}>
+      <span style={{ fontSize: 10, color: "#B7B1A8", width: 28, textAlign: "right", flex: "none" }}>
         {value.toFixed(step < 1 ? 2 : 0)}
       </span>
     </div>

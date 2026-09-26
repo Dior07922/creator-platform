@@ -95,7 +95,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "#F7F3EC", fontFamily: "'Nunito', sans-serif" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "#F4F2EE", fontFamily: "'Nunito', sans-serif" }}>
       <div className="handbook-app relative flex flex-col bg-[var(--bg)] overflow-hidden" style={{ width: "100%", height: "100%", borderRadius: 0, border: 0, boxSizing: "border-box", boxShadow: "none" }}>
 
         {screen === "welcome" && <WelcomeScreen onEnter={() => setScreen("canvas")} />}
@@ -195,7 +195,7 @@ export default function App() {
             {/* 门缝透出的光 */}
             <div style={{
               position: "absolute", left: "50%", top: "20%", bottom: "20%", width: "2px",
-              background: "#C9A87C",
+              background: "#B08A4F",
               boxShadow: "0 0 60px 30px rgba(201,168,124,.6)",
               animation: "doorLight 1.2s ease-out forwards",
               zIndex: 2,
@@ -204,7 +204,7 @@ export default function App() {
 
             {/* 动画结束后的文字提示 */}
             <div style={{
-              color: "#C9A87C", fontSize: 14, letterSpacing: "0.3em",
+              color: "#B08A4F", fontSize: 14, letterSpacing: "0.3em",
               position: "absolute", bottom: "15%", zIndex: 3,
               animation: "fadeIn 1.5s ease-out forwards"
             }}>正在进入空间...</div>

@@ -2,9 +2,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type {
-  ElementLink, ElementLinkTargetType, Group, ImageNode, Interaction, LinkNode, NoteNode, Page, PageLink, RigJoint, ShapeKind, ShapeNode, TableNode, TextNode,
+  ElementLink, ElementLinkTargetType, Group, ImageNode, Interaction, LinkNode, NoteNode, Page, PageLink, ShapeKind, ShapeNode, TableNode, TextNode,
 } from "../../types/document";
-import { warpTo, makeArmBones, defaultRadius } from "../../lib/rigWarp";
 
 /** perfect-freehand easing 预设（StrokeOptions.easing 需要函数，UI 用名字选） */
 export type EasingName =
@@ -75,32 +74,6 @@ type Props = {
   /** 长按弹窗里点了「连接」：以这个对象为起点开启连接模式 */
   onStartConnect?: (el: { type: string; id: string }) => void;
   /* （原 connectArrange：把纸排开 —— 整套已删除，连接不再动任何纸张的位置） */
-  /** 骨钉模式：把当前纸拍平成位图 → 按 6 个关节形变 → 铺在纸上，
-      再叠一层可拖的关节把手。只在开启时挂载，平时一行不动。 */
-  rigMode?: boolean;
-  /** 当前纸实际要用的关节（已经过活页继承解算，可能是从前面某张继承来的） */
-  rigJoints?: RigJoint[];
-  /** ★ 用户正拿在手里的骨钉（关节位 id）＋手指当前屏幕位置 —— 画放大镜用 */
-  rigHolding?: string | null;
-  rigHover?: { x: number; y: number } | null;
-  /** ★ 关节定点图：该钉在哪儿的参考位置（淡淡的、钉一个少一个） */
-  rigGuide?: { id: string; x: number; y: number }[];
-  /** ★ 骨钉这个独立空间自己的视野（镜头）—— 只改"怎么看"，纸的坐标不动 */
-  rigView?: { k: number; vx: number; vy: number };
-  /** ★ 模板的呈现选项：黑白画面 */
-  rigMono?: boolean;
-  /** ★ 模板库选中的呈现形态（手稿第五张底部三块）：
-      anim＝电视机（框里装画）／book＝漫画书册（切成小格装订成册）／strip＝连环画（折角大画布） */
-  rigTemplate?: "anim" | "strip" | "book" | null;
-  /** 漫画书册用几格：3 格 / 6 格（用户 2026-09-26：「可以按 3 格和 6 格来做」） */
-  rigCells?: 3 | 6;
-  /** 书册/连环画：翻下一页（点右下角折角） */
-  onRigFlip?: () => void;
-  onRigViewChange?: (v: { k: number; vx: number; vy: number }) => void;
-  /** 影响半径 */
-  rigRadius?: number;
-  /** 用户拖了某个关节 */
-  onRigJointMove?: (id: string, x: number, y: number) => void;
   /** 连接模式下点了某一张纸（不是纸里的对象，是纸本身） */
   onPaperPick?: (pageId: string) => void;
   /** 文档里已成立的连接（用来画线） */
@@ -240,10 +213,6 @@ const DEFAULT_FONT = '"Noto Sans SC", sans-serif';
 /* 各类型元素的默认图层顺序。
    数值与旧的渲染顺序一致（文字最底、笔迹最上），
    所以没设过 z 的老文档观感不变。用户「置顶/移上」后写入具体 z 值。 */
-/* ★ 笔迹那一层的缓存 —— 必须放在【组件外面】。
-   进骨钉时当前页会切成叠放里的第 1 张，editorKey 一变 Editor 整个重挂载，
-   放组件里的 ref 会被清空，做位图时就抓不到笔迹（用户报「我的画不见了」）。 */
-let STROKES_CACHE = "";
 
 const Z_TEXT = 10;
 const Z_IMAGE = 20;
@@ -333,7 +302,7 @@ function renderShapeRaw(s: ShapeNode, selectedShapeId?: string | null) {
     fill: s.fill || "none",
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    filter: selectedShapeId === s.id ? "drop-shadow(0 0 4px #3b82f6)" : undefined,
+    filter: selectedShapeId === s.id ? "drop-shadow(0 0 4px #1E1C19)" : undefined,
     ...sid,
   };
   switch (s.kind) {
@@ -444,7 +413,7 @@ function renderShapeRaw(s: ShapeNode, selectedShapeId?: string | null) {
       if (!s.points || s.points.length < 2) return null;
 
       const filterStyle = selectedShapeId === s.id
-        ? { filter: "drop-shadow(0 0 4px #3b82f6)" }
+        ? { filter: "drop-shadow(0 0 4px #1E1C19)" }
         : undefined;
 
       // 组装输入点：[x, y, pressure]
@@ -559,19 +528,6 @@ export default function Editor({
   onConnectJump,
   onConnectJumpBack,
   onDeleteInteraction,
-  rigMode,
-  rigJoints,
-  rigHolding,
-  rigHover,
-  rigGuide,
-  rigView,
-  rigMono,
-  rigTemplate = null,
-  rigCells = 6,
-  onRigFlip,
-  onRigViewChange,
-  rigRadius,
-  onRigJointMove,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const editTaRef = useRef<HTMLTextAreaElement>(null);
@@ -1295,7 +1251,7 @@ export default function Editor({
     }
     const fontSize = 16;
     const node: TextNode = {
-      id, text: "", x: localX, y: localY, fontSize, color: "#3a352e", layer,
+      id, text: "", x: localX, y: localY, fontSize, color: "#1E1C19", layer,
       fontFamily: currentFont,
     };
     const next = [...textsRef.current, node];
@@ -1304,7 +1260,7 @@ export default function Editor({
     const stageRect = stageRef.current?.getBoundingClientRect();
     const width = stageRect ? Math.min(stageRect.width - 20, 400) : 400;
     const height = fontSize * 1.6;
-    showFloatingEditor(screenX, screenY, width, height, fontSize, "#3a352e", "");
+    showFloatingEditor(screenX, screenY, width, height, fontSize, "#1E1C19", "");
     focusFloatingEditor();
     setEditingId(id); editingIdRef.current = id;
   }
@@ -1363,17 +1319,17 @@ export default function Editor({
   }
   function styleForKind(kind: ShapeKind): { color: string; strokeWidth: number; opacity: number } {
     switch (kind) {
-      case "crayon":    return { color: "#3a352e", strokeWidth: 8,   opacity: 0.7 };
-      case "sketch":    return { color: "#3a352e", strokeWidth: 1.5, opacity: 0.85 };
-      case "marker":    return { color: "#3a352e", strokeWidth: 10,  opacity: 1 };
-      case "pencil":    return { color: "#3a352e", strokeWidth: 2,   opacity: 1 };
-      case "ink":       return { color: "#3a352e", strokeWidth: 4,   opacity: 1 };
-      case "handwrite": return { color: "#3a352e", strokeWidth: 3,   opacity: 0.92 };
+      case "crayon":    return { color: "#1E1C19", strokeWidth: 8,   opacity: 0.7 };
+      case "sketch":    return { color: "#1E1C19", strokeWidth: 1.5, opacity: 0.85 };
+      case "marker":    return { color: "#1E1C19", strokeWidth: 10,  opacity: 1 };
+      case "pencil":    return { color: "#1E1C19", strokeWidth: 2,   opacity: 1 };
+      case "ink":       return { color: "#1E1C19", strokeWidth: 4,   opacity: 1 };
+      case "handwrite": return { color: "#1E1C19", strokeWidth: 3,   opacity: 0.92 };
       case "highlight": return { color: "#ffe066", strokeWidth: 18,  opacity: 0.55 };
-      case "brush":     return { color: "#1a1a1a", strokeWidth: 5,   opacity: 0.9 };
-      case "redpen":    return { color: "#d94c4c", strokeWidth: 2,   opacity: 1 };
+      case "brush":     return { color: "#1E1C19", strokeWidth: 5,   opacity: 0.9 };
+      case "redpen":    return { color: "#B4544A", strokeWidth: 2,   opacity: 1 };
       case "free":
-      default:          return { color: "#3a352e", strokeWidth: 3,   opacity: 1 };
+      default:          return { color: "#1E1C19", strokeWidth: 3,   opacity: 1 };
     }
   }
 
@@ -1876,7 +1832,7 @@ export default function Editor({
         .map((ln: string, i: number) => `<tspan x="${t.x}" dy="${i === 0 ? 0 : F * 1.4}">${escXml(ln)}</tspan>`)
         .join("");
       P.push(
-        `<text x="${t.x}" y="${(t.y ?? 0) + F}" font-size="${F}" fill="${escXml(t.color || "#3a352e")}" ` +
+        `<text x="${t.x}" y="${(t.y ?? 0) + F}" font-size="${F}" fill="${escXml(t.color || "#1E1C19")}" ` +
         `font-family="${escXml(t.fontFamily || DEFAULT_FONT)}" xml:space="preserve">${spans}</text>`
       );
     }
@@ -1898,7 +1854,7 @@ export default function Editor({
         `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="6" fill="${escXml(n.bgColor || "#fff9c4")}"/>` +
         wrapForSvg(n.text, Math.max(8, n.w - 20), F)
           .map((ln: string, i: number) =>
-            `<text x="${n.x + 10}" y="${n.y + 10 + F * (1 + i * 1.4)}" font-size="${F}" fill="${escXml(n.textColor || "#3a352e")}" xml:space="preserve">${escXml(ln)}</text>`)
+            `<text x="${n.x + 10}" y="${n.y + 10 + F * (1 + i * 1.4)}" font-size="${F}" fill="${escXml(n.textColor || "#1E1C19")}" xml:space="preserve">${escXml(ln)}</text>`)
           .join("") +
         `</g>`
       );
@@ -1910,16 +1866,16 @@ export default function Editor({
       const chh = t.h / Math.max(1, t.rows);
       const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
       const lines: string[] = [];
-      for (let c = 1; c < t.cols; c++) lines.push(`<line x1="${t.x + cw * c}" y1="${t.y}" x2="${t.x + cw * c}" y2="${t.y + t.h}" stroke="#3a352e" stroke-width="1"/>`);
-      for (let r = 1; r < t.rows; r++) lines.push(`<line x1="${t.x}" y1="${t.y + chh * r}" x2="${t.x + t.w}" y2="${t.y + chh * r}" stroke="#3a352e" stroke-width="1"/>`);
+      for (let c = 1; c < t.cols; c++) lines.push(`<line x1="${t.x + cw * c}" y1="${t.y}" x2="${t.x + cw * c}" y2="${t.y + t.h}" stroke="#1E1C19" stroke-width="1"/>`);
+      for (let r = 1; r < t.rows; r++) lines.push(`<line x1="${t.x}" y1="${t.y + chh * r}" x2="${t.x + t.w}" y2="${t.y + chh * r}" stroke="#1E1C19" stroke-width="1"/>`);
       const cells: string[] = [];
       for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) {
         const v = t.cells?.[r]?.[c]; if (!v) continue;
-        cells.push(`<text x="${t.x + cw * c + 4}" y="${t.y + chh * r + 12}" font-size="12" fill="#3a352e" xml:space="preserve">${escXml(v)}</text>`);
+        cells.push(`<text x="${t.x + cw * c + 4}" y="${t.y + chh * r + 12}" font-size="12" fill="#1E1C19" xml:space="preserve">${escXml(v)}</text>`);
       }
       P.push(
         `<g${rotAttr(t.rotate, cx, cy)}>` +
-        `<rect x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}" fill="#ffffff" stroke="#3a352e" stroke-width="1.5"/>` +
+        `<rect x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}" fill="#ffffff" stroke="#1E1C19" stroke-width="1.5"/>` +
         lines.join("") + cells.join("") + `</g>`
       );
     }
@@ -1929,20 +1885,15 @@ export default function Editor({
       const cx = l.x + l.w / 2, cy = l.y + l.h / 2;
       P.push(
         `<g${rotAttr(l.rotate, cx, cy)}>` +
-        `<rect x="${l.x}" y="${l.y}" width="${l.w}" height="${l.h}" rx="8" fill="#eaf3fb" stroke="rgba(42,74,107,.3)" stroke-width="1"/>` +
-        `<text x="${l.x + 12}" y="${l.y + l.h / 2 - 2}" font-size="13" font-weight="600" fill="#2a4a6b" xml:space="preserve">${escXml(l.title || l.url)}</text>` +
-        `<text x="${l.x + 12}" y="${l.y + l.h / 2 + 14}" font-size="11" fill="#5a7fa0" xml:space="preserve">${escXml(l.url)}</text>` +
+        `<rect x="${l.x}" y="${l.y}" width="${l.w}" height="${l.h}" rx="8" fill="#EFEDE8" stroke="rgba(42,74,107,.3)" stroke-width="1"/>` +
+        `<text x="${l.x + 12}" y="${l.y + l.h / 2 - 2}" font-size="13" font-weight="600" fill="#1E1C19" xml:space="preserve">${escXml(l.title || l.url)}</text>` +
+        `<text x="${l.x + 12}" y="${l.y + l.h / 2 + 14}" font-size="11" fill="#8B857C" xml:space="preserve">${escXml(l.url)}</text>` +
         `</g>`
       );
     }
 
-    /* 笔迹：直接复用页面上已渲染好的那一层（单一来源，不写第二套）。
-       ★ 骨钉模式下这一层已经不在 DOM 里了（纸换成了位图）——
-         那时必须用【进骨钉前缓存下来的那一份】，否则位图里只有文字/图片，
-         手画的线条和图形全丢，用户看到的就是一张白纸（实测：位图里只剩 22 个非白像素）。 */
-    const strokes = rigMode
-      ? (strokesCacheRef.current || STROKES_CACHE)
-      : (stageRef.current?.querySelector("[data-shapes-svg]")?.innerHTML || "");
+    /* 笔迹：直接复用页面上已渲染好的那一层（单一来源，不写第二套）。 */
+    const strokes = stageRef.current?.querySelector("[data-shapes-svg]")?.innerHTML || "";
     if (strokes) P.push(strokes);
 
     return (
@@ -2034,7 +1985,7 @@ export default function Editor({
           text,
           x: cx, y: cy,
           fontSize: 18,
-          color: "#3a352e",
+          color: "#1E1C19",
           layer: "background",
         };
         onUpdateRef.current({ texts: [...textsRef.current, node] });
@@ -2181,10 +2132,6 @@ export default function Editor({
        纸盒上的 onClick 永远收不到，点纸就点不动。
        实测事件序列：BOX:pointerdown,BOX:mousedown → STAGE:pointerup,STAGE:click。 */
     if (__tgt.closest("[data-other-page]") && papersPickableRef.current) return;
-    /* ★ 骨钉把手同理：按在关节上必须直接放行，
-       否则 stage 一 setPointerCapture，pointermove 就全改派到 stage，
-       把手拖不动。 */
-    if (__tgt.closest("[data-rig-handle]")) return;
     /* ★ 形状的旋转把手同理：按在把手上是要拖它转，不能被画布手势吃掉。 */
     if (__tgt.closest("[data-rot-handle]")) return;
     /* ★ 盖在画布上的界面（胶片条这类）同理：它们要自己收点击。
@@ -2815,7 +2762,6 @@ export default function Editor({
         };
       }
       g.mode = "pinch";
-      (g as any).rigView0 = { ...(rigView || { k: 1, vx: 0, vy: 0 }) };   /* ★ 骨钉空间：这一把捏合的【起手视野】 */
     }
   }
 
@@ -3191,34 +3137,7 @@ export default function Editor({
        之前把双指改成动镜头，结果所有纸一起缩放、单张纸再也分不开。
        这里改回来：手指动的是手里这张纸。 */
     if (g.mode === "pinch" && g.pointers.size === 2) {
-      /* ★ 骨钉模式下双指【一律不动】—— 用户 2026-09-26：
-         「不能拉伸大小；第一层不动；后面几层也不许自己动」。
-         叠放的 10 张是同一张画面的不同姿势，纸一被缩放，整套叠放就散了。 */
       const snap = getTwoFingerSnapshot();
-      /* ★ 骨钉是独立空间：双指改【视野】，不改纸 —— 纸的坐标一个字节都不写。 */
-      if (rigMode) {
-        /* ★★ 基准必须是【起手那一刻】的视野，不能用当前值 ——
-           用当前值 = 每一帧都在已经缩过的基础上再缩一次，指数级乱跑
-           （用户 2026-09-26：「画布不受控，乱跑乱飘，不是巨大就是巨小」）。 */
-        const r0 = (g as any).rigView0 || { k: 1, vx: 0, vy: 0 };
-        /* ★ 缩放下限不能是 0.12 —— 那样纸会缩成一个小点，等于把它弄丢了。
-           用户 2026-09-26：「我画布飘走了」① 缩得没底 ② 平移没有边界。 */
-        const k2 = Math.max(0.35, Math.min(4, r0.k * (snap.dist / (g.initial.dist || 1))));
-        let vx2 = r0.vx + (snap.midX - g.initial.midX);
-        let vy2 = r0.vy + (snap.midY - g.initial.midY);
-        /* ★ 夹住平移：纸心永远留在屏幕【中间那一半】里，怎么拖都不会飘走 */
-        const sr = stageRef.current?.getBoundingClientRect();
-        if (sr && sr.width > 0) {
-          const cxWant = sr.width / 2 + paper.x * k2 + vx2;
-          const cyWant = sr.height / 2 + paper.y * k2 + vy2;
-          const cxIn = Math.min(sr.width * 0.75, Math.max(sr.width * 0.25, cxWant));
-          const cyIn = Math.min(sr.height * 0.75, Math.max(sr.height * 0.25, cyWant));
-          vx2 += cxIn - cxWant;
-          vy2 += cyIn - cyWant;
-        }
-        onRigViewChange?.({ k: k2, vx: vx2, vy: vy2 });
-        return;
-      }
       const ratio = snap.dist / (g.initial.dist || 1);
       /* ★ 双指 = 动【手里这一张纸】，别的纸一个字都不碰。
          用户 2026-09-26 原话：「纸是独立的，各玩各的。我拖谁谁走，我没拖谁就给我留在原地」
@@ -5073,15 +4992,15 @@ function handleSheetAction(kind: string) {
               gridTemplateColumns: `repeat(${t.cols}, 1fr)`,
               pointerEvents: "none",
               transform: `rotate(${t.rotate || 0}deg)`, transformOrigin: "center center",
-              border: "1.5px solid #3a352e",
+              border: "1.5px solid #1E1C19",
               boxSizing: "border-box", background: "#ffffff",
             }}
           >
             {Array.from({ length: t.rows }).map((_, r) =>
               Array.from({ length: t.cols }).map((__, c) => (
                 <div key={`${r}-${c}`} style={{
-                  borderRight: c < t.cols - 1 ? "1px solid #3a352e" : "none",
-                  borderBottom: r < t.rows - 1 ? "1px solid #3a352e" : "none",
+                  borderRight: c < t.cols - 1 ? "1px solid #1E1C19" : "none",
+                  borderBottom: r < t.rows - 1 ? "1px solid #1E1C19" : "none",
                   fontSize: 12, padding: 4, boxSizing: "border-box", overflow: "hidden",
                 }}>{t.cells[r]?.[c] || ""}</div>
               ))
@@ -5094,7 +5013,7 @@ function handleSheetAction(kind: string) {
             style={{
               position: "absolute", zIndex: l.z ?? Z_LINK,
               left: l.x, top: l.y, width: l.w, height: l.h,
-              background: "#eaf3fb", color: "#2a4a6b",
+              background: "#EFEDE8", color: "#1E1C19",
               transform: `rotate(${l.rotate || 0}deg)`, transformOrigin: "center center",
               border: "1px solid rgba(42,74,107,.3)",
               borderRadius: 8, padding: "8px 12px", boxSizing: "border-box",
@@ -5104,7 +5023,7 @@ function handleSheetAction(kind: string) {
             }}
           >
             <div style={{ fontWeight: 600, fontSize: 13 }}>{l.title || l.url}</div>
-            <div style={{ fontSize: 11, color: "#5a7fa0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
+            <div style={{ fontSize: 11, color: "#8B857C", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
           </div>
         ))}
         <svg
@@ -5119,179 +5038,8 @@ function handleSheetAction(kind: string) {
     );
   }
 
-  /* ══ 骨钉层 ══════════════════════════════════════════════════════
-     把当前纸拍平成一张位图（复用导出用的 buildPageSvg），
-     再按 6 个关节做骨架蒙皮形变，铺在纸上。
-     位图只在「进骨钉模式 / 换纸 / 换规格」时重拍一次；
-     拖关节时只重跑形变，不重拍 —— 这是能实时拖的关键。 */
-  const rigCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  /* ★ 进骨钉【之前】把笔迹那一层缓存下来 —— 骨钉模式下纸变成了位图，
-     笔迹那层 svg 就不在 DOM 里了，做位图时会抓空（用户报「我的画不见了」）。 */
-  const strokesCacheRef = useRef<string>(STROKES_CACHE);
-  const [rigSrc, setRigSrc] = useState<HTMLCanvasElement | null>(null);
-  const [rigDragId, setRigDragId] = useState<string | null>(null);
-  const rigDragRef = useRef<string | null>(null);
-  const buildPageSvgRef = useRef(buildPageSvg);
-  buildPageSvgRef.current = buildPageSvg;
 
-  const rigW = paper.w > 0 ? paper.w : 390;
-  const rigH = paper.h > 0 ? paper.h : 844;
-
-  /** 从关节 id 推出骨架。id 约定：sh/el/hd + -L/-R */
-  function bonesOf(js: RigJoint[] | undefined) {
-    const ids = new Set((js || []).map((j) => j.id));
-    const groups: { sh: string; el: string; hd: string }[] = [];
-    for (const suf of ["L", "R"]) {
-      if (ids.has(`sh-${suf}`) && ids.has(`el-${suf}`) && ids.has(`hd-${suf}`)) {
-        groups.push({ sh: `sh-${suf}`, el: `el-${suf}`, hd: `hd-${suf}` });
-      }
-    }
-    return makeArmBones(groups);
-  }
-  const rigBones = bonesOf(rigJoints);
-
-  useEffect(() => {
-    if (!rigMode) { setRigSrc(null); return; }
-    let dead = false;
-    const W = rigW;
-    const H = rigH;
-    const svgText = buildPageSvgRef.current(W, H, true);
-    const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = W;
-      c.height = H;
-      const g = c.getContext("2d");
-      if (g && !dead) { g.drawImage(img, 0, 0, W, H); setRigSrc(c); }
-      URL.revokeObjectURL(url);
-    };
-    img.onerror = () => URL.revokeObjectURL(url);
-    img.src = url;
-    return () => { dead = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rigMode, page.id, rigW, rigH]);
-
-  useEffect(() => {
-    if (rigMode) return;   /* 骨钉模式下这层已经没了，别把缓存覆盖成空 */
-    const el = stageRef.current?.querySelector("[data-shapes-svg]");
-    if (el && el.innerHTML) { strokesCacheRef.current = el.innerHTML; STROKES_CACHE = el.innerHTML; }
-  });
-
-  useEffect(() => {
-    if (!rigMode || !rigSrc) return;
-    const out = rigCanvasRef.current;
-    const g = out?.getContext("2d");
-    if (!out || !g) return;
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, out.width, out.height);
-    /* ★★ 一个关节都还没钉的时候：【原样把画铺上去，不做形变】。
-       用户 2026-09-26：「我进入骨钉连接，我的画布不见了，只有一张纸」——
-       根因就是这里：进来不给自动布点了，关节是空的，而形变函数拿到 0 个关节
-       什么都不画 → 纸变成空白。没有关节 = 没有形变 = 应该就是原画。 */
-    if (!(rigJoints || []).length) {
-      g.drawImage(rigSrc, 0, 0, out.width, out.height);
-      return;
-    }
-    const R = rigRadius && rigRadius > 0 ? rigRadius : defaultRadius(out.width, out.height);
-    warpTo(g, rigSrc, out.width, out.height, rigJoints || [], bonesOf(rigJoints), R, 16, 32);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rigMode, rigSrc, rigJoints, rigRadius]);
-
-  /* 拖关节：屏幕坐标 → 纸张局部坐标，报给上层 */
-  function rigLocal(e: React.PointerEvent) {
-    return screenToPaperLocal(e.clientX, e.clientY, stageRef.current, paperStateRef.current);
-  }
-  function onRigDown(e: React.PointerEvent, id: string) {
-    e.stopPropagation();
-    e.preventDefault();
-    rigDragRef.current = id;
-    setRigDragId(id);
-    try { (e.currentTarget as unknown as HTMLElement).setPointerCapture(e.pointerId); } catch { /* 捕获失败不影响拖动 */ }
-  }
-  function onRigMove(e: React.PointerEvent) {
-    const id = rigDragRef.current;
-    if (!id) return;
-    e.stopPropagation();
-    const p = rigLocal(e);
-    onRigJointMove?.(id, p.x, p.y);
-  }
-  function onRigUp(e: React.PointerEvent) {
-    if (!rigDragRef.current) return;
-    e.stopPropagation();
-    rigDragRef.current = null;
-    setRigDragId(null);
-    try { (e.currentTarget as unknown as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* 已经释放过就算了 */ }
-  }
-
-  const paperInner = rigMode ? (
-    /* ── 骨钉模式下的纸 ────────────────────────────────────────
-       骨钉是「把整张画面拍平再扯动」，所以这里不画原本那套 DOM 元素，
-       改画一张【已被骨架形变的位图】。位图来自 buildPageSvg（导出用的同一套），
-       所以画面内容和平时的渲染是一致的，只是变成了一张图。
-       退出骨钉模式立刻换回原本那套，一行没动。 */
-    <>
-      <canvas
-        ref={rigCanvasRef}
-        width={rigW}
-        height={rigH}
-        data-rig-canvas
-        style={{
-          position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
-          pointerEvents: "none",
-        }}
-      />
-      {/* 关节把手层 */}
-      <svg
-        viewBox={`0 0 ${rigW} ${rigH}`}
-        style={{
-          position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
-          zIndex: 300, touchAction: "none",
-        }}
-        onPointerMove={onRigMove}
-        onPointerUp={onRigUp}
-        onPointerCancel={onRigUp}
-      >
-        {/* ★ 关节定点图：还没钉的位置给一个淡淡的虚线圈（钉过就不再画） */}
-        {(rigGuide || []).filter((gd) => !(rigJoints || []).some((j) => j.id === gd.id)).map((gd) => (
-          <circle key={"guide-" + gd.id} cx={gd.x} cy={gd.y} r={11} fill="none"
-            stroke="rgba(201,138,60,.5)" strokeWidth={1.5} strokeDasharray="3 5"
-            style={{ pointerEvents: "none" }} />
-        ))}
-        {/* 骨架：4 根骨画成粗线，让人看清这是一副骨架 */}
-        {rigBones.map((b) => {
-          const A = (rigJoints || []).find((j) => j.id === b.a);
-          const B = (rigJoints || []).find((j) => j.id === b.b);
-          if (!A || !B) return null;
-          return (
-            <line key={b.id} x1={A.x} y1={A.y} x2={B.x} y2={B.y}
-              stroke="rgba(122,90,52,.28)" strokeWidth={9} strokeLinecap="round"
-              style={{ pointerEvents: "none" }} />
-          );
-        })}
-        {(rigJoints || []).map((j) => (
-          <g key={j.id} data-rig-handle={j.id}>
-            {/* 钉住的位置（不动）—— 让人看见「关节从哪被拽走的」 */}
-            <circle cx={j.sx} cy={j.sy} r={5} fill="none"
-              stroke="rgba(122,90,52,.4)" strokeWidth={2}
-              style={{ pointerEvents: "none" }} />
-            {rigDragId === j.id && (
-              <line x1={j.sx} y1={j.sy} x2={j.x} y2={j.y}
-                stroke="rgba(122,90,52,.5)" strokeWidth={2} strokeDasharray="8 6"
-                style={{ pointerEvents: "none" }} />
-            )}
-            <circle
-              cx={j.x} cy={j.y} r={14}
-              fill={rigDragId === j.id ? "#7a5a34" : "rgba(122,90,52,.85)"}
-              stroke="#fffdfa" strokeWidth={3}
-              style={{ cursor: "grab" }}
-              onPointerDown={(e) => onRigDown(e, j.id)}
-            />
-          </g>
-        ))}
-      </svg>
-    </>
-  ) : (
+  const paperInner = (
     <>
       {texts.filter((t) => t.layer === "paper").map((t) => (
         <TextElement
@@ -5317,7 +5065,7 @@ function handleSheetAction(kind: string) {
             transform: `rotate(${im.rotate || 0}deg)`,
             transformOrigin: "center center",
             pointerEvents: "none",
-            boxShadow: selectedEl?.type === "image" && selectedEl.id === im.id ? "0 0 0 2px #3b82f6" : "none",
+            boxShadow: selectedEl?.type === "image" && selectedEl.id === im.id ? "0 0 0 2px #1E1C19" : "none",
           }}
         />
       ))}
@@ -5337,7 +5085,7 @@ function handleSheetAction(kind: string) {
             overflow: "hidden", whiteSpace: "pre-wrap",
             pointerEvents: "none",
             boxShadow: selectedEl?.type === "note" && selectedEl.id === n.id
-              ? "0 0 0 2px #3b82f6, 0 2px 8px rgba(0,0,0,.08)"
+              ? "0 0 0 2px #1E1C19, 0 2px 8px rgba(0,0,0,.08)"
               : "0 2px 8px rgba(0,0,0,.08)",
           }}
         >{n.text}</div>
@@ -5356,8 +5104,8 @@ function handleSheetAction(kind: string) {
             transform: `rotate(${t.rotate || 0}deg)`,
             transformOrigin: "center center",
             border: selectedEl?.type === "table" && selectedEl.id === t.id
-              ? "2px solid #3b82f6"
-              : "1.5px solid #3a352e",
+              ? "2px solid #1E1C19"
+              : "1.5px solid #1E1C19",
             boxSizing: "border-box",
             background: "#ffffff",
           }}
@@ -5365,8 +5113,8 @@ function handleSheetAction(kind: string) {
           {Array.from({ length: t.rows }).map((_, r) =>
             Array.from({ length: t.cols }).map((__, c) => (
               <div key={`${r}-${c}`} style={{
-                borderRight: c < t.cols - 1 ? "1px solid #3a352e" : "none",
-                borderBottom: r < t.rows - 1 ? "1px solid #3a352e" : "none",
+                borderRight: c < t.cols - 1 ? "1px solid #1E1C19" : "none",
+                borderBottom: r < t.rows - 1 ? "1px solid #1E1C19" : "none",
                 fontSize: 12, padding: 4, boxSizing: "border-box",
                 overflow: "hidden",
               }}>{t.cells[r]?.[c] || ""}</div>
@@ -5381,11 +5129,11 @@ function handleSheetAction(kind: string) {
             position: "absolute",
             zIndex: l.z ?? Z_LINK,
             left: l.x, top: l.y, width: l.w, height: l.h,
-            background: "#eaf3fb", color: "#2a4a6b",
+            background: "#EFEDE8", color: "#1E1C19",
             transform: `rotate(${l.rotate || 0}deg)`,
             transformOrigin: "center center",
             border: selectedEl?.type === "link" && selectedEl.id === l.id
-              ? "2px solid #3b82f6"
+              ? "2px solid #1E1C19"
               : "1px solid rgba(42,74,107,.3)",
             borderRadius: 8, padding: "8px 12px", boxSizing: "border-box",
             fontSize: 13, overflow: "hidden",
@@ -5394,7 +5142,7 @@ function handleSheetAction(kind: string) {
           }}
         >
           <div style={{ fontWeight: 600, fontSize: 13 }}>{l.title || l.url}</div>
-          <div style={{ fontSize: 11, color: "#5a7fa0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
+          <div style={{ fontSize: 11, color: "#8B857C", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
         </div>
       ))}
       <svg
@@ -5458,7 +5206,7 @@ function handleSheetAction(kind: string) {
               {link.label && (playingIdx < 0 || linkOn) && (
                 <g>
                   <rect x={mx - link.label.length * 5 - 4} y={my - 11} width={link.label.length * 10 + 8} height={16}
-                    rx={4} fill="#fffdfa" stroke={color} strokeWidth={0.8} />
+                    rx={4} fill="#FAF9F6" stroke={color} strokeWidth={0.8} />
                   <text x={mx} y={my} fontSize={10} fill={color} textAnchor="middle" dominantBaseline="central"
                     fontFamily="serif">{link.label}</text>
                 </g>
@@ -5608,74 +5356,7 @@ function handleSheetAction(kind: string) {
     return () => ro.disconnect();
   }, []);
 
-  /* ★ 模板三种壳要用的「纸有多大」——
-     没选规格的纸（paperW/paperH 是空的）铺满整个画布，壳也必须照样画。
-     以前壳全挂在「纸宽>0 且 纸高>0」上，没规格的纸 → 电视机/漫画书册/连环画一个都不出来
-     （用户 2026-09-26：「反正电视机漫画书还有连环画都没有」）。 */
-  const 壳W = paper.w > 0 ? paper.w : (stageBox.w > 0 ? stageBox.w : 390);
-  const 壳H = paper.h > 0 ? paper.h : (stageBox.h > 0 ? stageBox.h : 844);
 
-  /* ── 模板的呈现层 · ⑦ 漫画书册 ＋ 翻页折角（手稿第五张中下 / 右下）
-     定义【一处】，两种纸（选了规格的 / 没规格铺满全屏的）都用它 —— 不摆两套。
-     · 漫画书册：一整页切成小格，3 格＝竖着三条，6 格＝两列三行
-       （用户 2026-09-26：「可以按 3 格和 6 格来做」）。
-       格与格之间留缝，缝里【盖住你的画】——盖的色就是纸色，
-       所以看上去是画被切成了分镜，不是画上划了几道线。
-     · 折角：手稿第五张「连环画右下角有翻页折角」。折角不是画着看的，
-       点它才翻页（动作就是动作本身）。 */
-  const 纸面呈现层 = (() => {
-    const 书册层 = rigMode && rigTemplate === "book" ? (() => {
-      const 缝 = 9;
-      const 列 = rigCells === 3 ? 1 : 2, 行 = 3;
-      const cw = (壳W - 缝 * (列 + 1)) / 列;
-      const ch = (壳H - 缝 * (行 + 1)) / 行;
-      const 格: { x: number; y: number; w: number; h: number }[] = [];
-      for (let r = 0; r < 行; r++) for (let c = 0; c < 列; c++) {
-        格.push({ x: 缝 + c * (cw + 缝), y: 缝 + r * (ch + 缝), w: cw, h: ch });
-      }
-      /* 外框一整张纸 + 每个格挖空，evenodd 一挖，剩下的正好是「缝」 */
-      const d = `M0 0H${壳W}V${壳H}H0Z ` +
-        格.map((g) => `M${g.x} ${g.y}H${g.x + g.w}V${g.y + g.h}H${g.x}Z`).join(" ");
-      return (
-        <svg
-          data-rig-book
-          viewBox={`0 0 ${壳W} ${壳H}`}
-          style={{
-            position: "absolute", left: 0, top: 0, width: "100%", height: "100%",
-            zIndex: 310, pointerEvents: "none",
-          }}
-        >
-          <path d={d} fillRule="evenodd" fill={paperColor} />
-          {格.map((g, i) => (
-            <rect key={i} x={g.x} y={g.y} width={g.w} height={g.h}
-              fill="none" stroke="rgba(58,53,46,.5)" strokeWidth={1.5} />
-          ))}
-        </svg>
-      );
-    })() : null;
-    const 折角层 = rigMode && (rigTemplate === "book" || rigTemplate === "strip") ? (
-      <div
-        data-rig-fold
-        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
-        onPointerUp={(e) => { e.stopPropagation(); onRigFlip?.(); }}
-        style={{
-          position: "absolute", right: 0, bottom: 0,
-          width: 46, height: 46, zIndex: 320, cursor: "pointer",
-          touchAction: "none",
-        }}
-      >
-        {/* 折起来的那一页：一个三角，斜边上一道阴影 */}
-        <div style={{
-          position: "absolute", right: 0, bottom: 0,
-          width: 40, height: 40,
-          clipPath: "polygon(0% 100%, 100% 0%, 100% 100%)",
-          background: "linear-gradient(315deg, #fffdfa 0%, #f3eee6 55%, #ddd5c8 100%)",
-          filter: "drop-shadow(-2px -2px 3px rgba(58,53,46,.35))",
-        }} />
-      </div>
-    ) : null;
-    return 书册层 || 折角层 ? <>{书册层}{折角层}</> : null;
-  })();
   /* ── 连接模式：把纸并排排开 ─────────────────────────────
      纸是竖的。竖着摞两张会顶出屏幕、又窄又长，看不出「左→右承接」的关系；
      并排反而省地方，横向关系也更像「这边点一下、那边接住」。 */
@@ -5708,9 +5389,7 @@ function handleSheetAction(kind: string) {
      ★ 拖动位移的换算也走它（除以 scale），所以视野缩放下拖东西依然跟手。 */
   paperStateRef.current = demoOn
     ? { ...paper, x: 0, y: 0, scale: demoScale, rotate: 0 }
-    : rigMode
-      ? { ...paper, x: paper.x * (rigView?.k ?? 1) + (rigView?.vx ?? 0), y: paper.y * (rigView?.k ?? 1) + (rigView?.vy ?? 0), scale: paper.scale * (rigView?.k ?? 1) }
-      : { ...paper };
+    : { ...paper };
 
   /* 连接过程中，点"别的纸"＝确定承接页面（上层只在需要时传 onPaperPick） */
   const papersPickable = !!onPaperPick;
@@ -5724,12 +5403,9 @@ function handleSheetAction(kind: string) {
      纸还被推到屏幕外 (x=450)。这就是用户报的"纸卡的死死的动不了"。
      镜头口径 = 以【舞台中心】为原点：纸心 = 舞台中心 + 纸坐标 × k + 平移。
      和 paperDisplay / screenToPaperLocal 用的是同一个口径，所以两边严格对齐。 */
-  const rk = rigView?.k ?? 1, rvx = rigView?.vx ?? 0, rvy = rigView?.vy ?? 0;
   const mainPaperTransform = demoOn
     ? `translate(0px, 0px) scale(${demoScale}) rotate(0deg)`
-    : rigMode
-      ? `translate(${paper.x * rk + rvx}px, ${paper.y * rk + rvy}px) scale(${paper.scale * rk}) rotate(${paper.rotate}deg)`
-      : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
+    : `translate(${paper.x}px, ${paper.y}px) scale(${paper.scale}) rotate(${paper.rotate}deg)`;
 
   /* ── 连接线：闭环的可见证据 ─────────────────────────────
      连接不是一条记录，是一条看得见的线：起点对象 → 延伸物那张纸 → 延伸物里的对象 → 回到起点。
@@ -6024,7 +5700,7 @@ function handleSheetAction(kind: string) {
         <div style={{
           position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)",
           padding: "6px 14px", borderRadius: 999, background: "rgba(122,90,52,0.92)",
-          color: "#fffdfa", fontSize: 12, fontWeight: 500, letterSpacing: "0.02em",
+          color: "#FAF9F6", fontSize: 12, fontWeight: 500, letterSpacing: "0.02em",
           pointerEvents: "none", zIndex: 20,
           animation: "ranjingFlashIn .2s ease-out",
         }}>{canvasFlash}</div>
@@ -6105,11 +5781,11 @@ function handleSheetAction(kind: string) {
             left: rotHandle.hx - 22, top: rotHandle.hy - 22,
             width: 44, height: 44, borderRadius: 999,   /* 44 = 手指够得着的下限 */
             background: "rgba(255,253,250,.96)",
-            border: "2px solid #3b82f6",
+            border: "2px solid #1E1C19",
             boxShadow: "0 2px 10px rgba(0,0,0,.18)",
             cursor: "grab", touchAction: "none", zIndex: 12,
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 17, color: "#3b82f6", userSelect: "none",
+            fontSize: 17, color: "#1E1C19", userSelect: "none",
           }}
         >↻</div>
       )}
@@ -6121,40 +5797,8 @@ function handleSheetAction(kind: string) {
       {/* ★ 其他纸什么时候画：**创作时都画**（纸要看得见、点得到 ——「我纸呢？」），
           **演示时只画当前这一张**（固定视口，一屏一页）。
          判据只有一个：是不是在演示模式。不再拿"闭环没闭环""跳没跳过"当开关。 */}
-      {/* ★★ 放大镜 —— 用户拿着骨钉在画布上滑的时候跟着手指。
-          用户 2026-09-26：「它的手滑到哪，那就有个放大镜放大各个局部，让它更好的钉住」。
-          用的是骨钉模式本来就有的那张页面位图（rigSrc），直接 drawImage 放大，
-          不重拍、不复制 DOM，所以不花钱。 */}
-      {rigMode && rigHolding && rigHover && rigSrc && (() => {
-        const R = 62, K = 2.4;
-        const lp = screenToPaperLocal(rigHover.x, rigHover.y, stageRef.current, paperStateRef.current);
-        if (!lp.inside) return null;
-        const span = (2 * R) / K;
-        return (
-          <div data-rig-lens style={{
-            position: "fixed", left: rigHover.x - R, top: rigHover.y - R - 118,
-            width: 2 * R, height: 2 * R, borderRadius: "50%", overflow: "hidden",
-            zIndex: 3002, pointerEvents: "none",
-            border: "2px solid rgba(201,138,60,.95)",
-            boxShadow: "0 8px 24px rgba(0,0,0,.35)", background: "#fffdfa",
-          }}>
-            <RigLens src={rigSrc} lx={lp.x} ly={lp.y} size={2 * R} span={span} />
-            {/* 十字准星：钉在哪一点，看这个交点 */}
-            <div style={{
-              position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)",
-              width: 14, height: 14, pointerEvents: "none",
-            }}>
-              <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", background: "rgba(201,138,60,.85)" }} />
-              <div style={{ position: "absolute", top: "50%", left: 0, height: 1, width: "100%", background: "rgba(201,138,60,.85)" }} />
-            </div>
-          </div>
-        );
-      })()}
 
-      {/* ★ 骨钉模式：10 张叠放，**只画当前这一张**（第一层）。
-          用户 2026-09-26：「十张页面在画布上时，不可以显示多层画布，只显示第一层画布」——
-          其余 9 张是叠在同一个位置的副本，画出来就是一堆重影。 */}
-      {!demoOn && !rigMode && otherPages.map((p, i) => {
+      {!demoOn && otherPages.map((p, i) => {
         const tr = p.transform || { x: 0, y: 0, scale: 1, rotate: 0 };
         const isSelected = selectedPageIds.has(p.id);
         const hasSize = !!(p.paperW && p.paperH && p.paperW > 0 && p.paperH > 0);
@@ -6230,72 +5874,6 @@ function handleSheetAction(kind: string) {
         />
       ))}
 
-      {/* ── 模板的呈现层 · ⑦ 漫画书册 ＋ 翻页折角（手稿第五张中下 / 右下）
-          定义【一处】，两种纸（有规格的 / 没规格铺满全屏的）都用它 —— 不摆两套。
-          · 漫画书册：一整页切成小格，3 格＝竖着三条，6 格＝两列三行
-            （用户 2026-09-26：「可以按 3 格和 6 格来做」）。
-            格与格之间留缝，缝里【盖住你的画】——盖的色就是纸色，
-            所以看上去是画被切成了分镜，不是画上划了几道线。
-          · 折角：手稿第五张「连环画右下角有翻页折角」。折角不是画着看的，
-            点它才翻页（动作就是动作本身）。 */}
-      {/* ── 模板的呈现层 · ⑧ 电视机（手稿第五张左下角）──────────────
-          一个框，里面装着你的画：外圈是电视机身，纸就是【屏幕】。
-          纸的尺寸一点没动（300×600 原样），机身在纸外面一圈，所以钉骨钉照样看得见。
-          黑白/彩色还是走原来那个 rigMono（纸上的 grayscale），这里不重复一套。
-          只在骨钉空间里画，普通创作/连接/演示一律不渲染。 */}
-      {rigMode && rigTemplate === "anim" && 壳W > 0 && 壳H > 0 && (() => {
-        const 侧 = 24, 上 = 24, 下 = 46;   /* 机身边框：下面厚一点，放旋钮和指示灯 */
-        const W2 = 壳W + 侧 * 2, H2 = 壳H + 上 + 下;
-        const 圆角矩形 = (x: number, y: number, w: number, h: number, r: number) =>
-          `M${x + r} ${y}H${x + w - r}A${r} ${r} 0 0 1 ${x + w} ${y + r}V${y + h - r}` +
-          `A${r} ${r} 0 0 1 ${x + w - r} ${y + h}H${x + r}A${r} ${r} 0 0 1 ${x} ${y + h - r}` +
-          `V${y + r}A${r} ${r} 0 0 1 ${x + r} ${y}Z`;
-        /* ★ 机身画在纸【上面】的一圈（中间是透的），不是埋在纸底下一坨实体。
-           埋在底下的话：没选规格的纸铺满整屏，机身全被挤到屏幕外，等于白画
-           （实测截图 r26，只有左边一丝）。画成圈以后纸多大都看得见。
-           两种纸共用这一套，不摆两套。 */
-        return (
-          <svg
-            data-rig-tv
-            viewBox={`0 0 ${W2} ${H2}`}
-            style={{
-              position: "absolute", left: "50%", top: "50%",
-              width: W2, height: H2,
-              marginLeft: -W2 / 2, marginTop: -(壳H / 2 + 上),
-              transform: mainPaperTransform,
-              /* ★ 缩放/旋转要绕着【纸心】转，不是绕着机身中心 ——
-                 机身下面厚，中心比纸心低，绕机身中心转纸会往下滑。 */
-              transformOrigin: `${壳W / 2 + 侧}px ${壳H / 2 + 上}px`,
-              pointerEvents: "none", zIndex: 6,
-            }}
-          >
-            <defs>
-              <linearGradient id="rigTvBody" x1="0" y1="0" x2="0.85" y2="1">
-                <stop offset="0%" stopColor="#5c5349" />
-                <stop offset="55%" stopColor="#35302a" />
-                <stop offset="100%" stopColor="#26221f" />
-              </linearGradient>
-              <radialGradient id="rigTvKnob" cx="0.35" cy="0.3" r="0.75">
-                <stop offset="0%" stopColor="#e6bc78" />
-                <stop offset="72%" stopColor="#a4703a" />
-              </radialGradient>
-            </defs>
-            {/* 机身＝外圆角矩形挖掉内圆角矩形（evenodd），剩下的正好是一圈边框 */}
-            <path
-              fillRule="evenodd"
-              fill="url(#rigTvBody)"
-              d={圆角矩形(0, 0, W2, H2, 26) + " " + 圆角矩形(侧, 上, 壳W, 壳H, 14)}
-            />
-            {/* 屏幕那圈凹槽：贴着纸边一道黑，纸就是屏幕 */}
-            <rect x={侧 - 5} y={上 - 5} width={壳W + 10} height={壳H + 10} rx={16}
-              fill="none" stroke="#14110f" strokeWidth={10} />
-            {/* 旋钮（手稿上画在右下角） */}
-            <circle cx={W2 - 侧 - 9} cy={上 + 壳H + 下 / 2} r={9} fill="url(#rigTvKnob)" />
-            {/* 指示灯（左下角，绿的） */}
-            <circle cx={侧 + 5} cy={上 + 壳H + 下 / 2} r={4} fill="#6fbf73" />
-          </svg>
-        );
-      })()}
 
       {paper.w > 0 && paper.h > 0 ? (
         <div
@@ -6308,7 +5886,6 @@ function handleSheetAction(kind: string) {
             transform: mainPaperTransform,
             transformOrigin: "center center",
             background: toRgba(paperColor, paperAlpha),
-            filter: rigMode && rigMono ? "grayscale(1)" : undefined,
             boxShadow: mainPaperSelected
               ? `0 0 0 3px ${SELECT_BLUE}, 0 4px 24px rgba(0,0,0,.1)`
               : "0 4px 24px rgba(0,0,0,.1)",
@@ -6318,7 +5895,6 @@ function handleSheetAction(kind: string) {
           }}
         >
           {paperInner}
-          {纸面呈现层}
         </div>
       ) : (
         <div
@@ -6338,7 +5914,6 @@ function handleSheetAction(kind: string) {
           }}
         >
           {paperInner}
-          {纸面呈现层}
         </div>
       )}
 
@@ -6385,7 +5960,7 @@ function handleSheetAction(kind: string) {
                   position: "absolute",
                   left: cx - 10, top: cy - 10, width: 20, height: 20,
                   borderRadius: 4,
-                  background: "#5f554d",
+                  background: "#4C4842",
                   border: "2px solid #fff",
                   pointerEvents: "none",
                   zIndex: 151,
@@ -6417,23 +5992,23 @@ function handleSheetAction(kind: string) {
               border: "1px solid rgba(74,70,63,.08)",
               maxWidth: 220,
             }}>
-            <div style={{ flex: "none", padding: "4px 8px", fontSize: 10, color: "#8a8178", alignSelf: "center", whiteSpace: "nowrap" }}>
+            <div style={{ flex: "none", padding: "4px 8px", fontSize: 10, color: "#8B857C", alignSelf: "center", whiteSpace: "nowrap" }}>
               {boxPopup.count} 个
             </div>
             <button type="button" onClick={() => { handleSheetAction("box-compose"); setBoxPopup(null); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "#3a352e", color: "#fff", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "#1E1C19", color: "#fff", fontSize: 12, cursor: "pointer" }}>
               组合
             </button>
             <button type="button" onClick={() => { handleSheetAction("box-chain-story"); setBoxPopup(null); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(122,90,52,.12)", color: "#7a5a34", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(122,90,52,.12)", color: "#4C4842", fontSize: 12, cursor: "pointer" }}>
               接着
             </button>
             <button type="button" onClick={() => { handleSheetAction("box-copy"); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(74,70,63,.06)", color: "#57524c", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(74,70,63,.06)", color: "#4C4842", fontSize: 12, cursor: "pointer" }}>
               复制
             </button>
             <button type="button" onClick={() => { handleSheetAction("box-delete"); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(192,57,43,.1)", color: "#c0392b", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(192,57,43,.1)", color: "#B4544A", fontSize: 12, cursor: "pointer" }}>
               删除
             </button>
           </div>
@@ -6536,18 +6111,18 @@ function handleSheetAction(kind: string) {
                 {connsOfElement.length > 0 && (
                   <>
                     <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                    <div style={{ padding: "2px 10px 4px", fontSize: 10.5, color: "#a49a8f" }}>
+                    <div style={{ padding: "2px 10px 4px", fontSize: 10.5, color: "#B7B1A8" }}>
                       它身上的连接（{connsOfElement.length} 条）
                     </div>
                     {connsOfElement.map((c) => (
                       <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "1px 6px 1px 10px" }}>
-                        <span style={{ flex: 1, fontSize: 11.5, color: "#57524c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{ flex: 1, fontSize: 11.5, color: "#4C4842", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {c.label}
                         </span>
                         <button
                           type="button"
                           onClick={() => { setCtxMenu(null); onDeleteInteraction?.(c.id); }}
-                          style={{ flex: "none", border: 0, borderRadius: 7, padding: "3px 9px", background: "rgba(192,57,43,.1)", color: "#c0392b", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                          style={{ flex: "none", border: 0, borderRadius: 7, padding: "3px 9px", background: "rgba(192,57,43,.1)", color: "#B4544A", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
                         >删</button>
                       </div>
                     ))}
@@ -6583,7 +6158,7 @@ function handleSheetAction(kind: string) {
           overflowX: "auto", overflowY: "hidden",
           boxSizing: "border-box",
           zIndex: 200,
-          color: "#3a352e",
+          color: "#1E1C19",
           touchAction: "auto",
           userSelect: "text", WebkitUserSelect: "text",
         }}
@@ -6637,7 +6212,7 @@ function handleSheetAction(kind: string) {
               onPointerMove={onTraceHandleMove}
               onPointerUp={onTraceHandleUp}
               onPointerCancel={onTraceHandleUp}
-              style={{ cursor: "grab", fontSize: 14, lineHeight: 1, padding: "4px 6px", color: "#57524c", touchAction: "none" }}
+              style={{ cursor: "grab", fontSize: 14, lineHeight: 1, padding: "4px 6px", color: "#4C4842", touchAction: "none" }}
               title="拖动"
             >✥</div>
             <input
@@ -6650,7 +6225,7 @@ function handleSheetAction(kind: string) {
             <button
               type="button"
               onClick={() => setTraceImg(null)}
-              style={{ border: 0, background: "transparent", fontSize: 15, lineHeight: 1, color: "#8a8178", cursor: "pointer", padding: "2px 4px" }}
+              style={{ border: 0, background: "transparent", fontSize: 15, lineHeight: 1, color: "#8B857C", cursor: "pointer", padding: "2px 4px" }}
               title="关闭"
             >×</button>
           </div>
@@ -6667,7 +6242,7 @@ function CtxItem({ label, onClick, danger }: { label: string; onClick: () => voi
       style={{
         display: "block", width: "100%", height: 34, padding: "0 12px",
         border: 0, borderRadius: 8, background: "transparent",
-        color: danger ? "#c0392b" : "#3a352e", fontSize: 13, cursor: "pointer",
+        color: danger ? "#B4544A" : "#1E1C19", fontSize: 13, cursor: "pointer",
         textAlign: "left", fontFamily: "inherit",
       }}>{label}</button>
   );
@@ -6719,20 +6294,4 @@ function TextElement({
       {t.text}
     </div>
   );
-}
-/** 骨钉放大镜的画布：把页面位图的一小块放大填满整个镜片。
-    纯 drawImage，不重拍位图、不复制 DOM。 */
-function RigLens({ src, lx, ly, size, span }: { src: HTMLCanvasElement; lx: number; ly: number; size: number; span: number }) {
-  const ref = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    const c = ref.current;
-    const g = c?.getContext("2d");
-    if (!c || !g) return;
-    g.clearRect(0, 0, size, size);
-    g.imageSmoothingEnabled = false;   /* 放大时看清笔画的边 */
-    try {
-      g.drawImage(src, lx - span / 2, ly - span / 2, span, span, 0, 0, size, size);
-    } catch { /* 位图还没准备好，这一帧先不画 */ }
-  });
-  return <canvas ref={ref} width={size} height={size} style={{ display: "block" }} />;
 }
