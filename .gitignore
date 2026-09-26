@@ -47,3 +47,12 @@ scripts/patch-*.mjs
 *.bak-*
 *.orig
 _y1.txt
+
+# AI workbench files (local only, do not commit)
+_*.md
+
+# leftover spec docs from other AI tool (not project code)
+.codeartsdoer/
+
+# Claude Code 本地设置（含密钥，绝不入库）
+.claude/settings.local.json

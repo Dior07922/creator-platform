@@ -1,0 +1,73 @@
+[
+  {
+    "id": "w-seed-1",
+    "authorId": "u-demo-1",
+    "authorName": "山里的猫",
+    "authorAvatar": "🐱",
+    "title": "晨雾里的旧渡口",
+    "image": "https://fastly.picsum.photos/seed/ranjing1/600/420?grayscale",
+    "copyRule": "所有人可临摹",
+    "likes": 24,
+    "followers": 41,
+    "discussing": 4,
+    "homeworkCount": 2,
+    "homeworkList": [
+      {
+        "id": "hw-1",
+        "userName": "小满",
+        "userAvatar": "🦊",
+        "content": "第一次按您的线条练",
+        "image": "https://fastly.picsum.photos/seed/hw1/160/120",
+        "authorReply": "水纹可以再松一点，整体很稳！"
+      },
+      {
+        "id": "hw-2",
+        "userName": "南屿",
+        "userAvatar": "🐼",
+        "content": "交作业啦",
+        "image": "https://fastly.picsum.photos/seed/hw2/160/120",
+        "authorReply": ""
+      }
+    ],
+    "createdAt": 1789688001953
+  },
+  {
+    "id": "w-seed-2",
+    "authorId": "u-demo-2",
+    "authorName": "阿枝手作",
+    "authorAvatar": "🌿",
+    "title": "一盏晚灯",
+    "image": "https://fastly.picsum.photos/seed/ranjing2/600/800",
+    "copyRule": "仅粉丝可临摹",
+    "likes": 58,
+    "followers": 120,
+    "discussing": 6,
+    "homeworkCount": 1,
+    "homeworkList": [
+      {
+        "id": "hw-3",
+        "userName": "栗子",
+        "userAvatar": "🐻",
+        "content": "灯光晕染学您的",
+        "image": "https://fastly.picsum.photos/seed/hw3/160/120",
+        "authorReply": ""
+      }
+    ],
+    "createdAt": 1789774401954
+  },
+  {
+    "id": "w-seed-3",
+    "authorId": "u-demo-3",
+    "authorName": "北纬",
+    "authorAvatar": "🎐",
+    "title": "山外还有山（长卷）",
+    "image": "https://fastly.picsum.photos/seed/ranjing3/600/400",
+    "copyRule": "仅付费可临摹",
+    "likes": 204,
+    "followers": 388,
+    "discussing": 12,
+    "homeworkCount": 5,
+    "homeworkList": [],
+    "createdAt": 1789860801954
+  }
+]
