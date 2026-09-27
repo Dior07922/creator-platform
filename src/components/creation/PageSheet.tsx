@@ -459,6 +459,26 @@ export default function PageSheet({
                 })}
               </div>
 
+              {/* ── 想象连接 ─────────────────────────────────────
+                  它不是「连接模式」（连接模式靠点击动作在两页之间长线），
+                  而是一整页独立的漫游：沿路径穿梭、作品悬在空间里。
+                  页就在产品自己的部署里（public/roam/），不是门外另一个站。 */}
+              <SectionLabel>想象连接</SectionLabel>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/roam/index.html"; }}
+                style={{
+                  textAlign: "left", padding: "10px 12px", borderRadius: 10, width: "100%",
+                  border: "1px solid rgba(74,70,63,.10)", background: "#FAF9F6",
+                  cursor: "pointer", fontFamily: "inherit",
+                }}
+              >
+                <div style={{ fontSize: 13, color: "#1E1C19" }}>进入想象连接</div>
+                <div style={{ fontSize: 10, color: "#B7B1A8", marginTop: 2 }}>
+                  沿路径穿梭，作品悬在空间里 · 5 条路径
+                </div>
+              </button>
+
               {/* ①② 的动作引导：每一步只说"现在做什么"，不摆按键 */}
               {(connectMode === "phone" || connectMode === "site") && (
                 <>
