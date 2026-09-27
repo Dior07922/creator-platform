@@ -81,6 +81,7 @@
   <button class="pathBtn" data-path="2">路径 3</button>
   <button class="pathBtn" data-path="3">路径 4</button>
   <button class="pathBtn" data-path="4">路径 5</button>
+  <button id="btnEdit">✎ 编辑路径</button>
   <div class="sep"></div>
   <button id="btnExit">退出</button>
 </div>
@@ -298,6 +299,8 @@
     // ⑤ 波浪：上下起伏
     { name: '路径 5 · 波浪', pts: [V(-28.6, 0.0, 0.0), V(-19.0, 11.0, 1.2), V(-9.6, -9.6, -1.2), V(0, 5.5, 1.2), V(9.6, -9.6, -1.2), V(19.0, 11.0, 1.2), V(28.6, -2.8, 0.0)] },
   ];
+  // 第 6 条 = 用户自己画的（编辑路径时实时更新这条）
+  PATHS.push({ name: '自定义路径', pts: [] });
 
   // ============================================================
   //  场景
@@ -597,6 +600,130 @@ document.getElementById('btnExit').onclick = () => {
   if (history.length > 1 && document.referrer) history.back();
   else location.href = 'https://helloranjing.com';
 };
+
+  // ===================== 编辑路径：用户点哪就连哪 =====================
+  const CUSTOM_IDX = PATHS.length - 1;
+  let editing = false;
+  let pathLine = null;
+  const handles = [];
+  const _plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  const _ray = new THREE.Raycaster();
+  const _ndc = new THREE.Vector2();
+  let dragIdx = -1;
+  const btnEdit = document.getElementById('btnEdit');
+
+  function tip(msg) {
+    let el = document.getElementById('editTip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'editTip';
+      el.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 74px);transform:translateX(-50%);z-index:20;' +
+        'background:rgba(30,28,25,.92);color:#fff;font:600 12px/1.5 system-ui;padding:9px 16px;border-radius:999px;' +
+        'letter-spacing:.04em;pointer-events:none;transition:opacity .4s;max-width:calc(100vw - 32px);text-align:center';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg; el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.style.opacity = '0'; }, 4600);
+  }
+
+  function screenToWorld(clientX, clientY) {
+    const r = renderer.domElement.getBoundingClientRect();
+    _ndc.x = ((clientX - r.left) / r.width) * 2 - 1;
+    _ndc.y = -((clientY - r.top) / r.height) * 2 + 1;
+    _ray.setFromCamera(_ndc, camera);
+    const hit = new THREE.Vector3();
+    return _ray.ray.intersectPlane(_plane, hit) ? hit : null;
+  }
+
+  function editVisuals() {
+    const pts = PATHS[CUSTOM_IDX].pts;
+    if (!pathLine) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * 400), 3));
+      pathLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xc9a87c, transparent: true, opacity: .95 }));
+      pathLine.frustumCulled = false; scene.add(pathLine);
+    }
+    pathLine.visible = editing;
+    if (editing && pts.length >= 2) {
+      const c = new THREE.CatmullRomCurve3(pts.map(function (p) { return p.clone(); }), pts.length >= 4, 'catmullrom', 0.5);
+      const N = 300, pos = pathLine.geometry.attributes.position;
+      for (let i = 0; i < N; i++) { const p = c.getPoint(i / (N - 1)); pos.setXYZ(i, p.x, p.y, p.z + 0.06); }
+      pos.needsUpdate = true; pathLine.geometry.setDrawRange(0, N);
+    } else { pathLine.geometry.setDrawRange(0, 0); }
+
+    while (handles.length < pts.length) {
+      const m = new THREE.Mesh(new THREE.CircleGeometry(0.62, 20),
+        new THREE.MeshBasicMaterial({ color: 0xb4544a, transparent: true, opacity: .95, depthTest: false }));
+      m.renderOrder = 999; scene.add(m); handles.push(m);
+    }
+    handles.forEach(function (m, i) { const p = pts[i]; m.visible = editing && !!p; if (p) m.position.set(p.x, p.y, p.z + 0.3); });
+  }
+
+  function applyCustom() {
+    const pts = PATHS[CUSTOM_IDX].pts;
+    if (pts.length < 3) { editVisuals(); return; }
+    const keep = progress;
+    pathIndex = CUSTOM_IDX;
+    curve = new THREE.CatmullRomCurve3(pts.map(function (p) { return p.clone(); }), pts.length >= 4, 'catmullrom', 0.5);
+    buildCards(CUSTOM_IDX);
+    progress = keep;
+    document.querySelectorAll('.pathBtn').forEach(function (b) { b.classList.remove('on'); });
+    editVisuals();
+  }
+
+  function enterEdit() {
+    editing = true;
+    auto = false;
+    if (!PATHS[CUSTOM_IDX].pts.length) {
+      for (let i = 0; i < 6; i++) PATHS[CUSTOM_IDX].pts.push(curve.getPoint(i / 6));
+    }
+    applyCustom();
+    btnEdit.classList.add('on'); btnEdit.textContent = '✓ 完成编辑';
+    tip('编辑中：点空白加路径点 · 拖红点挪位置 · 4 个点以上自动成环 · Esc 退出');
+  }
+  function exitEdit() {
+    editing = false; editVisuals();
+    btnEdit.classList.remove('on'); btnEdit.textContent = '✎ 编辑路径';
+    tip('已完成 —— 你画的这条路径就是「自定义路径」');
+  }
+  btnEdit.onclick = function () { editing ? exitEdit() : enterEdit(); };
+
+  /* 编辑模式在捕获阶段接管指针，抢在原有的拖动/滚轮逻辑之前 */
+  canvas.addEventListener('pointerdown', function (e) {
+    if (!editing) return;
+    const w = screenToWorld(e.clientX, e.clientY); if (!w) return;
+    const pts = PATHS[CUSTOM_IDX].pts;
+    let hit = -1, best = 1.6;
+    pts.forEach(function (p, i) { const d = Math.hypot(p.x - w.x, p.y - w.y); if (d < best) { best = d; hit = i; } });
+    if (hit >= 0) dragIdx = hit;
+    else { pts.push(new THREE.Vector3(w.x, w.y, rand(-1.2, 1.2))); dragIdx = pts.length - 1; applyCustom(); }
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    e.stopImmediatePropagation(); e.preventDefault();
+  }, true);
+
+  canvas.addEventListener('pointermove', function (e) {
+    if (!editing || dragIdx < 0) return;
+    const w = screenToWorld(e.clientX, e.clientY); if (!w) return;
+    PATHS[CUSTOM_IDX].pts[dragIdx].x = w.x;
+    PATHS[CUSTOM_IDX].pts[dragIdx].y = w.y;
+    applyCustom();
+    e.stopImmediatePropagation(); e.preventDefault();
+  }, true);
+
+  const _endEdit = function () { if (editing) dragIdx = -1; };
+  canvas.addEventListener('pointerup', _endEdit, true);
+  canvas.addEventListener('pointercancel', _endEdit, true);
+  window.addEventListener('keydown', function (e) { if (e.code === 'Escape' && editing) exitEdit(); });
+
+  /* 暴露给自动化测试 */
+  window.__roamEdit = {
+    get on() { return editing; },
+    get points() { return PATHS[CUSTOM_IDX].pts.length; },
+    get customIndex() { return CUSTOM_IDX; },
+    get pathIndex() { return pathIndex; },
+    enter: enterEdit, exit: exitEdit,
+  };
 })();
 </script>
 </body>
