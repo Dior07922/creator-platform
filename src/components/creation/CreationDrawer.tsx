@@ -890,7 +890,7 @@ export function FontDrawer({
               style={{
                 width: "100%", padding: "16px 12px", marginBottom: 6,
                 border: active ? "1.5px solid #8B857C" : "1px solid rgba(74,70,63,.12)",
-                borderRadius: 10, background: active ? "#f3eee8" : "#FAF9F6",
+                borderRadius: 10, background: active ? "#EFEDE8" : "#FAF9F6",
                 textAlign: "left", cursor: "pointer",
                 fontFamily: f.family, fontSize: 17, color: "#1E1C19",
               }}>{f.name}</button>

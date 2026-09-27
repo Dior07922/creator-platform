@@ -575,36 +575,6 @@ button { -webkit-tap-highlight-color: transparent; }
   color: #4C4842;
   letter-spacing: .04em;
 }
-/* ===== 左侧收起入口（页 / 色） ===== */
-.cd-side-entries {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.cd-side-entry {
-  width: 28px;
-  height: 56px;
-  border: 0;
-  border-radius: 0 12px 12px 0;
-  background: #FAF9F6;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, .1);
-  color: #8B857C;
-  font-size: 14px;
-  font-family: inherit;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  writing-mode: vertical-lr;
-  letter-spacing: 4px;
-  padding: 0;
-}
-
 /* ===== 取色器 ===== */
 .cp-root { display: flex; flex-direction: column; gap: 14px; padding: 6px 2px; }
 
@@ -1157,3 +1127,100 @@ button { -webkit-tap-highlight-color: transparent; }
   font-style: normal;
   font-display: swap;
 }
+/* ══════════════════════════════════════════════════════════════
+   分支菜单（侧边栏收成一个「点」，点开长出枝条，选完自动收回）
+   参考 reactbits.dev/micro/branched-menu
+   参数：trunk 14 / indent 40 / radius 10 / lineWidth 1.5 / width 240 / rowHeight 36
+   配色：走高级白体系（主干枝条 = 暖墨淡线，卡片 = 纯白）
+   ══════════════════════════════════════════════════════════════ */
+.cd-branch {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  z-index: 100; display: flex; align-items: center;
+  pointer-events: none;               /* 收起时整块不吃点击，别拦画布 */
+}
+.cd-branch[data-open="1"] { pointer-events: auto; }
+
+/* ── 收起态：那一个「点」—— 中文字「点」 ── */
+.cd-branch-dot {
+  pointer-events: auto;               /* 点始终可点 */
+  position: relative; flex: none;
+  width: 30px; height: 64px; border: 0; padding: 0;
+  background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  color: #C9C4BC;
+  transition: color .18s ease, transform .18s ease;
+}
+.cd-branch-dot-char {
+  writing-mode: horizontal-tb;        /* 父层若有竖排，钉死成横排 */
+  font-size: 17px; line-height: 1;
+  font-family: inherit;
+  transition: color .18s ease;
+}
+.cd-branch-dot:hover { color: #1E1C19; }
+.cd-branch[data-open="1"] .cd-branch-dot { color: #1E1C19; transform: scale(1.16); }
+
+/* ── 展开态：纯白卡片，从点后面滑出来 ── */
+.cd-branch-panel {
+  position: relative; margin-left: 2px;
+  width: 0; overflow: hidden; opacity: 0;
+  transition: width .28s cubic-bezier(.22, .61, .36, 1), opacity .16s ease;
+}
+.cd-branch[data-open="1"] .cd-branch-panel { width: 256px; opacity: 1; }
+
+.cd-branch-card {
+  position: relative; width: 256px;
+  padding: 0;
+  background: #FFFFFF;
+  border-radius: 0 16px 16px 0;
+  box-shadow: 0 2px 6px rgba(60, 52, 42, .06), 0 12px 32px rgba(60, 52, 42, .10);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto; overflow-x: hidden;
+}
+.cd-branch-svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+
+/* 每一条枝条：竖着下来 → 圆角转弯 → 横向接出 */
+.cd-branch-path {
+  stroke: rgba(30, 28, 25, .16);
+  stroke-width: 1.5; fill: none;
+  stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: var(--len, 60);
+  stroke-dashoffset: var(--len, 60);
+  transition: stroke-dashoffset .34s cubic-bezier(.22, .61, .36, 1);
+}
+.cd-branch[data-open="1"] .cd-branch-path { stroke-dashoffset: 0; }
+.cd-branch-trunk {
+  stroke: rgba(30, 28, 25, .16);
+  stroke-width: 1.5; stroke-linecap: round;
+}
+
+/* 子项文字：从 indent 40 起 */
+/* 分组标题：压在主干上（参考里「入门 / 组成部分」那个位置） */
+.cd-branch-head {
+  position: absolute; left: 0; right: 0;
+  display: flex; align-items: center;
+  padding-left: 22px;
+  font-size: 14px; font-weight: 600; letter-spacing: .08em;
+  color: #1E1C19; pointer-events: none;
+}
+
+/* 子项文字：从 indent 52 起。绝对定位 —— 位置由 JS 按主干几何算好钉死，
+   这样标题插进来也不会把枝条和文字对歪 */
+.cd-branch-item {
+  position: absolute; left: 0; right: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px 0 52px;
+  border: 0; background: transparent; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 15px; color: #4C4842;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0; transform: translateX(-4px);
+  transition: color .15s ease, opacity .22s ease, transform .22s ease;
+}
+.cd-branch[data-open="1"] .cd-branch-item { opacity: 1; transform: translateX(0); }
+.cd-branch-item:hover { color: #1E1C19; }
+.cd-branch-item:active { color: #1E1C19; }
+.cd-branch-item-glyph {
+  flex: none; width: 18px; text-align: center;
+  font-size: 12px; color: #B7B1A8;
+}
+.cd-branch-item:hover .cd-branch-item-glyph { color: #1E1C19; }

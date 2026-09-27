@@ -162,7 +162,7 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "18px 16px", borderRadius: 14, textAlign: "left", cursor: "pointer",
                   border: active ? "1.5px solid #8B857C" : "1px solid rgba(128,107,92,.15)",
-                  background: active ? "#f3eee8" : "#FAF9F6",
+                  background: active ? "#EFEDE8" : "#FAF9F6",
                   fontFamily: "inherit",
                 }}
               >
@@ -192,7 +192,7 @@ export default function SpaceScreen({ onBack, onNeedLogin }: { onBack: () => voi
         {message && (
           <div style={{
             marginTop: 12, padding: "10px 13px", borderRadius: 8,
-            background: "#f1ece5", color: "#716a63", fontSize: 11, lineHeight: 1.7,
+            background: "#EFEDE8", color: "#8B857C", fontSize: 11, lineHeight: 1.7,
           }}>{message}</div>
         )}
       </main>

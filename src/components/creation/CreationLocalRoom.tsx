@@ -30,7 +30,7 @@ const SIDE_ITEMS: { id: string; def: string; kind: SideKind }[] = [
   { id: "color",  def: "色",   kind: "color" },
   { id: "font",   def: "字",   kind: "font" },
   { id: "page",   def: "页",   kind: "page" },
-  { id: "lock",   def: "🔒",   kind: "lock" },
+  { id: "lock",   def: "锁",   kind: "lock" },
   { id: "save",   def: "存",   kind: "save" },
 ];
 
@@ -84,8 +84,8 @@ function RenameDialog({ initial, onConfirm, onCancel }: { initial: string; onCon
 }
 
 function SideEntryButton({
-  label, onClick, onRename,
-}: { label: string; onClick: () => void; onRename: () => void }) {
+  label, onClick, onRename, cls, glyph, style,
+}: { label: string; onClick: () => void; onRename: () => void; cls: string; glyph?: React.ReactNode; style?: React.CSSProperties }) {
   const timerRef = useRef<number | null>(null);
   const firedRef = useRef(false);
   const movedRef = useRef(false);
@@ -120,8 +120,9 @@ function SideEntryButton({
   }
 
   return (
-    <button type="button" className="cd-side-entry" onPointerDown={down} onClick={click}>
-      {label}
+    <button type="button" className={cls} style={style} onPointerDown={down} onClick={click}>
+      {glyph ? <span className="cd-branch-item-glyph">{glyph}</span> : null}
+      <span>{label}</span>
     </button>
   );
 }
@@ -490,6 +491,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     });
   }
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
+  /* ★ 分支菜单：收起时侧边栏只有一个「点」，点开长出枝条。
+     选中任意一项、或抽屉一打开，就自动收回。 */
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => { if (openDrawer !== null) setRailOpen(false); }, [openDrawer]);
 
   function onSideAction(kind: SideKind) {
     switch (kind) {
@@ -915,74 +920,114 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         )}
       </main>
 
-      {openDrawer === null && (
-        <div
-          className="cd-side-entries"
-          /* ★ 演示态：没收着就滑出屏幕左边外面（纸零遮挡）。CSS 里已经有
-             translateY(-50%)，这里不能覆盖掉，只能往后接一个 translateX。 */
-          style={demoOn ? {
-            transform: demoRailOut
-              ? "translateY(-50%) translateX(0)"
-              : "translateY(-50%) translateX(-110%)",
-            transition: "transform .22s ease-out",
-            pointerEvents: demoRailOut ? undefined : "none",
-          } : undefined}
-        >
-          {SIDE_ITEMS.map((it) => {
-            if (it.id === "door") {
-              return (
-                <button
-                  key={it.id}
-                  type="button"
-                  className="cd-side-entry" onClick={() => onSideAction(it.kind)} aria-label="门"
-                >
-                  {/* 替换掉原来那两个 span 拼接的简陋方块，换成这个 SVG */}
-                  <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ writingMode: "horizontal-tb" }}>
-                {/* 胖拱门主体 */}
-                <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#B08A4F" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                {/* 门缝（比中线略偏，显得门更厚） */}
-                <line x1="10" y1="0" x2="10" y2="20" stroke="#B08A4F" strokeWidth="0.8"/>
-                {/* 门环 */}
-                <circle cx="7" cy="11" r="1" fill="#B08A4F"/>
-                <circle cx="13" cy="11" r="1" fill="#B08A4F"/>
-              </svg>
-                </button>
-              );
-            }
-            return (
-              <SideEntryButton
-                key={it.id}
-                label={labelOf(it.id, it.def)}
-                onClick={() => onSideAction(it.kind)}
-                onRename={() => setRenaming({ id: it.id, label: labelOf(it.id, it.def) })}
-              />
-            );
-          })}
-              {/* 裸门：无卡片、无边框、透明，只保留金色拱门 */}
-      <button
-        type="button"
-        onClick={() => onSideAction("door")}
-        aria-label="门"
-        style={{
-          width: 44, height: 56,
-          marginLeft: 0,
-          marginTop: 20,
-          background: "transparent",
-          border: 0, outline: 0,
-          boxShadow: "none",
-          padding: 0, margin: 0,
-          display: "flex", alignItems: "center", justifyContent: "flex-start", paddingLeft: 6, cursor: "pointer", flex: "none",
-          WebkitTapHighlightColor: "transparent",
-        }}
-      >
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="#B08A4F" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-          <line x1="10" y1="0" x2="10" y2="20" stroke="#B08A4F" strokeWidth="0.8"/>
-          <circle cx="7" cy="11" r="1" fill="#B08A4F"/>
-          <circle cx="13" cy="11" r="1" fill="#B08A4F"/>
-        </svg>
-      </button></div>
-      )}
+      {openDrawer === null && (() => {
+        /* ★ 分支菜单（用户 2026-09-27）：侧边栏只留一个「点」，
+           点开长出枝条，选完自动收回。参考 reactbits.dev/micro/branched-menu。
+           参数：trunk 14 / indent 40 / radius 10 / lineWidth 1.5 / width 240 / rowHeight 36 */
+        const ROW = 44, HEAD = 36, GAP = 14, PAD = 18, TRUNK = 14, INDENT = 52, RADIUS = 12, RAIL_W = 256;
+        /* 每项一个线性小图标（跟文字同色，1.3 号线）—— 参考里每行都有图标撑节奏 */
+        const 图标: Record<string, React.ReactNode> = {
+          // 规格：一个带分隔的框，像画布规格
+          spec: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><rect x="2.2" y="3" width="11.6" height="10" rx="1.6" /><path d="M2.2 6.4h11.6M6.2 6.4V13" /></svg>),
+          // 笔：一支斜着的笔
+          shape: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M11.4 2.6l2 2L6 12l-3.2 1.2L4 10z" /><path d="M10.2 3.8l2 2" /></svg>),
+          // 色：一滴色
+          color: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.4c2.4 2.8 3.8 4.7 3.8 6.4a3.8 3.8 0 0 1-7.6 0C4.2 7.1 5.6 5.2 8 2.4z" /></svg>),
+          // 字：一个 Aa 的字形骨架
+          font: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M2 13l3.6-9 3.6 9" /><path d="M3.2 10h4.8" /><path d="M10.4 13V7.6h2.1a2.2 2.2 0 0 1 0 4.4h-2.1" /></svg>),
+          // 页：一张带折角的纸
+          page: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.2 2.2H4.4A1.2 1.2 0 0 0 3.2 3.4v9.2a1.2 1.2 0 0 0 1.2 1.2h7.2a1.2 1.2 0 0 0 1.2-1.2V5.8z" /><path d="M9.2 2.2v3.6h3.6" /></svg>),
+          // 锁：一把闭着的锁（替掉那个彩色 emoji）
+          lock: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4" /><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7" /></svg>),
+          // 存：一个归档盒，往下的箭头
+          save: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.6v7.2" /><path d="M5.2 7.2L8 10l2.8-2.8" /><path d="M2.8 11.4v1.2a1.2 1.2 0 0 0 1.2 1.2h8a1.2 1.2 0 0 0 1.2-1.2v-1.2" /></svg>),
+          // 门：原来那个拱门（已换成跟着文字走的墨色）
+          door: (<svg width="15" height="15" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" /><line x1="10" y1="0" x2="10" y2="20" stroke="currentColor" strokeWidth="1" /></svg>),
+        };
+        /* 分组：标题压在主干上，子项从主干弯出去 */
+        const GROUPS: { 组名: string; 项: string[] }[] = [
+          { 组名: "画面", 项: ["spec", "shape", "color", "font"] },
+          { 组名: "页面", 项: ["page", "lock"] },
+          { 组名: "存档", 项: ["save"] },
+        ];
+        const defOf = (id: string) => SIDE_ITEMS.find((x) => x.id === id);
+        type 行 = { type: "head" | "item"; id: string; label: string; kind?: SideKind; glyph?: React.ReactNode; cy: number };
+        const rows: 行[] = [];
+        let y = PAD;
+        for (const g of GROUPS) {
+          rows.push({ type: "head", id: "head-" + g.组名, label: g.组名, cy: y + HEAD / 2 });
+          y += HEAD;
+          for (const id of g.项) {
+            const it = defOf(id); if (!it) continue;
+            rows.push({ type: "item", id, label: labelOf(it.id, it.def), kind: it.kind, glyph: 图标[id], cy: y + ROW / 2 });
+            y += ROW;
+          }
+          y += GAP;
+        }
+        y -= GAP;
+        rows.push({ type: "item", id: "door", label: "", kind: "door", glyph: 图标.door, cy: y + GAP + ROW / 2 });
+        y += GAP + ROW;
+        const H = y + PAD;
+        const items = rows.filter((r) => r.type === "item");
+        const lastCy = items[items.length - 1].cy;
+        return (
+          <div
+            className="cd-branch"
+            data-open={railOpen ? "1" : "0"}
+            /* ★ 演示态：没收着就滑出屏幕左边外面（纸零遮挡）。CSS 里已经有
+               translateY(-50%)，这里不能覆盖掉，只能往后接一个 translateX。 */
+            style={demoOn ? {
+              transform: demoRailOut
+                ? "translateY(-50%) translateX(0)"
+                : "translateY(-50%) translateX(-110%)",
+              transition: "transform .22s ease-out",
+              pointerEvents: demoRailOut ? undefined : "none",
+            } : undefined}
+          >
+            {/* ── 收起态：那一个「点」—— 就是中文字「点」 ── */}
+            <button
+              type="button"
+              className="cd-branch-dot"
+              onClick={() => setRailOpen((v) => !v)}
+              aria-label={railOpen ? "收起菜单" : "展开菜单"}
+            >
+              <span className="cd-branch-dot-char">点</span>
+            </button>
+
+            {/* ── 展开态：纯白卡片 + 一根主干 + 每个子项一条圆角弯枝 ── */}
+            <div className="cd-branch-panel">
+              <div className="cd-branch-card" style={{ height: H }}>
+                <svg className="cd-branch-svg" width={RAIL_W} height={H} viewBox={`0 0 ${RAIL_W} ${H}`} aria-hidden>
+                  <line className="cd-branch-trunk" x1={TRUNK} y1={PAD} x2={TRUNK} y2={lastCy} />
+                  {items.map((r, i) => (
+                    <path
+                      key={r.id}
+                      className="cd-branch-path"
+                      style={{ "--len": 70, transitionDelay: `${i * 26}ms` } as React.CSSProperties}
+                      d={`M${TRUNK} ${r.cy - RADIUS} Q ${TRUNK} ${r.cy} ${TRUNK + RADIUS} ${r.cy} L ${INDENT} ${r.cy}`}
+                    />
+                  ))}
+                </svg>
+                {rows.map((r) => r.type === "head" ? (
+                  <div key={r.id} className="cd-branch-head" style={{ top: r.cy - HEAD / 2, height: HEAD }}>
+                    {r.label}
+                  </div>
+                ) : (
+                  <SideEntryButton
+                    key={r.id}
+                    cls="cd-branch-item"
+                    glyph={r.glyph}
+                    label={r.label}
+                    style={{ top: r.cy - ROW / 2, height: ROW }}
+                    onClick={() => { onSideAction(r.kind as SideKind); setRailOpen(false); }}
+                    onRename={() => setRenaming({ id: r.id, label: r.label })}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ══ ★ 演示态：左边缘的「隐形工具栏」提示 ══════════════════════════
          用户 2026-09-26 要的「可发现性」：工具栏收起来之后，屏上得看得出这儿藏着东西。
