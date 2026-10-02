@@ -191,7 +191,7 @@ export default function AssetBrowser({
                   flex: "none",
                   height: 30, padding: "0 12px",
                   borderRadius: 15, border: 0, cursor: "pointer",
-                  background: active ? "#1E1C19" : "#1e1e21",
+                  background: active ? "#24333c" : "#1e1e21",
                   color: active ? "#fff" : "#9a9aa0",
                   fontSize: 12, letterSpacing: ".04em",
                   transition: "background .18s, color .18s",
@@ -231,10 +231,10 @@ export default function AssetBrowser({
       {/* 内容区：浅米色画布 */}
       <div style={{
         flex: 1, overflowY: "auto",
-        background: "#f2ede5",
+        background: "#eef1f3",
         borderRadius: "22px 22px 0 0",
         padding: "18px 14px calc(env(safe-area-inset-bottom) + 24px)",
-        color: "#1E1C19",
+        color: "#24333c",
       }}>
         {/* 分类顶部操作卡 */}
         {!showRemote && catId !== "icons" && actions.length > 0 && (
@@ -250,8 +250,8 @@ export default function AssetBrowser({
                 style={{
                   height: 74, borderRadius: 16, border: 0,
                   background: "#ffffff",
-                  color: "#1E1C19", cursor: "pointer",
-                  boxShadow: "0 1px 3px rgba(74,70,63,.08), 0 6px 16px rgba(74,70,63,.04)",
+                  color: "#24333c", cursor: "pointer",
+                  boxShadow: "0 1px 3px rgba(83,101,113,.08), 0 6px 16px rgba(83,101,113,.04)",
                   display: "flex", flexDirection: "column",
                   alignItems: "center", justifyContent: "center", gap: 4,
                 }}
@@ -271,7 +271,7 @@ export default function AssetBrowser({
               margin: "2px 4px 12px",
             }}>
               <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: ".04em" }}>图标</span>
-              <span style={{ fontSize: 11, color: "#B7B1A8" }}>{icons.length}</span>
+              <span style={{ fontSize: 11, color: "#8898a2" }}>{icons.length}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {icons.map((it) => (
@@ -285,7 +285,7 @@ export default function AssetBrowser({
                     padding: 12, border: 0, borderRadius: 16,
                     background: "#ffffff",
                     cursor: "pointer",
-                    boxShadow: "0 1px 3px rgba(74,70,63,.08), 0 6px 16px rgba(74,70,63,.04)",
+                    boxShadow: "0 1px 3px rgba(83,101,113,.08), 0 6px 16px rgba(83,101,113,.04)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}
                 >
@@ -302,19 +302,19 @@ export default function AssetBrowser({
         )}
 
         {loading && (
-          <div style={{ color: "#8B857C", textAlign: "center", padding: "40px 0", fontSize: 13 }}>加载中…</div>
+          <div style={{ color: "#68767e", textAlign: "center", padding: "40px 0", fontSize: 13 }}>加载中…</div>
         )}
         {!loading && err && (
           <div style={{ textAlign: "center", padding: "40px 0" }}>
-            <div style={{ color: "#c04a4a", fontSize: 12, marginBottom: 14 }}>{err}</div>
+            <div style={{ color: "#a94c53", fontSize: 12, marginBottom: 14 }}>{err}</div>
             <button
               type="button"
               onClick={() => setRefreshKey((k) => k + 1)}
               style={{
                 height: 36, padding: "0 24px", borderRadius: 18, border: 0,
-                background: "#1E1C19", color: "#fff",
+                background: "#24333c", color: "#fff",
                 fontSize: 13, cursor: "pointer",
-                boxShadow: "0 4px 14px rgba(58,53,46,.2)",
+                boxShadow: "0 4px 14px rgba(32,49,57,.2)",
               }}
             >重试</button>
           </div>
@@ -333,7 +333,7 @@ export default function AssetBrowser({
                   padding: 0, border: 0, marginBottom: 10,
                   borderRadius: 14, overflow: "hidden",
                   background: "#ffffff",
-                  boxShadow: "0 1px 3px rgba(74,70,63,.08), 0 6px 16px rgba(74,70,63,.04)",
+                  boxShadow: "0 1px 3px rgba(83,101,113,.08), 0 6px 16px rgba(83,101,113,.04)",
                   cursor: "pointer", breakInside: "avoid",
                   position: "relative",
                 }}
@@ -351,7 +351,7 @@ export default function AssetBrowser({
         )}
 
         {!loading && !err && showRemote && remote!.length === 0 && (
-          <div style={{ color: "#8B857C", textAlign: "center", padding: "40px 0", fontSize: 13 }}>没有匹配</div>
+          <div style={{ color: "#68767e", textAlign: "center", padding: "40px 0", fontSize: 13 }}>没有匹配</div>
         )}
 
         {/* 本地静态分组 */}
@@ -361,8 +361,8 @@ export default function AssetBrowser({
               display: "flex", alignItems: "baseline", gap: 6,
               margin: "2px 4px 12px",
             }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#1E1C19", letterSpacing: ".04em" }}>{g.title}</span>
-              <span style={{ fontSize: 11, color: "#B7B1A8" }}>{g.items.length}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#24333c", letterSpacing: ".04em" }}>{g.title}</span>
+              <span style={{ fontSize: 11, color: "#8898a2" }}>{g.items.length}</span>
             </div>
             <div style={{ columnCount: 2, columnGap: 10 }}>
               {g.items.map((it) => (
@@ -375,7 +375,7 @@ export default function AssetBrowser({
                     padding: 0, border: 0, marginBottom: 10,
                     borderRadius: 14, overflow: "hidden",
                     background: "#ffffff",
-                    boxShadow: "0 1px 3px rgba(74,70,63,.08), 0 6px 16px rgba(74,70,63,.04)",
+                    boxShadow: "0 1px 3px rgba(83,101,113,.08), 0 6px 16px rgba(83,101,113,.04)",
                     cursor: "pointer", breakInside: "avoid",
                   }}
                 >

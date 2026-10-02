@@ -16,330 +16,6 @@ import { API_BASE } from "../../lib/apiBase";
 const PAGE_LIMIT = 30;
 
 /* ============================================================
-   页抽屉
-============================================================ */
-type PageDrawerProps = {
-  pages: Page[];
-  currentPageId: string;
-  links: PageLink[];
-  connectMode: { from: string } | null;
-  onSelectPage: (id: string) => void;
-  onAddPage: (afterId?: string) => void;
-  onDeletePage: (id: string) => void;
-  onRenamePage: (id: string, title: string) => void;
-  onCompleteConnect: (toId: string) => void;
-  onStartConnect: () => void;
-  onCancelConnect: () => void;
-  onExit: () => void;
-  onClose: () => void;
-};
-
-export function PageDrawer({
-  pages,
-  currentPageId,
-  links,
-  connectMode,
-  onSelectPage,
-  onAddPage,
-  onDeletePage,
-  onRenamePage,
-  onCompleteConnect,
-  onCancelConnect,
-  onExit,
-  onClose,
-}: PageDrawerProps) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const clickTimerRef = useRef<number | null>(null);
-  const [pressedId, setPressedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (editingId && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [editingId]);
-
-  function startEdit(p: Page) {
-    setEditingId(p.id);
-    setDraftTitle(p.title || "");
-  }
-  function commitEdit() {
-    if (!editingId) return;
-    const t = draftTitle.trim() || "新增页面";
-    onRenamePage(editingId, t);
-    setEditingId(null);
-    setDraftTitle("");
-  }
-  function cancelEdit() {
-    setEditingId(null);
-    setDraftTitle("");
-  }
-
-  function handleCardClick(p: Page) {
-    if (editingId === p.id) return;
-    if (connectMode) { onCompleteConnect(p.id); return; }
-
-    // 立即可见的按下反馈
-    setPressedId(p.id);
-    if (navigator.vibrate) { try { navigator.vibrate(12); } catch {} }
-
-    if (clickTimerRef.current != null) {
-      // 180ms 内的第二下 → 双击 → 进改名
-      clearTimeout(clickTimerRef.current);
-      clickTimerRef.current = null;
-      setPressedId(null);
-      startEdit(p);
-      return;
-    }
-    // 第一下 → 180ms 后切页
-    clickTimerRef.current = window.setTimeout(() => {
-      clickTimerRef.current = null;
-      setPressedId(null);
-      onSelectPage(p.id);
-      onClose();
-    }, 180);
-  }
-
-  const atLimit = pages.length >= PAGE_LIMIT;
-
-  return (
-    <aside
-      className="cd-panel"
-      style={{ width: 180, maxWidth: 180, minWidth: 180 }}
-    >
-      <div style={{
-        flex: "none",
-        padding: "calc(env(safe-area-inset-top) + 12px) 12px 10px",
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-      }}>
-        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: ".1em", color: "#1E1C19" }}>
-          页面
-        </span>
-        <span style={{ fontSize: 10, color: "#B7B1A8" }}>
-          {pages.length}/{PAGE_LIMIT}
-        </span>
-      </div>
-
-      {connectMode && (
-        <div style={{
-          flex: "none",
-          margin: "0 10px 8px",
-          padding: "8px 10px",
-          borderRadius: 8,
-          background: "#F4F2EE",
-          color: "#8B857C",
-          fontSize: 11,
-          lineHeight: 1.5,
-        }}>
-          <div style={{ marginBottom: 6 }}>点击目标页面完成连接</div>
-          <button
-            type="button"
-            onClick={onCancelConnect}
-            style={{
-              border: 0, background: "transparent", color: "#4C4842",
-              fontSize: 11, textDecoration: "underline", cursor: "pointer", padding: 0,
-            }}
-          >取消</button>
-        </div>
-      )}
-
-      <div className="cd-body" style={{ padding: "2px 10px 8px", overflowY: "auto" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {pages.map((p, idx) => {
-            const active = p.id === currentPageId;
-            const label = p.title || "未命名";
-            const wRatio = p.paperW && p.paperH ? p.paperW / p.paperH : 0.75;
-            const thumbH = Math.max(52, Math.min(88, 64 / Math.max(0.45, Math.min(1.6, wRatio))));
-
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => handleCardClick(p)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: 6,
-                  border: active ? "1.5px solid #1E1C19" : "1px solid rgba(74,70,63,.10)",
-                  borderRadius: 10,
-                  background: active ? "#EFEDE8" : "#FAF9F6",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  transform: pressedId === p.id ? "scale(0.96)" : "scale(1)",
-                  boxShadow: pressedId === p.id
-                    ? "0 0 0 2px rgba(58,53,46,.18)"
-                    : "none",
-                  transition: "transform .08s ease, box-shadow .08s ease, background .15s, border-color .15s",
-                }}
-              >
-                <div style={{
-                  flex: "none",
-                  width: 44,
-                  height: thumbH,
-                  maxHeight: 76,
-                  borderRadius: 6,
-                  background: p.paperColor || "#ffffff",
-                  border: pressedId === p.id
-                    ? "1.5px solid #1E1C19"
-                    : "1px solid rgba(74,70,63,.10)",
-                  position: "relative",
-                  overflow: "hidden",
-                  transition: "border-color .08s",
-                }}>
-                  <div style={{
-                    position: "absolute", left: 4, top: 3,
-                    fontSize: 8, color: "rgba(74,70,63,.4)",
-                  }}>{idx + 1}</div>
-                </div>
-
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                  {editingId === p.id ? (
-                    <input
-                      ref={inputRef}
-                      value={draftTitle}
-                      maxLength={20}
-                      onChange={(e) => setDraftTitle(e.target.value)}
-                      onBlur={commitEdit}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitEdit();
-                        if (e.key === "Escape") cancelEdit();
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{
-                        width: "100%",
-                        height: 22,
-                        padding: "0 5px",
-                        border: "1px solid #8B857C",
-                        borderRadius: 5,
-                        background: "#fff",
-                        color: "#1E1C19",
-                        fontSize: 11,
-                        outline: "none",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                  ) : (
-                    <span
-                      onClick={(e) => e.stopPropagation()}
-                      style={{
-                        fontSize: 11,
-                        fontWeight: active ? 600 : 400,
-                        color: active ? "#2b241c" : "#4C4842",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >{label}</span>
-                  )}
-                  {active && (
-                    <span style={{ fontSize: 9, color: "#B7B1A8", letterSpacing: ".06em" }}>当前</span>
-                  )}
-                </div>
-
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onDeletePage(p.id);
-                  }}
-                  style={{
-                    flex: "none",
-                    width: 18, height: 18,
-                    borderRadius: 9,
-                    color: active ? "#B4544A" : "#C9C4BC",
-                    fontSize: 13, lineHeight: 1,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    cursor: "pointer",
-                  }}
-                >×</span>
-              </button>
-            );
-          })}
-
-          {!atLimit && (
-            <button
-              type="button"
-              onClick={() => { onAddPage(); onClose(); }}
-              style={{
-                width: "100%",
-                height: 36,
-                borderRadius: 10,
-                border: "1.5px dashed rgba(74,70,63,.24)",
-                background: "transparent",
-                color: "#8B857C",
-                fontSize: 12,
-                cursor: "pointer",
-                letterSpacing: ".04em",
-              }}
-            >＋ 新增页面</button>
-          )}
-        </div>
-
-        {links.length > 0 && (
-          <div style={{
-            marginTop: 12,
-            paddingTop: 8,
-            borderTop: "1px solid rgba(74,70,63,.08)",
-          }}>
-            <div style={{ fontSize: 10, color: "#8B857C", marginBottom: 6 }}>连接</div>
-            {links.map((l) => (
-              <div key={`${l.from}-${l.to}`} style={{
-                fontSize: 10, color: "#4C4842", margin: "3px 0",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-              }}>
-                {pages.find((p) => p.id === l.from)?.title || "?"} → {pages.find((p) => p.id === l.to)?.title || "?"}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div style={{ flex: "none", padding: "8px 10px calc(env(safe-area-inset-bottom) + 10px)" }}>
-        <button
-          type="button"
-          onClick={onExit}
-          style={{
-            width: "100%", height: 36,
-            border: 0, borderRadius: 10,
-            background: "#4C4842", color: "#fff",
-            fontSize: 12, cursor: "pointer",
-            letterSpacing: ".06em",
-          }}
-        >← 退出创作</button>
-      </div>
-
-      <button
-        type="button"
-        className="cd-collapse-handle"
-        onClick={onClose}
-        aria-label="收起"
-      >‹</button>
-    </aside>
-  );
-}
-
-/* ============================================================
-   物抽屉（占位）
-============================================================ */
-export function ObjectDrawer({ onClose }: { onClose: () => void }) {
-  return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
-      <div className="cd-body">
-        <div className="cd-empty-block">
-          <div className="cd-empty-title">物</div>
-          <div className="cd-empty-desc">
-            图片 / 贴纸 / 手绘
-            <br />建设中
-          </div>
-        </div>
-      </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
-    </aside>
-  );
-}
-
-/* ============================================================
    形抽屉
 ============================================================ */
 /** 笔刷手感默认值 —— 与 Editor.tsx renderShape 的缺省值保持一致，
@@ -358,14 +34,16 @@ export const BRUSH_DEFAULTS: BrushParams = {
   simulatePressure: true,
 };
 
+/* 手稿：「每支笔不写'什么什么笔'，直接写 自由」——
+   去掉「笔」字后缀，名字短了，笔刷滑竿控制器就在旁边。 */
 const PEN_TOOLS: { kind: ShapeKind; name: string; sw: number }[] = [
   { kind: "crayon",    name: "蜡笔",   sw: 3.2 },
-  { kind: "free",      name: "自由笔", sw: 1.4 },
-  { kind: "sketch",    name: "素描笔", sw: 2.0 },
-  { kind: "marker",    name: "马克笔", sw: 4.0 },
+  { kind: "free",      name: "自由",   sw: 1.4 },
+  { kind: "sketch",    name: "素描",   sw: 2.0 },
+  { kind: "marker",    name: "马克",   sw: 4.0 },
   { kind: "pencil",    name: "铅笔",   sw: 1.8 },
-  { kind: "ink",       name: "勾线笔", sw: 1.0 },
-  { kind: "handwrite", name: "手写笔", sw: 2.4 },
+  { kind: "ink",       name: "勾线",   sw: 1.0 },
+  { kind: "handwrite", name: "手写",   sw: 2.4 },
 ];
 
 const GEOM_TOOLS: { kind: ShapeKind; name: string; icon: string }[] = [
@@ -394,11 +72,11 @@ const LINE_ARTS: { kind: ShapeKind; name: string; icon: string }[] = [
   { kind: "triangle", name: "三角",   icon: "△" },
 ];
 
-export function ShapeDrawer({
-  onClose, onPickTool, onInsertText, onInsertShape,
+/** 文具盒 · 笔 —— 原「笔」抽屉整体搬进盒内当内容块（功能一字不动）。 */
+export function PenBody({
+  onPickTool, onInsertText, onInsertShape,
   brush, onBrushChange,
 }: {
-  onClose: () => void;
   onPickTool: (kind: ShapeKind) => void;
   onInsertText: (text: string) => void;
   onInsertShape: (kind: ShapeKind) => void;
@@ -410,13 +88,13 @@ export function ShapeDrawer({
   const tabsWrapStyle: React.CSSProperties = {
     display: "flex", gap: 2, padding: 4, margin: "0 0 10px 0",
     position: "sticky", top: 0, zIndex: 3,
-    background: "#FAF9F6", borderRadius: 10,
-    boxShadow: "0 2px 4px rgba(74,70,63,.04)",
+    background: "var(--rj-surface)", borderRadius: 10,
+    boxShadow: "0 2px 4px rgba(83,101,113,.04)",
   };
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
     flex: 1, height: 30, border: 0, borderRadius: 8,
-    background: active ? "#fff" : "transparent",
-    color: active ? "#1E1C19" : "#8B857C",
+    background: active ? "var(--rj-surface-raised)" : "transparent",
+    color: active ? "var(--rj-text)" : "var(--rj-text-muted)",
     fontWeight: active ? 600 : 400,
     fontSize: 10, fontFamily: "inherit", cursor: "pointer",
     boxShadow: active ? "0 1px 3px rgba(0,0,0,.06)" : "none",
@@ -424,21 +102,21 @@ export function ShapeDrawer({
   });
   const fixBtnStyle: React.CSSProperties = {
     flex: 1, height: 30, border: 0, borderRadius: 6,
-    background: "rgba(74,70,63,.06)", color: "#4C4842",
+    background: "var(--rj-surface-hover)", color: "var(--rj-text-subtle)",
     fontSize: 14, cursor: "pointer", padding: 0,
   };
   const sectionLabel: React.CSSProperties = {
-    fontSize: 11, color: "#8B857C", letterSpacing: ".1em",
+    fontSize: 11, color: "var(--rj-text-muted)", letterSpacing: ".1em",
     margin: "14px 2px 10px",
   };
   const toggleStyle = (on: boolean): React.CSSProperties => ({
     width: 36, height: 20, borderRadius: 10, border: 0, padding: 0,
-    background: on ? "#4C4842" : "rgba(74,70,63,.15)",
+    background: on ? "var(--rj-text-subtle)" : "var(--rj-line)",
     position: "relative", cursor: "pointer", flex: "none",
   });
   const knobStyle = (on: boolean): React.CSSProperties => ({
     position: "absolute", top: 2, left: on ? 18 : 2,
-    width: 16, height: 16, borderRadius: 8, background: "#fff",
+    width: 16, height: 16, borderRadius: 8, background: "var(--rj-surface-raised)",
     transition: "left .2s",
   });
   const rowStyle: React.CSSProperties = {
@@ -447,11 +125,10 @@ export function ShapeDrawer({
   };
 
   return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130, paddingTop: "calc(env(safe-area-inset-top) + 8px)", top: 0 }}>
-      <div className="cd-body" style={{ paddingTop: 0 }}>
+    <div className="cd-body" style={{ paddingTop: 0 }}>
 
         {/* 撤销 / 重做 / 复制 */}
-        <div style={{ display: "flex", gap: 4, padding: "0 4px 10px", borderBottom: "1px solid rgba(74,70,63,.08)", marginBottom: 10 }}>
+        <div style={{ display: "flex", gap: 4, padding: "0 4px 10px", borderBottom: "1px solid var(--rj-line-soft)", marginBottom: 10 }}>
           <button type="button" title="撤销" onClick={() => window.dispatchEvent(new CustomEvent("ranjing:cmd", { detail: "undo" }))} style={fixBtnStyle}>↶</button>
           <button type="button" title="重做" onClick={() => window.dispatchEvent(new CustomEvent("ranjing:cmd", { detail: "redo" }))} style={fixBtnStyle}>↷</button>
           <button type="button" title="复制" onClick={() => window.dispatchEvent(new CustomEvent("ranjing:cmd", { detail: "copy" }))} style={fixBtnStyle}>⧉</button>
@@ -479,7 +156,7 @@ export function ShapeDrawer({
                     <path
                       d="M4 20 L7 17 L17 7 Q19 5 21 7 Q23 9 21 11 L11 21 L8 21 L4 20 Z"
                       fill="none"
-                      stroke="#1E1C19"
+                      stroke="currentColor"
                       strokeWidth={t.sw / 2}
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -494,9 +171,9 @@ export function ShapeDrawer({
             {/* 笔刷手感参数面板 —— perfect-freehand */}
             <div style={{
               marginTop: 14, padding: "12px 10px",
-              background: "rgba(74,70,63,.04)", borderRadius: 10,
+              background: "var(--rj-surface-hover)", borderRadius: 10,
             }}>
-              <div style={{ fontSize: 11, color: "#8B857C", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
+              <div style={{ fontSize: 11, color: "var(--rj-text-muted)", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
 
               <PenSlider label="尺寸" value={brush.size ?? 0} min={0} max={40} step={1}
                 onChange={(v) => onBrushChange({ size: v > 0 ? v : undefined })} />
@@ -507,14 +184,14 @@ export function ShapeDrawer({
 
               {/* 缓释（easing） */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: "#8B857C", width: 52, flex: "none" }}>缓释</span>
+                <span style={{ fontSize: 11, color: "var(--rj-text-muted)", width: 52, flex: "none" }}>缓释</span>
                 <select
                   value={brush.easingName ?? "linear"}
                   onChange={(e) => onBrushChange({ easingName: e.target.value as EasingName })}
                   style={{
                     flex: 1, minWidth: 0, height: 26, padding: "0 6px",
-                    border: "1px solid rgba(74,70,63,.15)", borderRadius: 6,
-                    background: "#fff", color: "#1E1C19", fontSize: 11, outline: "none",
+                    border: "1px solid var(--rj-line)", borderRadius: 6,
+                    background: "var(--rj-surface-raised)", color: "var(--rj-text)", fontSize: 11, outline: "none",
                   }}
                 >
                   <option value="linear">线性</option>
@@ -529,7 +206,7 @@ export function ShapeDrawer({
 
               {/* 启动 cap */}
               <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "#8B857C" }}>启动</span>
+                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>启动</span>
                 <button type="button" aria-pressed={!!brush.startCap}
                   onClick={() => onBrushChange({ startCap: !brush.startCap })} style={toggleStyle(!!brush.startCap)}>
                   <span style={knobStyle(!!brush.startCap)} />
@@ -542,7 +219,7 @@ export function ShapeDrawer({
 
               {/* 缓和结尾 cap */}
               <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "#8B857C" }}>缓和结尾</span>
+                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>缓和结尾</span>
                 <button type="button" aria-pressed={!!brush.endCap}
                   onClick={() => onBrushChange({ endCap: !brush.endCap })} style={toggleStyle(!!brush.endCap)}>
                   <span style={knobStyle(!!brush.endCap)} />
@@ -551,7 +228,7 @@ export function ShapeDrawer({
 
               {/* 充满 */}
               <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "#8B857C" }}>充满</span>
+                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>充满</span>
                 <button type="button" aria-pressed={!!brush.fill}
                   onClick={() => onBrushChange({ fill: !brush.fill })} style={toggleStyle(!!brush.fill)}>
                   <span style={knobStyle(!!brush.fill)} />
@@ -563,7 +240,7 @@ export function ShapeDrawer({
 
               {/* 模拟压力 */}
               <div style={{ ...rowStyle, marginTop: 10, marginBottom: 0 }}>
-                <span style={{ fontSize: 11, color: "#8B857C" }}>模拟压力</span>
+                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>模拟压力</span>
                 <button type="button" aria-pressed={brush.simulatePressure}
                   onClick={() => onBrushChange({ simulatePressure: !brush.simulatePressure })}
                   style={toggleStyle(brush.simulatePressure)}>
@@ -577,8 +254,8 @@ export function ShapeDrawer({
                 onClick={() => onBrushChange({ ...BRUSH_DEFAULTS })}
                 style={{
                   width: "100%", height: 30, marginTop: 12, borderRadius: 6,
-                  border: "1px solid rgba(74,70,63,.15)", background: "#fff",
-                  color: "#8B857C", fontSize: 11, cursor: "pointer",
+                  border: "1px solid var(--rj-line)", background: "var(--rj-surface-raised)",
+                  color: "var(--rj-text-muted)", fontSize: 11, cursor: "pointer",
                 }}
               >重置选项</button>
             </div>
@@ -592,7 +269,7 @@ export function ShapeDrawer({
               <button key={t.kind} type="button" className="cd-item"
                 onClick={() => onPickTool(t.kind)}
                 style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", fontSize: 14, width: "100%" }}>
-                <span style={{ fontSize: 18, width: 26, textAlign: "center", color: "#4C4842" }}>{t.icon}</span>
+                <span style={{ fontSize: 18, width: 26, textAlign: "center", color: "var(--rj-text-subtle)" }}>{t.icon}</span>
                 <span>{t.name}</span>
               </button>
             ))}
@@ -615,7 +292,7 @@ export function ShapeDrawer({
               <button key={t.kind} type="button" className="cd-item"
                 onClick={() => onInsertShape(t.kind)}
                 style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 12px", fontSize: 14, width: "100%" }}>
-                <span style={{ fontSize: 20, width: 26, textAlign: "center", color: "#4C4842" }}>{t.icon}</span>
+                <span style={{ fontSize: 20, width: 26, textAlign: "center", color: "var(--rj-text-subtle)" }}>{t.icon}</span>
                 <span>{t.name}</span>
               </button>
             ))}
@@ -627,112 +304,20 @@ export function ShapeDrawer({
             <button type="button" onClick={() => onPickTool("eraser")}
               style={{
                 width: "100%", height: 72, borderRadius: 12, border: 0,
-                background: "linear-gradient(180deg,#fff 0%,#F4F2EE 100%)",
-                boxShadow: "0 2px 8px rgba(90,80,65,.12)",
+                background: "linear-gradient(180deg,var(--rj-surface-raised) 0%,var(--rj-app-bg) 100%)",
+                boxShadow: "0 2px 8px rgba(32,49,57,.12)",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                fontSize: 16, color: "#1E1C19", cursor: "pointer",
+                fontSize: 16, color: "var(--rj-text)", cursor: "pointer",
               }}>
               <span style={{ fontSize: 24 }}>⌫</span>
               <span>橡皮擦</span>
             </button>
-            <div style={{ marginTop: 8, fontSize: 11, color: "#B7B1A8", textAlign: "center", lineHeight: 1.6 }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--rj-placeholder)", textAlign: "center", lineHeight: 1.6 }}>
               划过已画的线条<br />即可擦除
             </div>
           </div>
         )}
-      </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
-    </aside>
-  );
-}
-
-/* ============================================================
-   窗
-============================================================ */
-export function WindowDrawer({ onClose }: { onClose: () => void }) {
-  const [items, setItems] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [err, setErr] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { CapacitorHttp } = await import("@capacitor/core");
-        const res = await CapacitorHttp.get({
-          url: `${API_BASE}/api/hotspots?source=%E5%85%A8%E9%83%A8`,
-        });
-        if (!alive) return;
-        const d = res.data;
-        const list = Array.isArray(d?.items) ? d.items : [];
-        setItems(list);
-      } catch (e: any) {
-        if (alive) setErr(e?.message || "加载失败");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
-
-  return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
-      <div className="cd-body">
-        <div style={{
-          fontSize: 13, fontWeight: 600, color: "#1E1C19",
-          letterSpacing: ".1em", padding: "4px 4px 12px",
-          display: "flex", alignItems: "center", gap: 6,
-        }}>
-          <span style={{ display: "flex", gap: 2 }}>
-            <span style={{ width: 5, height: 11, border: "1.2px solid #8B857C", borderRight: "0.6px solid #8B857C", borderRadius: "2px 0 0 2px" }} />
-            <span style={{ width: 5, height: 11, border: "1.2px solid #8B857C", borderLeft: "0.6px solid #8B857C", borderRadius: "0 2px 2px 0" }} />
-          </span>
-          <span>门 · 社交</span>
-        </div>
-
-        {loading && <div style={{ fontSize: 12, color: "#8B857C", padding: "12px 4px" }}>加载中…</div>}
-        {!loading && err && <div style={{ fontSize: 12, color: "#a06f64", padding: "12px 4px" }}>{err}</div>}
-        {!loading && !err && items.length === 0 && (
-          <div style={{ fontSize: 12, color: "#8B857C", padding: "12px 4px" }}>暂无内容</div>
-        )}
-        {!loading && !err && items.map((it, i) => (
-          <button
-            key={it.id ?? i}
-            type="button"
-            onClick={() => {
-              const url = it.url || it.link;
-              if (url && typeof window !== "undefined") window.open(url, "_blank");
-            }}
-            style={{
-              display: "flex", alignItems: "flex-start", gap: 8,
-              width: "100%", padding: "10px 10px", marginBottom: 6,
-              border: "1px solid rgba(74,70,63,.10)",
-              borderRadius: 10, background: "#FAF9F6",
-              textAlign: "left", cursor: "pointer",
-            }}
-          >
-            <span style={{ fontSize: 10, color: "#B7B1A8", flex: "none", paddingTop: 2, width: 16 }}>
-              {String(i + 1).padStart(2, "0")}
-            </span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{
-                fontSize: 12, color: "#1E1C19", lineHeight: 1.5,
-                overflow: "hidden", textOverflow: "ellipsis",
-                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-              } as React.CSSProperties}>
-                {it.title || "(无标题)"}
-              </span>
-              {it.sourceLabel && (
-                <span style={{ display: "block", fontSize: 10, color: "#B7B1A8", marginTop: 4 }}>
-                  {it.sourceLabel}
-                </span>
-              )}
-            </span>
-          </button>
-        ))}
-      </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
-    </aside>
+    </div>
   );
 }
 
@@ -749,7 +334,6 @@ type ColorDrawerProps = {
   onStageColorChange: (c: string) => void;
   onStageAlphaChange: (a: number) => void;
   onPicked?: () => void;
-  onClose: () => void;
 };
 
 export function ColorDrawer({
@@ -762,7 +346,6 @@ export function ColorDrawer({
   onStageColorChange,
   onStageAlphaChange,
   onPicked,
-  onClose,
 }: ColorDrawerProps) {
   const [target, setTarget] = useState<"paper" | "stage">("paper");
   const color = target === "paper" ? paperColor : stageColor;
@@ -771,7 +354,7 @@ export function ColorDrawer({
   const setAlpha = target === "paper" ? onPaperAlphaChange : onStageAlphaChange;
 
   return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
+    <aside className="cd-panel">
       <div className="cd-tabs">
         <button type="button" className={target === "paper" ? "is-active" : ""} onClick={() => setTarget("paper")}>纸色</button>
         <button type="button" className={target === "stage" ? "is-active" : ""} onClick={() => setTarget("stage")}>背景色</button>
@@ -779,7 +362,6 @@ export function ColorDrawer({
       <div className="cd-body">
         <ColorPicker color={color} alpha={alpha} onChange={setColor} onAlphaChange={setAlpha} onCommit={onPicked} />
       </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
     </aside>
   );
 }
@@ -789,8 +371,8 @@ export function ColorDrawer({
 ============================================================ */
 const customInputStyle: React.CSSProperties = {
   flex: 1, minWidth: 0, height: 36, padding: "0 8px", boxSizing: "border-box",
-  border: "1px solid rgba(74,70,63,.2)", borderRadius: 8,
-  background: "#fff", color: "#1E1C19", fontSize: 14, outline: "none",
+  border: "1px solid var(--rj-line)", borderRadius: 8,
+  background: "var(--rj-surface-raised)", color: "var(--rj-text)", fontSize: 14, outline: "none",
   textAlign: "center",
 };
 
@@ -803,7 +385,7 @@ function CustomSpecDialog({ onConfirm, onCancel }: { onConfirm: (w: number, h: n
         <div className="mini-confirm-msg" style={{ marginBottom: 12 }}>自定义尺寸（px）</div>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input autoFocus value={w} inputMode="numeric" onChange={(e) => setW(e.target.value.replace(/\D/g, ""))} style={customInputStyle} />
-          <span style={{ alignSelf: "center", color: "#8B857C" }}>×</span>
+          <span style={{ alignSelf: "center", color: "var(--rj-text-muted)" }}>×</span>
           <input value={h} inputMode="numeric" onChange={(e) => setH(e.target.value.replace(/\D/g, ""))} style={customInputStyle} />
         </div>
         <div className="mini-confirm-actions">
@@ -820,14 +402,14 @@ function CustomSpecDialog({ onConfirm, onCancel }: { onConfirm: (w: number, h: n
   );
 }
 
-export function SpecDrawer({ onClose, onPicked }: { onClose: () => void; onPicked?: (w: number, h: number) => void }) {
+/** 文具盒 · 规格 —— 原「规格」抽屉内容；卡片选完直接回白纸执行。 */
+export function SpecBody({ onPicked }: { onPicked?: (w: number, h: number) => void }) {
   const [openCat, setOpenCat] = useState<string | null>("phone");
   const [picked, setPicked] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
 
   return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
-      <div className="cd-body">
+    <div className="cd-body">
         {picked && <div className="cd-picked">当前规格：{picked}</div>}
         {SPEC_CATEGORIES.map((c) => {
           const open = openCat === c.id;
@@ -838,50 +420,57 @@ export function SpecDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
               </button>
               {open && (
                 <div className="cd-sub-body">
-                  {c.items.map((it) => (
-                    <button key={it.name} type="button" className="cd-item"
-                      onClick={() => { setPicked(it.name); onPicked?.(it.w, it.h); }}>
-                      {it.name}
-                      {it.w > 0 && it.h > 0 && (
-                        <span style={{ color: "#B7B1A8", fontSize: 10, marginLeft: 6 }}>{it.w}×{it.h}</span>
-                      )}
-                    </button>
-                  ))}
+                  {/* 手稿：「点开规格所有模板卡片预览图」——
+                      每条规格一张按真实比例的缩略卡，不再只是文字行 */}
+                  <div className="cd-spec-grid">
+                    {c.items.map((it) => {
+                      const ratio = it.w > 0 && it.h > 0 ? it.w / it.h : 1;
+                      const th = 46;
+                      const tw = Math.round(Math.min(56, Math.max(12, th * ratio)));
+                      return (
+                        <button key={it.name} type="button" className="cd-spec-card"
+                          onClick={() => { setPicked(it.name); onPicked?.(it.w, it.h); }}>
+                          <span className="cd-spec-thumb" style={{ width: tw, height: th }} />
+                          <span className="cd-spec-name">{it.name}</span>
+                          {it.w > 0 && it.h > 0 && (
+                            <span className="cd-spec-size">{it.w}×{it.h}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                   {c.allowCustom && (
-                    <button type="button" className="cd-item" onClick={() => setCustomOpen(true)}>自定义…</button>
+                    <button type="button" className="cd-item" style={{ marginTop: 6 }} onClick={() => setCustomOpen(true)}>自定义…</button>
                   )}
                 </div>
               )}
             </div>
           );
         })}
-      </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
       {customOpen && (
         <CustomSpecDialog
           onConfirm={(w, h) => { setCustomOpen(false); setPicked(`自定义 ${w}×${h}`); onPicked?.(w, h); }}
           onCancel={() => setCustomOpen(false)}
         />
       )}
-    </aside>
+    </div>
   );
 }
 
 /* ============================================================
    字
 ============================================================ */
-export function FontDrawer({
-  currentFont, onFontChange, onPicked, onClose,
+/** 文具盒 · 字 —— 原「字」抽屉内容块。 */
+export function FontBody({
+  currentFont, onFontChange, onPicked,
 }: {
   currentFont: string;
   onFontChange: (family: string) => void;
   onPicked?: () => void;
-  onClose: () => void;
 }) {
   return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
-      <div className="cd-body">
-        <div style={{ fontSize: 11, color: "#8B857C", padding: "0 4px 12px", letterSpacing: ".08em" }}>字体</div>
+    <div className="cd-body">
+        <div style={{ fontSize: 11, color: "var(--rj-text-muted)", padding: "0 4px 12px", letterSpacing: ".08em" }}>字体</div>
         {FONT_LIBRARY.map((f) => {
           const active = currentFont === f.family;
           return (
@@ -889,72 +478,14 @@ export function FontDrawer({
               onClick={() => { onFontChange(f.family); onPicked?.(); }}
               style={{
                 width: "100%", padding: "16px 12px", marginBottom: 6,
-                border: active ? "1.5px solid #8B857C" : "1px solid rgba(74,70,63,.12)",
-                borderRadius: 10, background: active ? "#EFEDE8" : "#FAF9F6",
+                border: active ? "1.5px solid var(--rj-text-muted)" : "1px solid var(--rj-line-soft)",
+                borderRadius: 10, background: active ? "var(--rj-app-bg-low)" : "var(--rj-surface)",
                 textAlign: "left", cursor: "pointer",
-                fontFamily: f.family, fontSize: 17, color: "#1E1C19",
+                fontFamily: f.family, fontSize: 17, color: "var(--rj-text)",
               }}>{f.name}</button>
           );
         })}
-      </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
-    </aside>
-  );
-}
-
-/* ============================================================
-   方向锁
-============================================================ */
-export function LockDrawer({ onClose, onPicked }: { onClose: () => void; onPicked?: () => void }) {
-  const [dirDialog, setDirDialog] = useState(false);
-
-  async function applyLock(kind: "landscape" | "portrait") {
-    try {
-      const { ScreenOrientation } = await import("@capacitor/screen-orientation");
-      await ScreenOrientation.lock({ orientation: kind });
-    } catch (err) { console.warn("方向锁定失败：", err); }
-    setDirDialog(false);
-    onPicked?.();
-  }
-  async function releaseLock() {
-    try {
-      const { ScreenOrientation } = await import("@capacitor/screen-orientation");
-      await ScreenOrientation.unlock();
-    } catch (err) { console.warn("方向解锁失败：", err); }
-    onPicked?.();
-  }
-
-  return (
-    <aside className="cd-panel" style={{ width: "min(30vw, 130px)", maxWidth: 130 }}>
-      <div className="cd-body" style={{ display: "flex", flexDirection: "column" }}>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "stretch", gap: 12, paddingBottom: 60 }}>
-          <button type="button" className="cd-item" onClick={() => setDirDialog(true)}
-            style={{ textAlign: "center", padding: "16px 14px", fontSize: 14 }}>🔓 锁方向</button>
-          <button type="button" className="cd-item" onClick={releaseLock}
-            style={{ textAlign: "center", padding: "16px 14px", fontSize: 14 }}>↺ 自动旋转</button>
-        </div>
-      </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
-      {dirDialog && (
-        <div className="mini-confirm-overlay" onClick={() => setDirDialog(false)}>
-          <div className="mini-confirm-box" onClick={(e) => e.stopPropagation()}>
-            <div className="mini-confirm-msg" style={{ textAlign: "left", fontSize: 13, lineHeight: 1.6 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>锁定方向</div>
-              <div style={{ fontSize: 11, color: "#8B857C", marginBottom: 14, lineHeight: 1.7 }}>锁定后需到系统设置里重新开启自动旋转。</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" onClick={() => applyLock("landscape")}
-                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid rgba(74,70,63,.15)", background: "#fff", fontSize: 13, cursor: "pointer" }}>横屏</button>
-                <button type="button" onClick={() => applyLock("portrait")}
-                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid rgba(74,70,63,.15)", background: "#fff", fontSize: 13, cursor: "pointer" }}>竖屏</button>
-              </div>
-            </div>
-            <div className="mini-confirm-actions" style={{ marginTop: 12 }}>
-              <button type="button" className="mini-confirm-cancel" onClick={() => setDirDialog(false)}>取消</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </aside>
+    </div>
   );
 }
 
@@ -963,20 +494,40 @@ export function LockDrawer({ onClose, onPicked }: { onClose: () => void; onPicke
    导出原先挂在长按弹窗上（空白菜单和元素菜单各一份、内容重复），
    现按产品定义统一收进侧边栏「存」。
 ============================================================ */
-export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
+export function SaveDrawer({ onClose, onSave, getDoc, onRestore, onExportShare, onOpenMemory }: {
   onClose: () => void;
   onSave?: () => void;
   /** 取当前文档（存快照用） */
   getDoc?: () => DocModel;
   /** 用快照内容整体替换当前文档（回滚用） */
   onRestore?: (doc: DocModel) => void;
+  /** 导出分享（未登录由主程序先接登录流程） */
+  onExportShare?: () => void;
+  /** 打开记忆空间（本地记录页） */
+  onOpenMemory?: () => void;
 }) {
   const [snaps, setSnaps] = useState<SnapshotMeta[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   /** 待确认回滚的那张快照（非空时弹确认框） */
   const [pendingRestore, setPendingRestore] = useState<SnapshotMeta | null>(null);
+  /** 方向锁（原外沿「锁」整块搬进保存 —— 锁不再占外沿位置） */
+  const [dirDialog, setDirDialog] = useState(false);
   const msgTimer = useRef<number | null>(null);
+
+  async function applyLock(kind: "landscape" | "portrait") {
+    try {
+      const { ScreenOrientation } = await import("@capacitor/screen-orientation");
+      await ScreenOrientation.lock({ orientation: kind });
+    } catch (err) { console.warn("方向锁定失败：", err); }
+    setDirDialog(false);
+  }
+  async function releaseLock() {
+    try {
+      const { ScreenOrientation } = await import("@capacitor/screen-orientation");
+      await ScreenOrientation.unlock();
+    } catch (err) { console.warn("方向解锁失败：", err); }
+  }
 
   const flash = useCallback((text: string) => {
     setMsg(text);
@@ -984,6 +535,42 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
     msgTimer.current = window.setTimeout(() => { msgTimer.current = null; setMsg(""); }, 1800);
   }, []);
   useEffect(() => () => { if (msgTimer.current != null) window.clearTimeout(msgTimer.current); }, []);
+
+  /* 第二步·界面设置：真实读写 ranjing:ui-theme / ranjing:ui-font，
+     与首页V3、GPT副本同一约定、同一读写键；只动软件外壳，不动作品。 */
+  const [uiTheme, setUiTheme] = useState<"system" | "mist" | "dark">("system");
+  const [uiFont, setUiFont] = useState<"sans" | "serif">("sans");
+  useEffect(() => {
+    const read = () => {
+      try {
+        const t = localStorage.getItem("ranjing:ui-theme");
+        setUiTheme(t === "dark" ? "dark" : t === "mist" ? "mist" : "system");
+        setUiFont(localStorage.getItem("ranjing:ui-font") === "serif" ? "serif" : "sans");
+      } catch { /* 隐私模式读不到就维持默认 */ }
+    };
+    read();
+    window.addEventListener("ranjing:ui-settings", read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener("ranjing:ui-settings", read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+  const applyUiSetting = (kind: "theme" | "font", value: string) => {
+    try {
+      if (kind === "theme") {
+        if (value === "system") localStorage.removeItem("ranjing:ui-theme");
+        else localStorage.setItem("ranjing:ui-theme", value);
+      } else {
+        localStorage.setItem("ranjing:ui-font", value);
+      }
+    } catch { flash("此环境无法保存界面设置"); return; }
+    /* 同页即时生效：房间主题钩子与首页读同一事件；跨标签页由 storage 兜底 */
+    window.dispatchEvent(new Event("ranjing:ui-settings"));
+    flash(kind === "theme"
+      ? `界面：${value === "system" ? "跟随系统" : value === "dark" ? "夜间 · 深镜" : "白天 · 雾镜"}`
+      : `首页字体：${value === "serif" ? "衬线" : "无衬线"}`);
+  };
 
   const refresh = useCallback(async () => {
     const d = getDoc?.();
@@ -1028,11 +615,19 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
 
   const latest = snaps[0] || null;
   const itemStyle: React.CSSProperties = { textAlign: "center", padding: "14px 6px", fontSize: 13, whiteSpace: "nowrap" };
+  /* 界面设置：当前选中项淡蓝底提示；颜色全部走 token，日夜自动跟随 */
+  const choiceStyle: React.CSSProperties = { ...itemStyle, borderRadius: 8 };
+  const choiceOnStyle: React.CSSProperties = { background: "var(--rj-action-soft)", color: "var(--rj-text)" };
 
   return (
-    <aside className="cd-panel" style={{ width: "min(34vw, 150px)", maxWidth: 150 }}>
+    <aside className="cd-panel">
       <div className="cd-body" style={{ display: "flex", flexDirection: "column" }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, paddingBottom: 60 }}>
+
+          {/* ── 记忆空间（第六步：保存页=本地记录页的入口） ── */}
+          <button type="button" className="cd-item" onClick={() => { onOpenMemory?.(); onClose(); }} style={itemStyle}>
+            记忆空间 · 本地记录
+          </button>
 
           <button type="button" className="cd-item" onClick={() => { onSave?.(); onClose(); }} style={itemStyle}>保存</button>
 
@@ -1048,13 +643,13 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
           </button>
 
           {msg && (
-            <div style={{ fontSize: 10, color: "#7a5a34", textAlign: "center", lineHeight: 1.5, padding: "0 4px" }}>{msg}</div>
+            <div style={{ fontSize: 10, color: "var(--rj-text-muted)", textAlign: "center", lineHeight: 1.5, padding: "0 4px" }}>{msg}</div>
           )}
 
           {/* ── 快照列表（新的在上，点一条就回滚到那一条） ── */}
           {snaps.length > 0 && (
             <div style={{ marginTop: 2 }}>
-              <div style={{ fontSize: 10, color: "#B7B1A8", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>
+              <div style={{ fontSize: 10, color: "var(--rj-placeholder)", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>
                 快照 {snaps.length}/{MAX_SNAPSHOTS}
               </div>
               <div style={{ maxHeight: 168, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1062,35 +657,73 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
                   <div key={s.id} style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "6px 7px", borderRadius: 8,
-                    background: "#FAF9F6", border: "1px solid rgba(74,70,63,.10)",
+                    background: "var(--rj-surface)", border: "1px solid var(--rj-line-soft)",
                   }}>
                     <button type="button" onClick={() => setPendingRestore(s)}
                       style={{
                         flex: 1, minWidth: 0, border: 0, background: "transparent", cursor: "pointer",
                         textAlign: "left", padding: 0, fontFamily: "inherit",
                       }}>
-                      <div style={{ fontSize: 11, color: "#1E1C19", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <div style={{ fontSize: 11, color: "var(--rj-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {formatSnapshotTime(s.createdAt)}
                       </div>
-                      <div style={{ fontSize: 9, color: "#B7B1A8" }}>{s.pageCount} 页</div>
+                      <div style={{ fontSize: 9, color: "var(--rj-placeholder)" }}>{s.pageCount} 页</div>
                     </button>
                     <button type="button" onClick={() => { void removeSnapshot(s); }}
                       title="删除这张快照"
-                      style={{ border: 0, background: "transparent", color: "#B7B1A8", fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                      style={{ border: 0, background: "transparent", color: "var(--rj-placeholder)", fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* ── 导出 ── */}
-          <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 0" }} />
-          <button type="button" className="cd-item" onClick={() => { (window as any).__ranjingCommands?.exportCanvas?.("svg"); onClose(); }} style={itemStyle}>导出 SVG</button>
-          <button type="button" className="cd-item" onClick={() => { (window as any).__ranjingCommands?.exportCanvas?.("png"); onClose(); }} style={itemStyle}>导出 PNG</button>
-          <button type="button" className="cd-item" onClick={() => { (window as any).__ranjingCommands?.exportCanvas?.("png-transparent"); onClose(); }} style={itemStyle}>导出透明 PNG</button>
+          {/* ── 方向锁（从外沿「锁」搬来；锁不再占外面位置） ── */}
+          <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 0" }} />
+          <div style={{ fontSize: 10, color: "var(--rj-text-muted)", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>方向锁</div>
+          <button type="button" className="cd-item" onClick={() => setDirDialog(true)} style={itemStyle}>🔓 锁方向</button>
+          <button type="button" className="cd-item" onClick={() => { void releaseLock(); }} style={itemStyle}>↺ 自动旋转</button>
+
+          {/* ── 界面设置（第二步：日夜/跟随系统 + 首页字体；只动外壳不动作品） ── */}
+          <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 0" }} />
+          <div style={{ fontSize: 10, color: "var(--rj-text-muted)", letterSpacing: ".06em", marginBottom: 4, paddingLeft: 2 }}>界面设置</div>
+          {([["system", "跟随系统"], ["mist", "白天 · 雾镜"], ["dark", "夜间 · 深镜"]] as const).map(([v, label]) => (
+            <button key={v} type="button" className="cd-item" aria-pressed={uiTheme === v}
+              onClick={() => applyUiSetting("theme", v)}
+              style={{ ...choiceStyle, ...(uiTheme === v ? choiceOnStyle : null) }}>{label}</button>
+          ))}
+          {([["serif", "首页衬线字"], ["sans", "首页无衬线字"]] as const).map(([v, label]) => (
+            <button key={v} type="button" className="cd-item" aria-pressed={uiFont === v}
+              onClick={() => applyUiSetting("font", v)}
+              style={{ ...choiceStyle, ...(uiFont === v ? choiceOnStyle : null) }}>{label}</button>
+          ))}
+
+          {/* ── 导出分享（第六步：登录闸门挪到这里；三种格式收进面板里） ── */}
+          <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 0" }} />
+          <button type="button" className="cd-item" onClick={() => { onExportShare?.(); onClose(); }} style={itemStyle}>导出分享</button>
         </div>
       </div>
-      <button type="button" className="cd-collapse-handle" onClick={onClose} aria-label="收起">‹</button>
+
+      {/* 方向锁：横屏 / 竖屏（原 LockDrawer 弹窗原样搬入） */}
+      {dirDialog && (
+        <div className="mini-confirm-overlay" onClick={() => setDirDialog(false)}>
+          <div className="mini-confirm-box" onClick={(e) => e.stopPropagation()}>
+            <div className="mini-confirm-msg" style={{ textAlign: "left", fontSize: 13, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>锁定方向</div>
+              <div style={{ fontSize: 11, color: "var(--rj-text-muted)", marginBottom: 14, lineHeight: 1.7 }}>锁定后需到系统设置里重新开启自动旋转。</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => { void applyLock("landscape"); }}
+                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--rj-line)", background: "var(--rj-surface-raised)", fontSize: 13, cursor: "pointer" }}>横屏</button>
+                <button type="button" onClick={() => { void applyLock("portrait"); }}
+                  style={{ flex: 1, height: 36, borderRadius: 8, border: "1px solid var(--rj-line)", background: "var(--rj-surface-raised)", fontSize: 13, cursor: "pointer" }}>竖屏</button>
+              </div>
+            </div>
+            <div className="mini-confirm-actions" style={{ marginTop: 12 }}>
+              <button type="button" className="mini-confirm-cancel" onClick={() => setDirDialog(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 回滚确认：回滚会覆盖当前所有改动，必须二次确认 */}
       {pendingRestore && (
@@ -1098,7 +731,7 @@ export function SaveDrawer({ onClose, onSave, getDoc, onRestore }: {
           <div className="mini-confirm-box" onClick={(e) => e.stopPropagation()}>
             <div className="mini-confirm-msg" style={{ fontSize: 13, lineHeight: 1.7 }}>
               回滚到 {formatSnapshotTime(pendingRestore.createdAt)} 的快照？<br />
-              <span style={{ fontSize: 11, color: "#8B857C" }}>当前的改动会被覆盖。</span>
+              <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>当前的改动会被覆盖。</span>
             </div>
             <div className="mini-confirm-actions">
               <button type="button" className="mini-confirm-cancel" onClick={() => setPendingRestore(null)}>取消</button>
@@ -1120,13 +753,13 @@ function PenSlider({ label, value, min, max, step, onChange }: {
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-      <span style={{ fontSize: 11, color: "#8B857C", width: 52, flex: "none" }}>{label}</span>
+      <span style={{ fontSize: 11, color: "var(--rj-text-muted)", width: 52, flex: "none" }}>{label}</span>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        style={{ flex: 1, minWidth: 0, accentColor: "#4C4842", height: 4 }}
+        style={{ flex: 1, minWidth: 0, accentColor: "var(--rj-text-subtle)", height: 4 }}
       />
-      <span style={{ fontSize: 10, color: "#B7B1A8", width: 28, textAlign: "right", flex: "none" }}>
+      <span style={{ fontSize: 10, color: "var(--rj-placeholder)", width: 28, textAlign: "right", flex: "none" }}>
         {value.toFixed(step < 1 ? 2 : 0)}
       </span>
     </div>

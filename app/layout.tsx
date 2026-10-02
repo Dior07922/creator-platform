@@ -1,4 +1,6 @@
 import "../src/index.css";
+/* 第二步：C冷蓝/珍珠雾 token（原样引入，只作用于 .rj-ui 容器，不染作品） */
+import "../src/theme/rj-ui.css";
 import "@fontsource/noto-sans-sc/400.css";
 import "@fontsource/noto-serif-sc/400.css";
 import "@fontsource/inter/400.css";

@@ -199,7 +199,7 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange, onC
     gap: 4,
     padding: 3,
     borderRadius: 10,
-    background: "rgba(74,70,63,.06)",
+    background: "var(--rj-line-soft)",
     marginBottom: 10,
   };
   const tabBtnStyle = (active: boolean): React.CSSProperties => ({
@@ -207,13 +207,13 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange, onC
     height: 32,
     border: 0,
     borderRadius: 8,
-    background: active ? "#fff" : "transparent",
-    color: active ? "#1E1C19" : "#8B857C",
+    background: active ? "var(--rj-surface-raised)" : "transparent",
+    color: active ? "var(--rj-text)" : "var(--rj-text-muted)",
     fontWeight: active ? 600 : 400,
     fontSize: 12,
     fontFamily: "inherit",
     cursor: "pointer",
-    boxShadow: active ? "0 1px 3px rgba(0,0,0,.06)" : "none",
+    boxShadow: active ? "0 1px 3px var(--rj-panel-shadow)" : "none",
   });
   const gridWrapStyle: React.CSSProperties = {
     display: "grid",
@@ -243,20 +243,20 @@ export default function ColorPicker({ color, alpha, onChange, onAlphaChange, onC
   const sliderLabelStyle: React.CSSProperties = {
     width: 16,
     fontSize: 12,
-    color: "#8B857C",
+    color: "var(--rj-text-muted)",
     flex: "none",
     textAlign: "center",
   };
   const sliderStyle: React.CSSProperties = {
     flex: 1,
     height: 20,
-    accentColor: "#5f554d",
+    accentColor: "var(--rj-action)",
   };
   const sliderValueStyle: React.CSSProperties = {
     width: 40,
     textAlign: "right",
     fontSize: 12,
-    color: "#4a463f",
+    color: "var(--rj-text-subtle)",
     fontFamily: "ui-monospace, monospace",
     flex: "none",
   };

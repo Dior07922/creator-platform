@@ -199,8 +199,8 @@ function screenToPaperLocal(sx: number, sy: number, stageEl: HTMLElement | null,
 }
 
 const HANDLE_HIT = 28;
-const SELECT_BLUE = "rgba(59,130,246,.85)";
-const SELECT_BLUE_BG = "rgba(59,130,246,.10)";
+const SELECT_BLUE = "rgba(115,143,161,.85)";
+const SELECT_BLUE_BG = "rgba(115,143,161,.10)";
 const LONG_PRESS_MS = 500;
 /* ★ 演示态「把工具栏叫回来」的手势：从屏幕最左边这一条起手，往右扫够这么远。
    起手区只有 24px，且只认"扫"（原地点击完全不拦），所以纸上的点击一点不受影响。 */
@@ -302,7 +302,7 @@ function renderShapeRaw(s: ShapeNode, selectedShapeId?: string | null) {
     fill: s.fill || "none",
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
-    filter: selectedShapeId === s.id ? "drop-shadow(0 0 4px #1E1C19)" : undefined,
+    filter: selectedShapeId === s.id ? "drop-shadow(0 0 4px #24333c)" : undefined,
     ...sid,
   };
   switch (s.kind) {
@@ -413,7 +413,7 @@ function renderShapeRaw(s: ShapeNode, selectedShapeId?: string | null) {
       if (!s.points || s.points.length < 2) return null;
 
       const filterStyle = selectedShapeId === s.id
-        ? { filter: "drop-shadow(0 0 4px #1E1C19)" }
+        ? { filter: "drop-shadow(0 0 4px #24333c)" }
         : undefined;
 
       // 组装输入点：[x, y, pressure]
@@ -1251,7 +1251,7 @@ export default function Editor({
     }
     const fontSize = 16;
     const node: TextNode = {
-      id, text: "", x: localX, y: localY, fontSize, color: "#1E1C19", layer,
+      id, text: "", x: localX, y: localY, fontSize, color: "#24333c", layer,
       fontFamily: currentFont,
     };
     const next = [...textsRef.current, node];
@@ -1260,7 +1260,7 @@ export default function Editor({
     const stageRect = stageRef.current?.getBoundingClientRect();
     const width = stageRect ? Math.min(stageRect.width - 20, 400) : 400;
     const height = fontSize * 1.6;
-    showFloatingEditor(screenX, screenY, width, height, fontSize, "#1E1C19", "");
+    showFloatingEditor(screenX, screenY, width, height, fontSize, "#24333c", "");
     focusFloatingEditor();
     setEditingId(id); editingIdRef.current = id;
   }
@@ -1319,17 +1319,17 @@ export default function Editor({
   }
   function styleForKind(kind: ShapeKind): { color: string; strokeWidth: number; opacity: number } {
     switch (kind) {
-      case "crayon":    return { color: "#1E1C19", strokeWidth: 8,   opacity: 0.7 };
-      case "sketch":    return { color: "#1E1C19", strokeWidth: 1.5, opacity: 0.85 };
-      case "marker":    return { color: "#1E1C19", strokeWidth: 10,  opacity: 1 };
-      case "pencil":    return { color: "#1E1C19", strokeWidth: 2,   opacity: 1 };
-      case "ink":       return { color: "#1E1C19", strokeWidth: 4,   opacity: 1 };
-      case "handwrite": return { color: "#1E1C19", strokeWidth: 3,   opacity: 0.92 };
+      case "crayon":    return { color: "#24333c", strokeWidth: 8,   opacity: 0.7 };
+      case "sketch":    return { color: "#24333c", strokeWidth: 1.5, opacity: 0.85 };
+      case "marker":    return { color: "#24333c", strokeWidth: 10,  opacity: 1 };
+      case "pencil":    return { color: "#24333c", strokeWidth: 2,   opacity: 1 };
+      case "ink":       return { color: "#24333c", strokeWidth: 4,   opacity: 1 };
+      case "handwrite": return { color: "#24333c", strokeWidth: 3,   opacity: 0.92 };
       case "highlight": return { color: "#ffe066", strokeWidth: 18,  opacity: 0.55 };
-      case "brush":     return { color: "#1E1C19", strokeWidth: 5,   opacity: 0.9 };
-      case "redpen":    return { color: "#B4544A", strokeWidth: 2,   opacity: 1 };
+      case "brush":     return { color: "#24333c", strokeWidth: 5,   opacity: 0.9 };
+      case "redpen":    return { color: "#a94c53", strokeWidth: 2,   opacity: 1 };
       case "free":
-      default:          return { color: "#1E1C19", strokeWidth: 3,   opacity: 1 };
+      default:          return { color: "#24333c", strokeWidth: 3,   opacity: 1 };
     }
   }
 
@@ -1832,7 +1832,7 @@ export default function Editor({
         .map((ln: string, i: number) => `<tspan x="${t.x}" dy="${i === 0 ? 0 : F * 1.4}">${escXml(ln)}</tspan>`)
         .join("");
       P.push(
-        `<text x="${t.x}" y="${(t.y ?? 0) + F}" font-size="${F}" fill="${escXml(t.color || "#1E1C19")}" ` +
+        `<text x="${t.x}" y="${(t.y ?? 0) + F}" font-size="${F}" fill="${escXml(t.color || "#24333c")}" ` +
         `font-family="${escXml(t.fontFamily || DEFAULT_FONT)}" xml:space="preserve">${spans}</text>`
       );
     }
@@ -1854,7 +1854,7 @@ export default function Editor({
         `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="6" fill="${escXml(n.bgColor || "#fff9c4")}"/>` +
         wrapForSvg(n.text, Math.max(8, n.w - 20), F)
           .map((ln: string, i: number) =>
-            `<text x="${n.x + 10}" y="${n.y + 10 + F * (1 + i * 1.4)}" font-size="${F}" fill="${escXml(n.textColor || "#1E1C19")}" xml:space="preserve">${escXml(ln)}</text>`)
+            `<text x="${n.x + 10}" y="${n.y + 10 + F * (1 + i * 1.4)}" font-size="${F}" fill="${escXml(n.textColor || "#24333c")}" xml:space="preserve">${escXml(ln)}</text>`)
           .join("") +
         `</g>`
       );
@@ -1866,16 +1866,16 @@ export default function Editor({
       const chh = t.h / Math.max(1, t.rows);
       const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
       const lines: string[] = [];
-      for (let c = 1; c < t.cols; c++) lines.push(`<line x1="${t.x + cw * c}" y1="${t.y}" x2="${t.x + cw * c}" y2="${t.y + t.h}" stroke="#1E1C19" stroke-width="1"/>`);
-      for (let r = 1; r < t.rows; r++) lines.push(`<line x1="${t.x}" y1="${t.y + chh * r}" x2="${t.x + t.w}" y2="${t.y + chh * r}" stroke="#1E1C19" stroke-width="1"/>`);
+      for (let c = 1; c < t.cols; c++) lines.push(`<line x1="${t.x + cw * c}" y1="${t.y}" x2="${t.x + cw * c}" y2="${t.y + t.h}" stroke="#24333c" stroke-width="1"/>`);
+      for (let r = 1; r < t.rows; r++) lines.push(`<line x1="${t.x}" y1="${t.y + chh * r}" x2="${t.x + t.w}" y2="${t.y + chh * r}" stroke="#24333c" stroke-width="1"/>`);
       const cells: string[] = [];
       for (let r = 0; r < t.rows; r++) for (let c = 0; c < t.cols; c++) {
         const v = t.cells?.[r]?.[c]; if (!v) continue;
-        cells.push(`<text x="${t.x + cw * c + 4}" y="${t.y + chh * r + 12}" font-size="12" fill="#1E1C19" xml:space="preserve">${escXml(v)}</text>`);
+        cells.push(`<text x="${t.x + cw * c + 4}" y="${t.y + chh * r + 12}" font-size="12" fill="#24333c" xml:space="preserve">${escXml(v)}</text>`);
       }
       P.push(
         `<g${rotAttr(t.rotate, cx, cy)}>` +
-        `<rect x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}" fill="#ffffff" stroke="#1E1C19" stroke-width="1.5"/>` +
+        `<rect x="${t.x}" y="${t.y}" width="${t.w}" height="${t.h}" fill="#ffffff" stroke="#24333c" stroke-width="1.5"/>` +
         lines.join("") + cells.join("") + `</g>`
       );
     }
@@ -1885,9 +1885,9 @@ export default function Editor({
       const cx = l.x + l.w / 2, cy = l.y + l.h / 2;
       P.push(
         `<g${rotAttr(l.rotate, cx, cy)}>` +
-        `<rect x="${l.x}" y="${l.y}" width="${l.w}" height="${l.h}" rx="8" fill="#EFEDE8" stroke="rgba(42,74,107,.3)" stroke-width="1"/>` +
-        `<text x="${l.x + 12}" y="${l.y + l.h / 2 - 2}" font-size="13" font-weight="600" fill="#1E1C19" xml:space="preserve">${escXml(l.title || l.url)}</text>` +
-        `<text x="${l.x + 12}" y="${l.y + l.h / 2 + 14}" font-size="11" fill="#8B857C" xml:space="preserve">${escXml(l.url)}</text>` +
+        `<rect x="${l.x}" y="${l.y}" width="${l.w}" height="${l.h}" rx="8" fill="#e6eaec" stroke="rgba(42,74,107,.3)" stroke-width="1"/>` +
+        `<text x="${l.x + 12}" y="${l.y + l.h / 2 - 2}" font-size="13" font-weight="600" fill="#24333c" xml:space="preserve">${escXml(l.title || l.url)}</text>` +
+        `<text x="${l.x + 12}" y="${l.y + l.h / 2 + 14}" font-size="11" fill="#68767e" xml:space="preserve">${escXml(l.url)}</text>` +
         `</g>`
       );
     }
@@ -1985,7 +1985,7 @@ export default function Editor({
           text,
           x: cx, y: cy,
           fontSize: 18,
-          color: "#1E1C19",
+          color: "#24333c",
           layer: "background",
         };
         onUpdateRef.current({ texts: [...textsRef.current, node] });
@@ -4217,6 +4217,16 @@ export default function Editor({
       },
       /* 导出原先挂在长按弹窗上，现统一收进侧边栏「存」，由 SaveDrawer 调用这条命令 */
       exportCanvas: (format: "svg" | "png" | "png-transparent") => exportCanvas(format),
+      /* 取当前页的 SVG 文本（不下载）：导出分享面板生成网页文件 / 作品缩略图用。
+         transparent=true 时不铺纸面底色。 */
+      getPageSvg: (transparent?: boolean) => {
+        const stage = stageRef.current;
+        if (!stage) return null;
+        const pg = pageRef.current as any;
+        const W = Math.max(1, Math.round(pg.paperW || stage.clientWidth || 800));
+        const H = Math.max(1, Math.round(pg.paperH || stage.clientHeight || 1000));
+        return buildPageSvg(W, H, !transparent);
+      },
       eraser: () => onDrawToolChangeRef.current?.("eraser"),
       selectAll: () => {
         const sr = stageRef.current?.getBoundingClientRect();
@@ -4992,15 +5002,15 @@ function handleSheetAction(kind: string) {
               gridTemplateColumns: `repeat(${t.cols}, 1fr)`,
               pointerEvents: "none",
               transform: `rotate(${t.rotate || 0}deg)`, transformOrigin: "center center",
-              border: "1.5px solid #1E1C19",
+              border: "1.5px solid #24333c",
               boxSizing: "border-box", background: "#ffffff",
             }}
           >
             {Array.from({ length: t.rows }).map((_, r) =>
               Array.from({ length: t.cols }).map((__, c) => (
                 <div key={`${r}-${c}`} style={{
-                  borderRight: c < t.cols - 1 ? "1px solid #1E1C19" : "none",
-                  borderBottom: r < t.rows - 1 ? "1px solid #1E1C19" : "none",
+                  borderRight: c < t.cols - 1 ? "1px solid #24333c" : "none",
+                  borderBottom: r < t.rows - 1 ? "1px solid #24333c" : "none",
                   fontSize: 12, padding: 4, boxSizing: "border-box", overflow: "hidden",
                 }}>{t.cells[r]?.[c] || ""}</div>
               ))
@@ -5013,7 +5023,7 @@ function handleSheetAction(kind: string) {
             style={{
               position: "absolute", zIndex: l.z ?? Z_LINK,
               left: l.x, top: l.y, width: l.w, height: l.h,
-              background: "#EFEDE8", color: "#1E1C19",
+              background: "#e6eaec", color: "#24333c",
               transform: `rotate(${l.rotate || 0}deg)`, transformOrigin: "center center",
               border: "1px solid rgba(42,74,107,.3)",
               borderRadius: 8, padding: "8px 12px", boxSizing: "border-box",
@@ -5023,7 +5033,7 @@ function handleSheetAction(kind: string) {
             }}
           >
             <div style={{ fontWeight: 600, fontSize: 13 }}>{l.title || l.url}</div>
-            <div style={{ fontSize: 11, color: "#8B857C", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
+            <div style={{ fontSize: 11, color: "#68767e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
           </div>
         ))}
         <svg
@@ -5065,7 +5075,7 @@ function handleSheetAction(kind: string) {
             transform: `rotate(${im.rotate || 0}deg)`,
             transformOrigin: "center center",
             pointerEvents: "none",
-            boxShadow: selectedEl?.type === "image" && selectedEl.id === im.id ? "0 0 0 2px #1E1C19" : "none",
+            boxShadow: selectedEl?.type === "image" && selectedEl.id === im.id ? "0 0 0 2px #24333c" : "none",
           }}
         />
       ))}
@@ -5085,7 +5095,7 @@ function handleSheetAction(kind: string) {
             overflow: "hidden", whiteSpace: "pre-wrap",
             pointerEvents: "none",
             boxShadow: selectedEl?.type === "note" && selectedEl.id === n.id
-              ? "0 0 0 2px #1E1C19, 0 2px 8px rgba(0,0,0,.08)"
+              ? "0 0 0 2px #24333c, 0 2px 8px rgba(0,0,0,.08)"
               : "0 2px 8px rgba(0,0,0,.08)",
           }}
         >{n.text}</div>
@@ -5104,8 +5114,8 @@ function handleSheetAction(kind: string) {
             transform: `rotate(${t.rotate || 0}deg)`,
             transformOrigin: "center center",
             border: selectedEl?.type === "table" && selectedEl.id === t.id
-              ? "2px solid #1E1C19"
-              : "1.5px solid #1E1C19",
+              ? "2px solid #24333c"
+              : "1.5px solid #24333c",
             boxSizing: "border-box",
             background: "#ffffff",
           }}
@@ -5113,8 +5123,8 @@ function handleSheetAction(kind: string) {
           {Array.from({ length: t.rows }).map((_, r) =>
             Array.from({ length: t.cols }).map((__, c) => (
               <div key={`${r}-${c}`} style={{
-                borderRight: c < t.cols - 1 ? "1px solid #1E1C19" : "none",
-                borderBottom: r < t.rows - 1 ? "1px solid #1E1C19" : "none",
+                borderRight: c < t.cols - 1 ? "1px solid #24333c" : "none",
+                borderBottom: r < t.rows - 1 ? "1px solid #24333c" : "none",
                 fontSize: 12, padding: 4, boxSizing: "border-box",
                 overflow: "hidden",
               }}>{t.cells[r]?.[c] || ""}</div>
@@ -5129,11 +5139,11 @@ function handleSheetAction(kind: string) {
             position: "absolute",
             zIndex: l.z ?? Z_LINK,
             left: l.x, top: l.y, width: l.w, height: l.h,
-            background: "#EFEDE8", color: "#1E1C19",
+            background: "#e6eaec", color: "#24333c",
             transform: `rotate(${l.rotate || 0}deg)`,
             transformOrigin: "center center",
             border: selectedEl?.type === "link" && selectedEl.id === l.id
-              ? "2px solid #1E1C19"
+              ? "2px solid #24333c"
               : "1px solid rgba(42,74,107,.3)",
             borderRadius: 8, padding: "8px 12px", boxSizing: "border-box",
             fontSize: 13, overflow: "hidden",
@@ -5142,7 +5152,7 @@ function handleSheetAction(kind: string) {
           }}
         >
           <div style={{ fontWeight: 600, fontSize: 13 }}>{l.title || l.url}</div>
-          <div style={{ fontSize: 11, color: "#8B857C", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
+          <div style={{ fontSize: 11, color: "#68767e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div>
         </div>
       ))}
       <svg
@@ -5165,7 +5175,7 @@ function handleSheetAction(kind: string) {
         {shapes.filter((s) => s.layer === "paper").map((s) => renderShape(s, selectedEl?.type === "shape" ? selectedEl.id : null))}
         {draft && renderShape(draft)}
         {/* 元素连线渲染 —— 关系系统：带方向 + 关系词标签 + 类型视觉差异
-            relType：story=实线箭头（叙事推进）/ display=虚线细线（解释标注）/ flow=粗线（触发跳转）/ page=金色虚线（跨页） */}
+            relType：story=实线箭头（叙事推进）/ display=虚线细线（解释标注）/ flow=粗线（触发跳转）/ page=浅蓝虚线（跨页） */}
         {(page.elementLinks || []).map((link: any) => {
           // 老数据缺 fromId 时跳过，不迁移不报错
           if (!link.fromId || !link.fromType) return null;
@@ -5173,10 +5183,10 @@ function handleSheetAction(kind: string) {
           const b = centerOf(link.targetType, link.targetId);
           if (!a || !b) return null;
           const rel = link.relType || "display";
-          const color = rel === "story" ? "rgba(122,90,52,0.95)"
-            : rel === "flow" ? "rgba(58,53,46,0.9)"
-            : rel === "page" ? "rgba(201,168,124,0.9)"
-            : "rgba(201,168,124,0.7)";
+          const color = rel === "story" ? "rgba(115,143,161,0.95)"
+            : rel === "flow" ? "rgba(32,49,57,0.9)"
+            : rel === "page" ? "rgba(152,179,195,0.9)"
+            : "rgba(152,179,195,0.7)";
           const width = rel === "flow" ? 3.5 : rel === "story" ? 2 : 1.2;
           const dash = rel === "display" ? "5 4" : rel === "page" ? "8 4" : "none";
           const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
@@ -5206,7 +5216,7 @@ function handleSheetAction(kind: string) {
               {link.label && (playingIdx < 0 || linkOn) && (
                 <g>
                   <rect x={mx - link.label.length * 5 - 4} y={my - 11} width={link.label.length * 10 + 8} height={16}
-                    rx={4} fill="#FAF9F6" stroke={color} strokeWidth={0.8} />
+                    rx={4} fill="#f8f8f6" stroke={color} strokeWidth={0.8} />
                   <text x={mx} y={my} fontSize={10} fill={color} textAnchor="middle" dominantBaseline="central"
                     fontFamily="serif">{link.label}</text>
                 </g>
@@ -5226,9 +5236,9 @@ function handleSheetAction(kind: string) {
           return (
             <g style={{ pointerEvents: "none" }}>
               {/* 两端微牵引：端点圆环 */}
-              <circle cx={fx} cy={fy} r={5} fill="none" stroke="rgba(201,168,124,0.9)" strokeWidth={1.5}
+              <circle cx={fx} cy={fy} r={5} fill="none" stroke="rgba(115,143,161,0.9)" strokeWidth={1.5}
                 style={{ animation: "ranjingLinkGrow 0.9s ease-out forwards" }} />
-              <circle cx={tx} cy={ty} r={5} fill="none" stroke="rgba(201,168,124,0.9)" strokeWidth={1.5}
+              <circle cx={tx} cy={ty} r={5} fill="none" stroke="rgba(115,143,161,0.9)" strokeWidth={1.5}
                 style={{ animation: "ranjingLinkGrow 0.9s ease-out forwards" }} />
               {/* 线生长：dasharray=全长，dashoffset 内联从全长→0（CSS transition 驱动） */}
               {(() => {
@@ -5236,7 +5246,7 @@ function handleSheetAction(kind: string) {
                 return (
                   <line
                     x1={fx} y1={fy} x2={tx} y2={ty}
-                    stroke="rgba(201,168,124,1)" strokeWidth={1.6}
+                    stroke="rgba(115,143,161,1)" strokeWidth={1.6}
                     strokeLinecap="round"
                     strokeDasharray={`${ln}`}
                     strokeDashoffset={ln}
@@ -5251,7 +5261,7 @@ function handleSheetAction(kind: string) {
               {/* 箭头渐显 */}
               <polygon
                 points={`${tx},${ty} ${tx + 5 * Math.sin(ang)},${ty - 5 * Math.cos(ang)} ${tx - 5 * Math.sin(ang)},${ty - 5 * Math.cos(ang)}`}
-                fill="rgba(201,168,124,0.95)"
+                fill="rgba(115,143,161,0.95)"
                 style={{ animation: "ranjingLinkFade 0.9s ease-out forwards" }}
               />
             </g>
@@ -5273,8 +5283,8 @@ function handleSheetAction(kind: string) {
             <rect
               x={u.bbox?.x ?? 0} y={u.bbox?.y ?? 0}
               width={u.bbox?.w ?? 0} height={u.bbox?.h ?? 0}
-              fill="rgba(201,168,124,0.12)"
-              stroke="rgba(201,168,124,0.9)"
+              fill="rgba(115,143,161,0.12)"
+              stroke="rgba(115,143,161,0.9)"
               strokeWidth={2}
               strokeDasharray="4 3" rx={3}
               style={{ transition: "stroke .1s, fill .1s" }}
@@ -5294,8 +5304,8 @@ function handleSheetAction(kind: string) {
             <g key={f.id} opacity={dim ? 0.25 : 1} style={{ transition: "opacity 0.4s" }}>
               <rect
                 x={f.x} y={f.y} width={f.w} height={f.h}
-                fill={isHot ? "rgba(201,168,124,0.15)" : "none"}
-                stroke={isHot ? "rgba(201,168,124,1)" : "rgba(201,168,124,0.55)"}
+                fill={isHot ? "rgba(115,143,161,0.15)" : "none"}
+                stroke={isHot ? "rgba(115,143,161,1)" : "rgba(115,143,161,0.55)"}
                 strokeWidth={isHot ? 3 : 1.5}
                 strokeDasharray={isHot ? "none" : "6 4"}
                 style={{ transition: "stroke 0.3s, stroke-width 0.3s, fill 0.3s" }}
@@ -5307,7 +5317,7 @@ function handleSheetAction(kind: string) {
                 <rect key={u.id}
                   x={u.bbox?.x ?? 0} y={u.bbox?.y ?? 0}
                   width={u.bbox?.w ?? 0} height={u.bbox?.h ?? 0}
-                  fill="none" stroke="rgba(201,168,124,0.9)" strokeWidth={1.5}
+                  fill="none" stroke="rgba(115,143,161,0.9)" strokeWidth={1.5}
                   rx={3} opacity={0.4 + 0.2 * Math.min(ui, 2)}
                 />
               ))}
@@ -5328,7 +5338,7 @@ function handleSheetAction(kind: string) {
               }}>
                 <text
                   x={f.x + 10} y={f.y + 22} fontSize="13"
-                  fill={playingIdx === seqIdx ? "rgba(122,90,52,1)" : "rgba(201,168,124,0.8)"}
+                  fill={playingIdx === seqIdx ? "rgba(115,143,161,1)" : "rgba(115,143,161,0.8)"}
                   fontFamily="serif" style={{ cursor: "pointer" }}
                 >
                   {String(storyNo).padStart(2, "0")}
@@ -5672,6 +5682,7 @@ function handleSheetAction(kind: string) {
     <div
       ref={stageRef}
       data-stage
+      data-ran-space={stageColor.toUpperCase() === "#F5F7FA" && stageAlpha === 1 ? "ambient" : "custom"}
       style={{
         flex: 1, minHeight: 0, position: "relative", overflow: "hidden",
         background: toRgba(stageColor, stageAlpha),
@@ -5699,8 +5710,8 @@ function handleSheetAction(kind: string) {
       {canvasFlash && (
         <div style={{
           position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)",
-          padding: "6px 14px", borderRadius: 999, background: "rgba(122,90,52,0.92)",
-          color: "#FAF9F6", fontSize: 12, fontWeight: 500, letterSpacing: "0.02em",
+          padding: "6px 14px", borderRadius: 999, background: "rgba(32,49,57,0.92)",
+          color: "#f7fbfd", fontSize: 12, fontWeight: 500, letterSpacing: "0.02em",
           pointerEvents: "none", zIndex: 20,
           animation: "ranjingFlashIn .2s ease-out",
         }}>{canvasFlash}</div>
@@ -5721,7 +5732,7 @@ function handleSheetAction(kind: string) {
             /* 有草稿在搭时，已存的那些【适当弱化】，当前这条突出（用户要求三.3） */
             const dim = !L.now && connLines.some((x) => x.now);
             const op = dim ? 0.3 : (L.back ? 0.85 : 1);
-            const col = `rgba(122,90,52,${(L.back ? 0.55 : 0.92) * op})`;
+            const col = `rgba(115,143,161,${(L.back ? 0.55 : 0.92) * op})`;
             return (
               <g key={L.id} opacity={dim ? 0.45 : 1}>
                 <path
@@ -5749,10 +5760,10 @@ function handleSheetAction(kind: string) {
               /* ★ 1:1 贴边：不再往外让 4px（用户：「太大了…要 1:1」） */
               left: m.x, top: m.y, width: m.w, height: m.h,
               boxSizing: "border-box",
-              border: m.now ? "2.5px solid rgba(122,90,52,.98)" : "2px solid rgba(122,90,52,.7)",
+              border: m.now ? "2.5px solid rgba(115,143,161,.98)" : "2px solid rgba(115,143,161,.7)",
               borderRadius: 5,
-              background: m.now ? "rgba(122,90,52,.12)" : "rgba(122,90,52,.06)",
-              boxShadow: m.now ? "0 0 0 4px rgba(122,90,52,.18)" : "none",
+              background: m.now ? "rgba(115,143,161,.12)" : "rgba(115,143,161,.06)",
+              boxShadow: m.now ? "0 0 0 4px rgba(115,143,161,.18)" : "none",
               transition: "border-color .18s ease-out, background .18s ease-out",
             }} />
           ))}
@@ -5764,8 +5775,8 @@ function handleSheetAction(kind: string) {
         <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 11 }}>
           <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "visible" }}>
             <line x1={rotHandle.cx} y1={rotHandle.cy} x2={rotHandle.hx} y2={rotHandle.hy}
-              stroke="rgba(59,130,246,.5)" strokeWidth={1.5} strokeDasharray="4 4" />
-            <circle cx={rotHandle.cx} cy={rotHandle.cy} r={3} fill="rgba(59,130,246,.8)" />
+              stroke="rgba(115,143,161,.5)" strokeWidth={1.5} strokeDasharray="4 4" />
+            <circle cx={rotHandle.cx} cy={rotHandle.cy} r={3} fill="rgba(115,143,161,.8)" />
           </svg>
         </div>
       )}
@@ -5780,12 +5791,12 @@ function handleSheetAction(kind: string) {
             position: "absolute",
             left: rotHandle.hx - 22, top: rotHandle.hy - 22,
             width: 44, height: 44, borderRadius: 999,   /* 44 = 手指够得着的下限 */
-            background: "rgba(255,253,250,.96)",
-            border: "2px solid #1E1C19",
+            background: "rgba(248,249,247,.96)",
+            border: "2px solid #24333c",
             boxShadow: "0 2px 10px rgba(0,0,0,.18)",
             cursor: "grab", touchAction: "none", zIndex: 12,
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 17, color: "#1E1C19", userSelect: "none",
+            fontSize: 17, color: "#24333c", userSelect: "none",
           }}
         >↻</div>
       )}
@@ -5828,7 +5839,7 @@ function handleSheetAction(kind: string) {
         if (papersPickable) {
           style.pointerEvents = "auto";
           style.cursor = "pointer";
-          style.boxShadow = `0 0 0 2px rgba(122,90,52,.45), 0 4px 24px rgba(0,0,0,.1)`;
+          style.boxShadow = `0 0 0 2px rgba(115,143,161,.45), 0 4px 24px rgba(0,0,0,.1)`;
         }
         return (
           <div
@@ -5899,6 +5910,7 @@ function handleSheetAction(kind: string) {
       ) : (
         <div
           data-paper
+          data-ran-full-paper={paperColor.toLowerCase() === "#ffffff" && paperAlpha === 1 ? "default-white" : "user-color"}
           style={{
             position: "absolute",
             inset: 0,
@@ -5929,8 +5941,8 @@ function handleSheetAction(kind: string) {
         >
           <polyline
             points={lassoPath.map((p) => `${p.x},${p.y}`).join(" ")}
-            fill="rgba(201,168,124,0.08)"
-            stroke="rgba(201,168,124,0.9)"
+            fill="rgba(115,143,161,0.08)"
+            stroke="rgba(115,143,161,0.9)"
             strokeWidth={2}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -5960,7 +5972,7 @@ function handleSheetAction(kind: string) {
                   position: "absolute",
                   left: cx - 10, top: cy - 10, width: 20, height: 20,
                   borderRadius: 4,
-                  background: "#4C4842",
+                  background: "#536571",
                   border: "2px solid #fff",
                   pointerEvents: "none",
                   zIndex: 151,
@@ -5986,29 +5998,29 @@ function handleSheetAction(kind: string) {
               top: Math.max(8, Math.min(boxPopup.y, window.innerHeight - 120)),
               zIndex: 2491,
               display: "flex", gap: 6, padding: 6,
-              background: "rgba(251,250,247,.97)",
+              background: "var(--rj-surface-raised)",
               backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-              borderRadius: 12, boxShadow: "0 8px 28px rgba(58,53,46,.2)",
-              border: "1px solid rgba(74,70,63,.08)",
+              borderRadius: 12, boxShadow: "0 8px 28px var(--rj-panel-shadow)",
+              border: "1px solid var(--rj-line-soft)",
               maxWidth: 220,
             }}>
-            <div style={{ flex: "none", padding: "4px 8px", fontSize: 10, color: "#8B857C", alignSelf: "center", whiteSpace: "nowrap" }}>
+            <div style={{ flex: "none", padding: "4px 8px", fontSize: 10, color: "var(--rj-text-muted)", alignSelf: "center", whiteSpace: "nowrap" }}>
               {boxPopup.count} 个
             </div>
             <button type="button" onClick={() => { handleSheetAction("box-compose"); setBoxPopup(null); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "#1E1C19", color: "#fff", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "var(--rj-text)", color: "var(--rj-surface-raised)", fontSize: 12, cursor: "pointer" }}>
               组合
             </button>
             <button type="button" onClick={() => { handleSheetAction("box-chain-story"); setBoxPopup(null); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(122,90,52,.12)", color: "#4C4842", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "var(--rj-action-soft)", color: "var(--rj-text-subtle)", fontSize: 12, cursor: "pointer" }}>
               接着
             </button>
             <button type="button" onClick={() => { handleSheetAction("box-copy"); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(74,70,63,.06)", color: "#4C4842", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "var(--rj-line-soft)", color: "var(--rj-text-subtle)", fontSize: 12, cursor: "pointer" }}>
               复制
             </button>
             <button type="button" onClick={() => { handleSheetAction("box-delete"); }}
-              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "rgba(192,57,43,.1)", color: "#B4544A", fontSize: 12, cursor: "pointer" }}>
+              style={{ flex: "none", padding: "6px 10px", border: 0, borderRadius: 8, background: "var(--rj-danger-bg)", color: "var(--rj-danger)", fontSize: 12, cursor: "pointer" }}>
               删除
             </button>
           </div>
@@ -6031,17 +6043,17 @@ function handleSheetAction(kind: string) {
               left: Math.min(ctxMenu.x, window.innerWidth - 190),
               top: Math.min(ctxMenu.y, window.innerHeight - 280),
               zIndex: 2500, width: 180, padding: 6,
-              background: "rgba(251,250,247,.98)",
+              background: "var(--rj-surface-raised)",
               backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-              borderRadius: 12, boxShadow: "0 8px 32px rgba(58,53,46,.24)",
-              border: "1px solid rgba(74,70,63,.08)",
+              borderRadius: 12, boxShadow: "0 8px 32px var(--rj-panel-shadow)",
+              border: "1px solid var(--rj-line-soft)",
             }}>
             {ctxMenu.sub === "font" ? (
               /* ★ 字体：从原来那个独立小面板搬进来的（大 / 中 / 小）。
                  作用对象 = 这次长按的那一块文字。 */
               <>
                 <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
-                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 8px" }} />
                 {[{ label: "大", size: 28 }, { label: "中", size: 16 }, { label: "小", size: 12 }].map((f) => (
                   <CtxItem key={f.label} label={f.label}
                     onClick={() => {
@@ -6058,7 +6070,7 @@ function handleSheetAction(kind: string) {
                  它与其他类型之间可以整体换层，但单根笔迹无法插到图片中间。 */
               <>
                 <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
-                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 8px" }} />
                 <CtxItem label="置顶" onClick={() => { setCtxMenu(null); handleSheetAction("bring-front"); }} />
                 <CtxItem label="移上一下" onClick={() => { setCtxMenu(null); handleSheetAction("bring-forward"); }} />
                 <CtxItem label="移下一下" onClick={() => { setCtxMenu(null); handleSheetAction("send-backward"); }} />
@@ -6068,7 +6080,7 @@ function handleSheetAction(kind: string) {
               /* ★ 排列：只作用于当前被选对象，单对象长按也可用 */
               <>
                 <CtxItem label="← 返回" onClick={() => setCtxMenu({ ...ctxMenu, sub: undefined })} />
-                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 8px" }} />
                 <CtxItem label="左对齐" onClick={() => { setCtxMenu(null); handleSheetAction("align-left"); }} />
                 <CtxItem label="水平居中" onClick={() => { setCtxMenu(null); handleSheetAction("align-hcenter"); }} />
                 <CtxItem label="右对齐" onClick={() => { setCtxMenu(null); handleSheetAction("align-right"); }} />
@@ -6085,7 +6097,7 @@ function handleSheetAction(kind: string) {
                 <CtxItem label="删除" danger onClick={() => { setCtxMenu(null); onDeletePage?.(); }} />
                 <CtxItem label="复制" onClick={() => { setCtxMenu(null); onCopyPage?.(); }} />
                 <CtxItem label="粘贴" onClick={() => { setCtxMenu(null); onPastePage?.(ctxMenu.x, ctxMenu.y); }} />
-                <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
+                <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 8px" }} />
                 {/* 临摹素材作用于「这张纸」，所以放在长按白纸的菜单里 */}
                 <CtxItem label="导入临摹素材" onClick={pickTraceImage} />
               </>
@@ -6110,19 +6122,19 @@ function handleSheetAction(kind: string) {
                     连接以前只能加不能删，旧的一直堆着 —— 这是删的第二条入口。 */}
                 {connsOfElement.length > 0 && (
                   <>
-                    <div style={{ height: 1, background: "rgba(74,70,63,.08)", margin: "4px 8px" }} />
-                    <div style={{ padding: "2px 10px 4px", fontSize: 10.5, color: "#B7B1A8" }}>
+                    <div style={{ height: 1, background: "var(--rj-line-soft)", margin: "4px 8px" }} />
+                    <div style={{ padding: "2px 10px 4px", fontSize: 10.5, color: "var(--rj-placeholder)" }}>
                       它身上的连接（{connsOfElement.length} 条）
                     </div>
                     {connsOfElement.map((c) => (
                       <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "1px 6px 1px 10px" }}>
-                        <span style={{ flex: 1, fontSize: 11.5, color: "#4C4842", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{ flex: 1, fontSize: 11.5, color: "var(--rj-text-subtle)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {c.label}
                         </span>
                         <button
                           type="button"
                           onClick={() => { setCtxMenu(null); onDeleteInteraction?.(c.id); }}
-                          style={{ flex: "none", border: 0, borderRadius: 7, padding: "3px 9px", background: "rgba(192,57,43,.1)", color: "#B4544A", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                          style={{ flex: "none", border: 0, borderRadius: 7, padding: "3px 9px", background: "var(--rj-danger-bg)", color: "var(--rj-danger)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
                         >删</button>
                       </div>
                     ))}
@@ -6158,7 +6170,7 @@ function handleSheetAction(kind: string) {
           overflowX: "auto", overflowY: "hidden",
           boxSizing: "border-box",
           zIndex: 200,
-          color: "#1E1C19",
+          color: "#24333c",
           touchAction: "auto",
           userSelect: "text", WebkitUserSelect: "text",
         }}
@@ -6201,9 +6213,9 @@ function handleSheetAction(kind: string) {
               zIndex: 2601,
               display: "flex", alignItems: "center", gap: 6,
               padding: "5px 8px", borderRadius: 10,
-              background: "rgba(251,250,247,.96)",
-              boxShadow: "0 4px 16px rgba(58,53,46,.22)",
-              border: "1px solid rgba(74,70,63,.10)",
+              background: "var(--rj-surface-raised)",
+              boxShadow: "0 4px 16px var(--rj-panel-shadow)",
+              border: "1px solid rgba(83,101,113,.10)",
               touchAction: "none",
             }}
           >
@@ -6212,7 +6224,7 @@ function handleSheetAction(kind: string) {
               onPointerMove={onTraceHandleMove}
               onPointerUp={onTraceHandleUp}
               onPointerCancel={onTraceHandleUp}
-              style={{ cursor: "grab", fontSize: 14, lineHeight: 1, padding: "4px 6px", color: "#4C4842", touchAction: "none" }}
+              style={{ cursor: "grab", fontSize: 14, lineHeight: 1, padding: "4px 6px", color: "var(--rj-text-subtle)", touchAction: "none" }}
               title="拖动"
             >✥</div>
             <input
@@ -6225,7 +6237,7 @@ function handleSheetAction(kind: string) {
             <button
               type="button"
               onClick={() => setTraceImg(null)}
-              style={{ border: 0, background: "transparent", fontSize: 15, lineHeight: 1, color: "#8B857C", cursor: "pointer", padding: "2px 4px" }}
+              style={{ border: 0, background: "transparent", fontSize: 15, lineHeight: 1, color: "var(--rj-text-muted)", cursor: "pointer", padding: "2px 4px" }}
               title="关闭"
             >×</button>
           </div>
@@ -6242,7 +6254,7 @@ function CtxItem({ label, onClick, danger }: { label: string; onClick: () => voi
       style={{
         display: "block", width: "100%", height: 34, padding: "0 12px",
         border: 0, borderRadius: 8, background: "transparent",
-        color: danger ? "#B4544A" : "#1E1C19", fontSize: 13, cursor: "pointer",
+        color: danger ? "var(--rj-danger)" : "var(--rj-text)", fontSize: 13, cursor: "pointer",
         textAlign: "left", fontFamily: "inherit",
       }}>{label}</button>
   );
@@ -6280,7 +6292,7 @@ function TextElement({
         outline: isSelected
           ? `1px solid ${SELECT_BLUE}`
           : isDragging
-            ? "1px dashed rgba(95,85,77,.7)"
+            ? "1px dashed rgba(32,49,57,.7)"
             : "none",
         outlineOffset: 4,
         padding: 0,

@@ -1,0 +1,172 @@
+/*
+  苒境 RANJING — 创作工作台主题规范 C 冷蓝 / 珍珠雾
+  状态：用户已选定 C 配色（白天及夜间）；已冻结首页V3及四个作品排除在此全局主题范围外。
+  本文件只可挂载在 .rj-ui 容器，不可替换作品白纸/素材色值，不可全局 * 覆盖。
+  色彩建议面积比（视觉设计目标，非强制像素占比）：
+    中性珍珠雾底色和工作区 68%；浅/深面板表面 24%；冷蓝状态及主按键 6%；
+    点状焦点和强调光 2%。每个可见区域同一时间原则上仅一个主操作高亮。
+  选自已确认的四选一对比方案 C：--rj-action:#738fa1; --rj-action-hover:#88a8bb;
+  中文UI：系统无衬线优先，品牌衬/无衬由“存→设置”控制；不更改画布内文字。
+*/
+.rj-ui {
+  --rj-font-ui: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
+  --rj-font-brand-sans: var(--rj-font-ui);
+  --rj-font-brand-serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  --rj-radius-xs: 8px;
+  --rj-radius-sm: 12px;
+  --rj-radius-md: 16px;
+  --rj-radius-lg: 22px;
+  --rj-radius-pill: 999px;
+  --rj-spacing-1: 4px;
+  --rj-spacing-2: 8px;
+  --rj-spacing-3: 12px;
+  --rj-spacing-4: 16px;
+  --rj-spacing-5: 20px;
+  --rj-spacing-6: 28px;
+  --rj-touch-target: 44px;
+  --rj-ease: cubic-bezier(.23,.72,.22,1);
+  --rj-motion-short: 145ms;
+  --rj-motion-medium: 240ms;
+  --rj-motion-long: 520ms;
+  font-family: var(--rj-font-ui);
+  color:var(--rj-text);
+  background:var(--rj-app-bg);
+  accent-color:var(--rj-action);
+  color-scheme: light;
+}
+/* 一切组件色值必须使用语义变量；不许单独猜相近蓝色。 */
+.rj-ui[data-theme="light"] {
+  --rj-app-bg:#eef0f1;           /* 珍珠雾区域 */
+  --rj-app-bg-elevated:#f5f7f8;  /* 背景高光 */
+  --rj-app-bg-low:#e6eaec;       /* 背景远层 */
+  --rj-surface:#f8f8f6;          /* 导航、菜单 */
+  --rj-surface-raised:#ffffff;   /* 高级浮层、弹窗 */
+  --rj-surface-hover:#f1f5f7;
+  --rj-surface-pressed:#e9f0f3;
+  --rj-panel:rgba(248,249,247,.91);
+  --rj-panel-shadow:rgba(29,45,55,.11);
+  --rj-panel-stroke:rgba(196,207,212,.94);
+  --rj-line:#cad0d2;
+  --rj-line-soft:#d7dfe2;
+  --rj-line-strong:#aab8c0;
+  --rj-text:#24333c;
+  --rj-text-subtle:#536571;
+  --rj-text-muted:#68767e;
+  --rj-text-on-action:#f7fbfd;
+  --rj-placeholder:#8898a2;
+  --rj-action:#738fa1;          /* C冷蓝 已选 */
+  --rj-action-hover:#88a8bb;
+  --rj-action-pressed:#607e90;
+  --rj-action-soft:rgba(115,143,161,.16);
+  --rj-action-soft-hover:rgba(115,143,161,.24);
+  --rj-selection-bg:rgba(115,143,161,.15);
+  --rj-selection-stroke:#738fa1;
+  --rj-focus:#98b3c3;
+  --rj-focus-ring:rgba(152,179,195,.35);
+  --rj-input-bg:#ffffff;
+  --rj-input-stroke:#cbd5da;
+  --rj-disabled-bg:#eef1f3;
+  --rj-disabled-text:#93a2aa;
+  --rj-backdrop:rgba(31,44,51,.26);
+  --rj-shadow-sm:0 5px 16px rgba(32,49,57,.07);
+  --rj-shadow-md:0 15px 34px rgba(32,49,57,.11);
+  --rj-shadow-lg:0 28px 60px rgba(32,49,57,.15);
+  --rj-highlight:rgba(255,255,255,.87);
+  --rj-highlight-cool:rgba(179,208,222,.40);
+  --rj-success:#39765c;
+  --rj-success-bg:#e9f3ed;
+  --rj-warning:#956d27;
+  --rj-warning-bg:#fff7e6;
+  --rj-danger:#a94c53;
+  --rj-danger-bg:#faecec;
+  --rj-info:#496f85;
+  --rj-info-bg:#eaf1f5;
+  --rj-scroll-track:#ebeff0;
+  --rj-scroll-thumb:#aebec6;
+  --rj-link:#365f78;
+  --rj-overlay-scrim:rgba(23,35,42,.22);
+  color-scheme:light;
+}
+.rj-ui[data-theme="dark"] {
+  --rj-app-bg:#131a1e;
+  --rj-app-bg-elevated:#1b2429;
+  --rj-app-bg-low:#11171b;
+  --rj-surface:#1b252a;
+  --rj-surface-raised:#263238;
+  --rj-surface-hover:#29363d;
+  --rj-surface-pressed:#34434a;
+  --rj-panel:rgba(30,39,43,.95);
+  --rj-panel-shadow:rgba(0,0,0,.34);
+  --rj-panel-stroke:#39464d;
+  --rj-line:#39464d;
+  --rj-line-soft:#314047;
+  --rj-line-strong:#627581;
+  --rj-text:#e9f0f2;
+  --rj-text-subtle:#c2d0d6;
+  --rj-text-muted:#9fb0b7;
+  --rj-text-on-action:#f7fbfd;
+  --rj-placeholder:#80949e;
+  --rj-action:#738fa1;
+  --rj-action-hover:#88a8bb;
+  --rj-action-pressed:#607e90;
+  --rj-action-soft:rgba(115,143,161,.20);
+  --rj-action-soft-hover:rgba(115,143,161,.31);
+  --rj-selection-bg:rgba(115,143,161,.23);
+  --rj-selection-stroke:#9cb9c9;
+  --rj-focus:#a9c7d7;
+  --rj-focus-ring:rgba(152,179,195,.30);
+  --rj-input-bg:#222d32;
+  --rj-input-stroke:#52636c;
+  --rj-disabled-bg:#252e33;
+  --rj-disabled-text:#82939b;
+  --rj-backdrop:rgba(4,8,11,.65);
+  --rj-shadow-sm:0 5px 16px rgba(0,0,0,.17);
+  --rj-shadow-md:0 15px 34px rgba(0,0,0,.24);
+  --rj-shadow-lg:0 28px 60px rgba(0,0,0,.38);
+  --rj-highlight:rgba(255,255,255,.12);
+  --rj-highlight-cool:rgba(171,201,216,.16);
+  --rj-success:#9fd5b2;
+  --rj-success-bg:#213a30;
+  --rj-warning:#ead19c;
+  --rj-warning-bg:#3b3327;
+  --rj-danger:#e5a0a7;
+  --rj-danger-bg:#41282d;
+  --rj-info:#a4ccdf;
+  --rj-info-bg:#283d48;
+  --rj-scroll-track:#263238;
+  --rj-scroll-thumb:#617a88;
+  --rj-link:#a8d1e8;
+  --rj-overlay-scrim:rgba(0,0,0,.56);
+  color-scheme:dark;
+}
+/* 组件映射。全部限定 .rj-ui，防止污染已冻结的独立作品以及白纸自身。 */
+.rj-ui .rj-shell{color:var(--rj-text);background:var(--rj-app-bg);}
+.rj-ui .rj-shell--gradient{background:radial-gradient(ellipse at 50% 12%,var(--rj-app-bg-elevated),var(--rj-app-bg) 68%,var(--rj-app-bg-low));}
+.rj-ui .rj-drawer,.rj-ui .rj-panel{background:var(--rj-panel);border:1px solid var(--rj-panel-stroke);box-shadow:var(--rj-shadow-sm);}
+.rj-ui .rj-elevated,.rj-ui .rj-dialog{background:var(--rj-surface-raised);border:1px solid var(--rj-line);box-shadow:var(--rj-shadow-lg);border-radius:var(--rj-radius-lg);}
+.rj-ui .rj-label{color:var(--rj-text-subtle);}
+.rj-ui .rj-subtext{color:var(--rj-text-muted);}
+.rj-ui .rj-input{background:var(--rj-input-bg);color:var(--rj-text);border:1px solid var(--rj-input-stroke);border-radius:var(--rj-radius-sm);min-height:var(--rj-touch-target);padding:8px 12px;}
+.rj-ui .rj-input::placeholder{color:var(--rj-placeholder);}
+.rj-ui .rj-button{font:600 14px/1.3 var(--rj-font-ui);min-height:var(--rj-touch-target);padding:10px 15px;border:1px solid var(--rj-line);border-radius:var(--rj-radius-md);background:var(--rj-surface-raised);color:var(--rj-text);cursor:pointer;transition:background var(--rj-motion-short),border-color var(--rj-motion-short),box-shadow var(--rj-motion-short),transform var(--rj-motion-short);}
+.rj-ui .rj-button:hover:not(:disabled){background:var(--rj-surface-hover);}
+.rj-ui .rj-button:active:not(:disabled){transform:translateY(1px);background:var(--rj-surface-pressed);}
+.rj-ui .rj-button--primary,.rj-ui .rj-button[aria-pressed="true"]{background:var(--rj-action);border-color:var(--rj-action);color:var(--rj-text-on-action);}
+.rj-ui .rj-button--primary:hover:not(:disabled),.rj-ui .rj-button[aria-pressed="true"]:hover:not(:disabled){background:var(--rj-action-hover);}
+.rj-ui .rj-button--primary:active:not(:disabled){background:var(--rj-action-pressed);}
+.rj-ui .rj-button--soft{background:var(--rj-action-soft);border-color:transparent;}
+.rj-ui .rj-button--soft:hover:not(:disabled){background:var(--rj-action-soft-hover);}
+.rj-ui .rj-button--danger{color:var(--rj-danger);border-color:var(--rj-danger);background:var(--rj-danger-bg);}
+.rj-ui .rj-button--link{background:transparent;border-color:transparent;color:var(--rj-link);text-decoration:underline;text-underline-offset:3px;}
+.rj-ui .rj-button:disabled,.rj-ui .rj-input:disabled{background:var(--rj-disabled-bg);color:var(--rj-disabled-text);cursor:not-allowed;opacity:.75;}
+.rj-ui :is(.rj-button,.rj-input,a,[role="button"]):focus-visible{outline:2px solid var(--rj-focus);outline-offset:3px;box-shadow:0 0 0 5px var(--rj-focus-ring);}
+.rj-ui .rj-selected{outline:2px solid var(--rj-selection-stroke);box-shadow:0 0 0 5px var(--rj-selection-bg);}
+.rj-ui .rj-badge--success{color:var(--rj-success);background:var(--rj-success-bg);}
+.rj-ui .rj-badge--warning{color:var(--rj-warning);background:var(--rj-warning-bg);}
+.rj-ui .rj-badge--danger{color:var(--rj-danger);background:var(--rj-danger-bg);}
+.rj-ui .rj-badge--info{color:var(--rj-info);background:var(--rj-info-bg);}
+.rj-ui .rj-scroll{scrollbar-color:var(--rj-scroll-thumb) var(--rj-scroll-track);scrollbar-width:thin;}
+.rj-ui .rj-brand[data-font="sans"]{font-family:var(--rj-font-brand-sans);}
+.rj-ui .rj-brand[data-font="serif"]{font-family:var(--rj-font-brand-serif);}
+/* 作品白纸完全由用户项目编辑器控制。本主题故意不写任何 .rj-artboard / 用户元素规则；禁止对作品容器加filter或背景覆盖。 */
+@media (prefers-reduced-motion:reduce){.rj-ui .rj-button{transition:none!important;transform:none!important;}}

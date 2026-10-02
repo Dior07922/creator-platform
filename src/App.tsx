@@ -1,25 +1,49 @@
 "use client";
 
+/* 主程序外壳（第六步 + 第七步接线后）
+   屏幕：welcome → canvas（创作室常驻不卸载）→ login / space（会员开通）
+   场景：guardian（手绘小门 →「我只是互联网」复古电脑）
+        memory（保存页 → 记忆空间：本地记录 + 会员漫游）
+        murmur / unsent（记忆空间里的两个入口场景）
+   规则：
+     · 登录闸门只在点「导出分享」时出现（保存已改为纯本地）；
+     · 门=会员通道：门进电脑场景（source=door）；记忆空间的会员闸门直达价格清单（source=upgrade）；
+     · 场景都是同源 iframe 叠层，创作室在底下始终挂着，画不会丢。 */
 import { useState, useEffect, useRef, useCallback } from "react";
 import WelcomeScreen from "./screens/WelcomeScreen";
 import LoginScreen from "./screens/LoginScreen";
 import SpaceScreen from "./screens/SpaceScreen";
 import SaveGateDialog from "./components/SaveGateDialog";
+import SceneHost from "./components/SceneHost";
+import MemorySpace from "./screens/MemorySpace";
 import CreationLocalRoom from "./components/creation/CreationLocalRoom";
 import { API_BASE } from "./lib/apiBase";
 
 type Screen = "welcome" | "canvas" | "login" | "space";
+type Scene =
+  | { kind: "guardian"; entry: "door" | "upgrade" }
+  | { kind: "memory"; open?: "member" }
+  | { kind: "murmur" }
+  | { kind: "unsent" };
+
+/* 退出消息两种拼写都认：复古电脑用 CustomEvent 名 ranjing:scene-exit（冒号），
+   碎碎念之神 / 发不出去的信息用 ranjing-scene-exit（连字符）。各自是原型的契约，不改它们。 */
+function isSceneExit(type: string) {
+  return type === "ranjing:scene-exit" || type === "ranjing-scene-exit";
+}
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
-  /* 全屏「开门」过渡动画状态 */
-  const [isOpeningDoor, setIsOpeningDoor] = useState(false);
-  /* 保存闸门 */
+  /* 场景叠层（栈式）：后进的在上面，退出只关自己及更上面的 */
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  /* 导出分享的登录闸门 */
   const [saveGate, setSaveGate] = useState(false);
-  /* 登录后回哪里：save=画布继续保存，space=回会员空间继续购买 */
-  const [returnTo, setReturnTo] = useState<"save" | "space" | null>(null);
+  /* 登录后回哪里：export=回创作室弹导出分享，space=回会员开通页 */
+  const [returnTo, setReturnTo] = useState<"export" | "space" | null>(null);
+  /* +1 → 创作室把导出分享面板弹出来（登录完成后走这条） */
+  const [exportKey, setExportKey] = useState(0);
   const [saveTip, setSaveTip] = useState("");
-  /* 会员状态：画布的素材库门禁读它。未登录/未开通 = false。 */
+  /* 会员状态：记忆空间会员漫游读它。未登录/未开通 = false。 */
   const [isVip, setIsVip] = useState(false);
 
   /* 画布只在客户端挂载：避免服务端渲染时访问 localStorage（localDocuments）
@@ -31,6 +55,9 @@ export default function App() {
   useEffect(() => () => {
     if (tipTimerRef.current != null) window.clearTimeout(tipTimerRef.current);
   }, []);
+
+  const pushScene = useCallback((scene: Scene) => setScenes((prev) => [...prev, scene]), []);
+  const popScenesFrom = useCallback((index: number) => setScenes((prev) => prev.slice(0, index)), []);
 
   /* 读会员状态。任何失败都按「未开通」处理，不阻塞创作。 */
   const refreshMembership = useCallback(async () => {
@@ -46,7 +73,9 @@ export default function App() {
 
   useEffect(() => { void refreshMembership(); }, [refreshMembership]);
 
-  /* 支付宝回跳：/?payment=alipay&orderId=xxx → 查询支付结果 → 进会员空间 */
+  /* 支付宝回跳：/?payment=alipay&orderId=xxx → 查询支付结果
+     已支付：会员状态刷新 → 回创作室并直接打开记忆空间（手稿：开通后跳转 = 记忆空间 / 碎碎念之神）
+     未支付：回会员开通页，可重试 */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("payment") !== "alipay") return;
@@ -65,10 +94,15 @@ export default function App() {
           { cache: "no-store" }
         );
         const data = await res.json();
-        setScreen("space");
-        flashTip(res.ok && data.status === "Paid" ? "会员已开通" : "支付未完成");
-        /* 支付回跳后重读会员状态，让画布门禁立刻生效 */
-        void refreshMembership();
+        await refreshMembership();
+        if (res.ok && data.status === "Paid") {
+          setScreen("canvas");
+          setScenes([{ kind: "memory" }]);
+          flashTip("会员已开通，已为你打开记忆空间");
+        } else {
+          setScreen("space");
+          flashTip(res.ok ? "支付未完成" : "支付状态待确认");
+        }
       } catch {
         setScreen("space");
         flashTip("支付状态待确认");
@@ -83,19 +117,19 @@ export default function App() {
     tipTimerRef.current = window.setTimeout(() => { tipTimerRef.current = null; setSaveTip(""); }, 1800);
   }
 
-  /* 点「保存」：已登录直接保存；未登录走闸门 */
-  async function handleSave() {
+  /* 点「导出分享」：已登录直接弹面板；未登录先走登录流程（手稿第 ⑤ 步） */
+  async function handleExportShare() {
     try {
       const res = await fetch(`${API_BASE}/api/auth/me`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      if (data?.user) { flashTip("已保存"); return; }
+      if (data?.user) { setExportKey((k) => k + 1); return; }
     } catch { /* 网络异常按未登录处理 */ }
-    setReturnTo("save");
+    setReturnTo("export");
     setSaveGate(true);
   }
 
   return (
-    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "#F4F2EE", fontFamily: "'Nunito', sans-serif" }}>
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden", background: "var(--bg)", fontFamily: "'Nunito', sans-serif" }}>
       <div className="handbook-app relative flex flex-col bg-[var(--bg)] overflow-hidden" style={{ width: "100%", height: "100%", borderRadius: 0, border: 0, boxSizing: "border-box", boxShadow: "none" }}>
 
         {screen === "welcome" && <WelcomeScreen onEnter={() => setScreen("canvas")} />}
@@ -107,8 +141,9 @@ export default function App() {
               void refreshMembership();
               if (returnTo === "space") { setReturnTo(null); setScreen("space"); return; }
               setScreen("canvas");
-              if (returnTo === "save") { setReturnTo(null); flashTip("已保存"); }
+              if (returnTo === "export") { setReturnTo(null); setExportKey((k) => k + 1); }
             }}
+            onBack={() => { setReturnTo(null); setScreen("canvas"); }}
           />
         )}
 
@@ -127,10 +162,14 @@ export default function App() {
           >
             <CreationLocalRoom
               onBack={() => setScreen("welcome")}
-              onEnterSpace={() => setIsOpeningDoor(true)}
-              isVip={isVip}
-              onUpgradeVip={() => { setReturnTo("space"); setScreen("space"); }}
-              onSave={handleSave}
+              onEnterSpace={() => pushScene({ kind: "guardian", entry: "door" })}
+              onSave={() => flashTip("已保存到记忆空间")}
+              onExportShare={handleExportShare}
+              onOpenMemory={() => pushScene({ kind: "memory" })}
+              /* 制作 → 运动路径制作 → 进入想象连接（漫游页）：
+                 直接开优化版漫游页（记忆空间·会员漫游那一层），不再跳去旧的 /roam 静态页 */
+              onOpenRoam={() => pushScene({ kind: "memory", open: "member" })}
+              exportKey={exportKey}
             />
           </div>
         )}
@@ -151,7 +190,7 @@ export default function App() {
             zIndex: 4000,
             padding: "12px 24px",
             borderRadius: 12,
-            background: "rgba(58,53,46,.92)",
+            background: "rgba(32,49,57,.92)",
             color: "#fff",
             fontSize: 13,
             letterSpacing: ".08em",
@@ -165,82 +204,61 @@ export default function App() {
           />
         )}
 
-        {/* 全屏「开门」过渡动画：推开门 -> 光透进来 -> 进入空间 */}
-        {isOpeningDoor && (
-          <div style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "#121214",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            overflow: "hidden", perspective: "1200px"
-          }}>
-            {/* 左门 */}
-            <div style={{
-              position: "absolute", left: 0, top: 0, bottom: 0, width: "50%",
-              background: "linear-gradient(to right, #2a2a2a, #1a1a1a)",
-              borderRight: "1px solid rgba(201,168,124,.3)",
-              transformOrigin: "left center",
-              animation: "doorOpenLeft 1.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards",
-              zIndex: 1
-            }} />
-            {/* 右门 */}
-            <div style={{
-              position: "absolute", right: 0, top: 0, bottom: 0, width: "50%",
-              background: "linear-gradient(to left, #2a2a2a, #1a1a1a)",
-              borderLeft: "1px solid rgba(201,168,124,.3)",
-              transformOrigin: "right center",
-              animation: "doorOpenRight 1.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards",
-              zIndex: 1
-            }} />
-
-            {/* 门缝透出的光 */}
-            <div style={{
-              position: "absolute", left: "50%", top: "20%", bottom: "20%", width: "2px",
-              background: "#B08A4F",
-              boxShadow: "0 0 60px 30px rgba(201,168,124,.6)",
-              animation: "doorLight 1.2s ease-out forwards",
-              zIndex: 2,
-              pointerEvents: "none"
-            }} />
-
-            {/* 动画结束后的文字提示 */}
-            <div style={{
-              color: "#B08A4F", fontSize: 14, letterSpacing: "0.3em",
-              position: "absolute", bottom: "15%", zIndex: 3,
-              animation: "fadeIn 1.5s ease-out forwards"
-            }}>正在进入空间...</div>
-
-            {/* 动画关键帧 */}
-            <style>{`
-              @keyframes doorOpenLeft {
-                0% { transform: translateX(0) rotateY(0deg); }
-                100% { transform: translateX(-100%) rotateY(-30deg); opacity: 0; }
-              }
-              @keyframes doorOpenRight {
-                0% { transform: translateX(0) rotateY(0deg); }
-                100% { transform: translateX(100%) rotateY(30deg); opacity: 0; }
-              }
-              @keyframes doorLight {
-                0% { opacity: 0; width: 2px; box-shadow: none; }
-                40% { opacity: 1; width: 4px; box-shadow: 0 0 120px 60px rgba(201,168,124,.8); }
-                100% { opacity: 0; width: 200px; box-shadow: 0 0 200px 100px rgba(201,168,124,0); }
-              }
-              @keyframes fadeIn {
-                0% { opacity: 0; }
-                70% { opacity: 1; }
-                100% { opacity: 0; }
-              }
-            `}</style>
-
-            {/* 动画结束，进入空间 */}
-            <div
-              style={{ position: "absolute", inset: 0, zIndex: 0, animation: "doorOpenLeft 1.2s linear forwards" }}
-              onAnimationEnd={() => {
-                setIsOpeningDoor(false);
-                setScreen("space");
-              }}
+        {/* ── 场景叠层 ── */}
+        {scenes.map((scene, idx) => {
+          if (scene.kind === "guardian") {
+            return (
+              <SceneHost
+                key={`guardian-${idx}`}
+                src={`/scenes/guardian.html${scene.entry === "upgrade" ? "?source=upgrade" : ""}`}
+                title="我只是互联网"
+                onEvent={(msg) => {
+                  if (isSceneExit(msg.type)) popScenesFrom(idx);
+                  else if (msg.type === "ranjing-buy") { popScenesFrom(idx); setScreen("space"); }
+                }}
+              />
+            );
+          }
+          if (scene.kind === "memory") {
+            return (
+              <MemorySpace
+                key={`memory-${idx}`}
+                isMember={isVip}
+                initialMode={scene.open === "member" ? "A" : undefined}
+                onClose={() => popScenesFrom(idx)}
+                onOpenWork={(workId) => {
+                  popScenesFrom(idx);
+                  (window as unknown as { __ranjingOpenWork?: (id: string) => void }).__ranjingOpenWork?.(workId);
+                }}
+                onNeedMembership={() => {
+                  /* 非会员点「体验会员漫游」：大厅收起，直接开复古电脑（source=upgrade
+                     会跳过寒暄、落在 B 价格清单），形成 记忆空间 → 电脑 → 开通 → 购买页 一条链 */
+                  popScenesFrom(idx);
+                  pushScene({ kind: "guardian", entry: "upgrade" });
+                }}
+                onOpenScene={(kind) => pushScene({ kind })}
+              />
+            );
+          }
+          if (scene.kind === "murmur") {
+            return (
+              <SceneHost
+                key={`murmur-${idx}`}
+                src="/scenes/murmur.html"
+                title="碎碎念之神"
+                onEvent={(msg) => { if (isSceneExit(msg.type)) popScenesFrom(idx); }}
+              />
+            );
+          }
+          return (
+            <SceneHost
+              key={`unsent-${idx}`}
+              src="/scenes/unsent.html"
+              title="发不出去的信息"
+              onEvent={(msg) => { if (isSceneExit(msg.type)) popScenesFrom(idx); }}
             />
-          </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );

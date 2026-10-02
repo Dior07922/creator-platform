@@ -1,4 +1,4 @@
-﻿// name=src/components/creation/CreationLocalRoom.tsx
+// name=src/components/creation/CreationLocalRoom.tsx
 import React, { useEffect, useRef, useState } from "react";
 import { makeEmptyDoc } from "../../lib/documents";
 import { loadLocalDoc, saveLocalDoc } from "../../lib/localDocuments";
@@ -6,35 +6,90 @@ import type { DocModel, Page, PageLink, ShapeKind, ShapeNode, TextNode, NoteNode
 import Editor from "./Editor";
 import type { BrushParams } from "./Editor";
 import {
-  ObjectDrawer, ShapeDrawer,
-  ColorDrawer, SpecDrawer, LockDrawer, FontDrawer,
+  ColorDrawer,
   SaveDrawer,
   BRUSH_DEFAULTS,
 } from "./CreationDrawer";
-import PageSheet from "./PageSheet";
+import { BoxDrawer, MakeDrawer } from "./SidePanelBodies";
 import { specScale } from "../../lib/paperSpecs";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import AssetBrowser from "./AssetBrowser";
+import ExportShareSheet from "./ExportShareSheet";
+import { getWork, saveWork, workDateLabel } from "../../lib/works";
 
-type Props = { onBack?: () => void; initialText?: string; docKey?: string; onEnterSpace?: (spaceId: string) => void; isVip?: boolean; onUpgradeVip?: () => void; onSave?: () => void };
+type Props = { onBack?: () => void; initialText?: string; docKey?: string; onEnterSpace?: (spaceId: string) => void; onSave?: () => void; onExportShare?: () => void; onOpenMemory?: () => void; onOpenRoam?: () => void; exportKey?: number };
 
-type SideKind = "lock" | "page" | "object" | "color" | "shape" | "font" | "spec" | "door" | "save";
+/** 保存作品时的兜底缩略图（画布还没准备好时用） */
+const FALLBACK_WORK_THUMB = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="640"><rect width="480" height="640" fill="#f4f6f7"/><text x="240" y="320" text-anchor="middle" font-family="serif" font-size="34" fill="#9fb0b9" letter-spacing="8">苒境</text></svg>`
+);
+
+/** 作品卡标题：优先文档名，其次第一段文字，最后兜底 */
+function pickWorkTitle(d: DocModel) {
+  if (d.title && d.title !== "未命名文档") return d.title;
+  for (const p of d.pages) {
+    const t = (p.texts || []).find((node) => node.text && node.text.trim());
+    const raw = t?.text || (typeof p.content === "string" ? p.content : "");
+    const s = (raw || "").trim().replace(/\s+/g, " ");
+    if (s) return s.length > 12 ? `${s.slice(0, 12)}…` : s;
+  }
+  return "未命名作品";
+}
+
+/* 第五步最终结构：四个类目 + 手绘小门（会员通道＋复古电脑）。
+   文具盒=做东西｜调色盘=给颜色和场景｜制作=让东西动起来｜保存=管理已做出来的东西。 */
+type SideKind = "box" | "palette" | "make" | "save" | "door";
 
 /** 演示态「左边缘往右滑」的方向提示播过没有（只播一次） */
 const DEMO_HINT_KEY = "ranjing.demoRailHintPlayed";
 
+/* 第三步C：抽屉自由推拉的宽度记忆（单位 px）
+   · FREE_W_KEY = 当前宽度（0 也可存：下次打开仍是收起的宽度起点）
+   · LAST_W_KEY = 最近一次展开宽（从 0 再拉开时回到这个宽度） */
+const FREE_W_KEY = "ranjing-drawer-c-free-width-px-v3";
+const LAST_W_KEY = "ranjing-drawer-c-last-expanded-width-v3";
+
+/** 进空间的门图标（从旧分支菜单搬来，跟文字同色） */
+const DOOR_GLYPH = (
+  <svg width="15" height="15" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" /><line x1="10" y1="0" x2="10" y2="20" stroke="currentColor" strokeWidth="1" /></svg>
+);
+
 
 const SIDE_ITEMS: { id: string; def: string; kind: SideKind }[] = [
-  { id: "spec",   def: "规格", kind: "spec" },
-  { id: "shape",  def: "笔",   kind: "shape" },
-  { id: "color",  def: "色",   kind: "color" },
-  { id: "font",   def: "字",   kind: "font" },
-  { id: "page",   def: "页",   kind: "page" },
-  { id: "lock",   def: "锁",   kind: "lock" },
-  { id: "save",   def: "存",   kind: "save" },
+  { id: "box",     def: "文具盒", kind: "box" },
+  { id: "palette", def: "调色盘", kind: "palette" },
+  { id: "make",    def: "制作",   kind: "make" },
+  { id: "save",    def: "保存",   kind: "save" },
 ];
 
 const LABELS_KEY = "ranjing.sideLabels";
+
+/** 第二步：界面主题只驱动软件外壳（读 ranjing:ui-theme：'dark'|'mist'|其它=跟随系统），
+ *  与首页V3同一约定、同一读写键；作品与纸张颜色不受影响。
+ *  导出给房间外的弹窗（如保存闸门）复用，保证夜里同一套深浅。 */
+export function useUiTheme(): "light" | "dark" {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem("ranjing:ui-theme"); } catch { /* 隐私模式读不到就跟随系统 */ }
+      const dark = saved === "dark" ? true : saved === "mist" ? false : mq.matches;
+      setTheme(dark ? "dark" : "light");
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    /* 存→界面设置 同页即时生效；跨标签页/多窗口由 storage 兜底 */
+    window.addEventListener("storage", apply);
+    window.addEventListener("ranjing:ui-settings", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+      window.removeEventListener("storage", apply);
+      window.removeEventListener("ranjing:ui-settings", apply);
+    };
+  }, []);
+  return theme;
+}
 
 function Confirm({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
   return (
@@ -69,8 +124,8 @@ function RenameDialog({ initial, onConfirm, onCancel }: { initial: string; onCon
           }}
           style={{
             width: "100%", height: 36, padding: "0 10px", boxSizing: "border-box",
-            border: "1px solid rgba(74,70,63,.2)", borderRadius: 8,
-            background: "#fff", color: "#1E1C19", fontSize: 14, outline: "none",
+            border: "1px solid var(--rj-line)", borderRadius: 8,
+            background: "var(--rj-surface-raised)", color: "var(--rj-text)", fontSize: 14, outline: "none",
             textAlign: "center", marginBottom: 14,
           }}
         />
@@ -121,94 +176,260 @@ function SideEntryButton({
 
   return (
     <button type="button" className={cls} style={style} onPointerDown={down} onClick={click}>
-      {glyph ? <span className="cd-branch-item-glyph">{glyph}</span> : null}
-      <span>{label}</span>
+      {glyph ? <span className="cd-side-glyph">{glyph}</span> : null}
+      {label ? <span>{label}</span> : null}
     </button>
   );
 }
 
-export default function CreationLocalRoom({ onBack, initialText, docKey, onEnterSpace, isVip, onUpgradeVip, onSave }: Props) {
+export default function CreationLocalRoom({ onBack, initialText, docKey, onEnterSpace, onSave, onExportShare, onOpenMemory, onOpenRoam, exportKey }: Props) {
+  const uiTheme = useUiTheme();
   useEffect(() => {
     ScreenOrientation.unlock().catch(() => {});
     return () => { ScreenOrientation.unlock().catch(() => {}); };
   }, []);
 
-  // 侧栏 Drawer 通用手势：跟手左滑收起 / 右滑展开（状态直接驱动 openDrawer，
-  // 不靠 220ms 延迟合成点击 .cd-collapse-handle —— 那是 desync 的根源）。
-  // 收起 = 面板完全滑出（translateX -110% + opacity 0），只露左侧收起把手。
-  /* P0-10：侧抽屉拖动中的视觉反馈（面板跟随手指位移），拖动结束清空 */
-  const [panelDrag, setPanelDrag] = useState<{ dx: number; closing: boolean } | null>(null);
-  void panelDrag; /* 视觉位移由 DOM 直接驱动，state 仅作占位避免未用变量 */
-  useEffect(() => {
-    let dragging = false;
-    let startX = 0;
-    let panel: HTMLElement | null = null;
-    let pid = -1;
-    let moved = false;
+  /* ══ ★ 第三步C：外沿工具列 + 抽屉自由推拉 ═══════════════════════════
+     宽度 0 ~ 上限逐像素跟手，松手【原地停住】—— 不吸附 / 不回弹 / 不跳档。
+     · 桌面：拖抽屉右缘的蓝色竖条(.cd-grip)；手机：不显示竖条 ——
+       手指在抽屉边缘 ±25px 透明热区横滑，或按住抽屉标题区拖
+     · 只有横向先动起来才进入推拉（先让位竖向滚动），不挡上下滚动
+     · 推到 0 = 收起：工具列贴回画布左缘，不留中缝 */
+  const railZoneRef = useRef<HTMLDivElement | null>(null);
+  /* 当前宽度：初值读上次记忆；0 也是合法值（上次就是收起的） */
+  const [drawerW, setDrawerW] = useState<number>(() => {
+    if (typeof window === "undefined") return 174;
+    try {
+      const raw = localStorage.getItem(FREE_W_KEY);
+      if (raw != null) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n >= 0) return n;
+      }
+    } catch { /* 隐私模式读不到 → 用默认宽 */ }
+    return window.innerWidth < 650 ? 116 : 174;
+  });
+  /* 拖动期间宽度只写这里 + DOM，不走 React render —— 跟手不跳的根源 */
+  const drawerWRef = useRef(drawerW);
+  const railResizingRef = useRef(false);
+  const lastExpandedRef = useRef(0);
+  /* 最近一次点开的外沿工具（从 0 再拉开时接回它；默认第一项「规格」） */
+  const lastSideToolRef = useRef<"box" | "palette" | "make" | "save">("box");
 
+  /** 默认宽度：手机 116 / 桌面 174（第三步C 规范） */
+  function defaultRailWidth() {
+    return typeof window !== "undefined" && window.innerWidth < 650 ? 116 : 174;
+  }
+  /** 上限：手机 min(204, 47vw) / 桌面 min(300, 33vw)；宽上限再留 68px 画布
+      注意：房间容器在欢迎页时是 display:none，量到 0 宽 —— 这时用窗口宽兜底 */
+  function railLimits() {
+    const zone = railZoneRef.current;
+    const zw = zone ? zone.clientWidth : 0;
+    const w = zw > 0 ? zw : (typeof window !== "undefined" ? window.innerWidth : 800);
+    const cap = w < 650 ? Math.min(204, Math.floor(w * 0.47)) : Math.min(300, Math.floor(w * 0.33));
+    return { max: Math.max(76, Math.min(w - 68, cap)) };
+  }
+  /** 拖动中只改 DOM：--rj-drawer-w + 两个状态类，逐像素跟手 */
+  function paintLive(w: number) {
+    drawerWRef.current = w;
+    const zone = railZoneRef.current;
+    if (!zone) return;
+    zone.style.setProperty("--rj-drawer-w", `${w}px`);
+    zone.classList.toggle("is-zero", w === 0);
+    zone.classList.toggle("is-narrow", w > 0 && w < 190);
+  }
+  /** 提交一次宽度：clamp → DOM → state → 记忆 */
+  function applyWidth(px: number, opt?: { persist?: boolean }) {
+    const w = Math.max(0, Math.min(railLimits().max, Math.round(px)));
+    paintLive(w);
+    setDrawerW(w);
+    if (w > 0) lastExpandedRef.current = w;
+    if (opt?.persist !== false) {
+      try {
+        localStorage.setItem(FREE_W_KEY, String(w));
+        if (w > 0) localStorage.setItem(LAST_W_KEY, String(lastExpandedRef.current));
+      } catch { /* 存不了就只在本次会话生效 */ }
+    }
+    return w;
+  }
+  /** 抽屉里没内容时推拉：把最近一次的工具接回来（默认规格） */
+  function ensureSideTool() {
+    const k = lastSideToolRef.current || "box";
+    setOpenDrawer((prev) => (prev === null ? k : prev));
+  }
+
+  useEffect(() => {
+    const zoneEl = railZoneRef.current;
+    if (!zoneEl) return;
+    const zone: HTMLDivElement = zoneEl;   /* 钉死非空：下面的闭包都要用它 */
+
+    let armed = false;
+    let active = false;
+    let startX = 0;
+    let startY = 0;
+    let startW = 0;
+    let pid = -1;
+    let touchId = -1;
+    let swallowUntil = 0;
+
+    /** 起手：量当前真实可见宽（没有面板=0），接回工具，进入拖动态 */
+    function begin() {
+      if (active) return;
+      active = true;
+      railResizingRef.current = true;
+      zone.classList.add("is-resizing");
+      document.body.style.userSelect = "none";
+      const panel = zone.querySelector(".cd-panel") as HTMLElement | null;
+      startW = panel ? Math.round(panel.getBoundingClientRect().width) : 0;
+      paintLive(startW);
+      ensureSideTool();
+    }
+    function move(x: number) {
+      /* 拖动期间只写 DOM（不 setState）—— 每帧 re-render 会跳、会卡 */
+      const w = Math.max(0, Math.min(railLimits().max, Math.round(startW + (x - startX))));
+      paintLive(w);
+    }
+    function end() {
+      if (!active) return;
+      active = false;
+      armed = false;
+      railResizingRef.current = false;
+      zone.classList.remove("is-resizing");
+      document.body.style.userSelect = "";
+      const w = drawerWRef.current;
+      if (w === 0) setOpenDrawer(null);   /* 推到 0 = 收起 */
+      applyWidth(w, { persist: true });   /* 松手：原地停住，只落记忆 */
+      swallowUntil = Date.now() + 350;    /* 手机：吞掉这一次合成的 click */
+    }
+
+    /* ── 桌面：蓝色竖条 pointer 拖动 ── */
     const onDown = (e: PointerEvent) => {
-      const target = e.target as HTMLElement;
-      // 展开态面板才允许拖；收起态（把手）是点击入口，不走拖动
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-      const p = target.closest(".cd-panel") as HTMLElement | null;
-      if (!p) return;
-      dragging = true;
-      moved = false;
-      startX = e.clientX;
+      if (e.pointerType === "touch") return;   /* 触屏走下面的 touch 分支 */
+      const t = e.target as HTMLElement;
+      if (!t.closest(".cd-grip")) return;
+      armed = true;
+      active = false;
       pid = e.pointerId;
-      panel = p;
+      startX = e.clientX;
+      startY = e.clientY;
+      e.preventDefault();
     };
     const onMove = (e: PointerEvent) => {
-      if (!dragging || !panel || e.pointerId !== pid) return;
-      const dx = e.clientX - startX;
-      if (!moved) {
-        if (Math.abs(dx) < 8) return;
-        moved = true;
-        panel.style.transition = "none";
-        try { panel.setPointerCapture(e.pointerId); } catch {}
+      if ((!armed && !active) || e.pointerId !== pid) return;
+      if (!active) {
+        if (Math.abs(e.clientX - startX) < 3) return;
+        begin();
       }
       e.preventDefault();
-      // 左右都跟手：向左滑(dx<0)→收起；向右滑(dx>0)→展开
-      const clamped = Math.min(0, Math.max(-400, dx)); // 只允许向左（收起方向）跟手
-      panel.style.transform = `translateX(${clamped}px)`;
-      panel.style.opacity = String(Math.max(0.25, 1 - Math.abs(clamped) / 400));
-      setPanelDrag({ dx: clamped, closing: true });
+      move(e.clientX);
     };
     const onUp = (e: PointerEvent) => {
-      if (!dragging || !panel || e.pointerId !== pid) return;
-      const p = panel;
-      const dx = e.clientX - startX;
-      const closed = dx < -60; // 简单阈值：向左超过 60px → 收起
-      p.style.transition = "transform 0.24s cubic-bezier(0.32,0.72,0,1), opacity 0.24s";
-      if (closed) {
-        p.style.transform = "translateX(-110%)";
-        p.style.opacity = "0";
-        setTimeout(() => {
-          // 直接驱动 React 状态收起，不靠合成点击（避免 openDrawer 与 DOM desync）
-          setOpenDrawer(null);
-          p.style.transform = "";
-          p.style.opacity = "";
-          setPanelDrag(null);
-        }, 220);
-      } else {
-        p.style.transform = "";
-        p.style.opacity = "";
-        setPanelDrag(null);
-      }
-      dragging = false;
-      panel = null;
+      if (e.pointerId !== pid) return;
       pid = -1;
+      if (armed || active) end();
+      armed = false;
     };
+
+    /* ── 手机：抽屉边缘 ±25px 热区 或 抽屉标题区（顶部 48px）横滑 ── */
+    const EDGE = 25;
+    function edgeX() {
+      const panel = zone.querySelector(".cd-panel") as HTMLElement | null;
+      if (panel) return panel.getBoundingClientRect().right;
+      return zone.getBoundingClientRect().left;   /* 没有面板：边缘就是画布左缘 */
+    }
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const t = e.target as HTMLElement;
+      const touch = e.touches[0];
+      const hitEdge = Math.abs(touch.clientX - edgeX()) <= EDGE;
+      let hitTitle = false;
+      if (!hitEdge) {
+        const panel = t.closest(".cd-panel") as HTMLElement | null;
+        /* 标题区拖动：不抢按钮/输入控件的操作 */
+        if (panel && !t.closest("input, textarea, select, button")) {
+          hitTitle = touch.clientY - panel.getBoundingClientRect().top <= 48;
+        }
+      }
+      if (!hitEdge && !hitTitle) return;
+      armed = true;
+      active = false;
+      touchId = touch.identifier;
+      startX = touch.clientX;
+      startY = touch.clientY;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!armed && !active) return;
+      let touch: Touch | null = null;
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === touchId) { touch = e.touches[i]; break; }
+      }
+      if (!touch) return;
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (!active) {
+        if (Math.abs(dy) > Math.abs(dx)) { armed = false; return; }  /* 竖滑优先：让给滚动 */
+        if (Math.abs(dx) < 5) return;
+        begin();
+      }
+      if (e.cancelable) e.preventDefault();
+      move(touch.clientX);
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      let alive = false;
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === touchId) { alive = true; break; }
+      }
+      if (alive) return;
+      touchId = -1;
+      if (armed || active) end();
+      armed = false;
+    };
+    /* 拖动结束后的那一下 click 不是用户想要的点击 —— 吞掉 */
+    const onClickCapture = (e: MouseEvent) => {
+      if (Date.now() < swallowUntil) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+
     document.addEventListener("pointerdown", onDown);
     document.addEventListener("pointermove", onMove, { passive: false });
     document.addEventListener("pointerup", onUp);
     document.addEventListener("pointercancel", onUp);
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false });
+    document.addEventListener("touchend", onTouchEnd);
+    document.addEventListener("touchcancel", onTouchEnd);
+    document.addEventListener("click", onClickCapture, true);
     return () => {
       document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onUp);
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onTouchEnd);
+      document.removeEventListener("touchcancel", onTouchEnd);
+      document.removeEventListener("click", onClickCapture, true);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* 挂载：读「最近展开宽」；窗口变小收回超上限的宽度 */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_W_KEY);
+      if (raw != null) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) lastExpandedRef.current = n;
+      }
+    } catch { /* 隐私模式 */ }
+    if (lastExpandedRef.current <= 0) lastExpandedRef.current = defaultRailWidth();
+    const fitted = applyWidth(drawerWRef.current, { persist: false });
+    drawerWRef.current = fitted;
+    const onResize = () => { applyWidth(drawerWRef.current, { persist: false }); };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const DOC_ID = docKey || "default-doc";
 
@@ -444,7 +665,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   const _curPage = doc.pages.find((p) => p.id === currentPageId) || null;
   const paperColor = _curPage?.paperColor ?? "#ffffff";
   const paperAlpha = _curPage?.paperAlpha ?? 1;
-  const [stageColor, setStageColor] = useState("#F4F2EE");
+  const [stageColor, setStageColor] = useState("#F5F7FA");
   const [stageAlpha, setStageAlpha] = useState(1);
   const [currentFont, setCurrentFont] = useState<string>('"Noto Sans SC", sans-serif');
   const [showAssets, setShowAssets] = useState(false);
@@ -472,7 +693,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   }
 
   const [openDrawer, setOpenDrawer] = useState<
-    "page" | "object" | "shape" | "color" | "spec" | "lock" | "font" | "save" | null
+    "box" | "palette" | "make" | "save" | null
   >(null);
 
   const [sideLabels, setSideLabels] = useState<Record<string, string>>(() => {
@@ -491,33 +712,25 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     });
   }
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
-  /* ★ 分支菜单：收起时侧边栏只有一个「点」，点开长出枝条。
-     选中任意一项、或抽屉一打开，就自动收回。 */
-  const [railOpen, setRailOpen] = useState(false);
-  useEffect(() => { if (openDrawer !== null) setRailOpen(false); }, [openDrawer]);
 
+  /* ★ 第四步重点：点外沿工具【直接切换】这个抽屉的内容 ——
+     不再「先开总菜单、再点一项、再重开」的反复开关。
+     第五步：外沿只剩四个类目（文具盒｜调色盘｜制作｜保存）＋手绘小门。
+     · 点已激活的那一项且抽屉没被推到 0 = 原地不动（不闪、不重开）
+     · 抽屉在 0（收起）时点任意工具 = 用最近的展开宽度把它拉回来
+     · 门 = 会员通道（会员漫游/复古电脑所在），永远留在最下面 */
   function onSideAction(kind: SideKind) {
-    switch (kind) {
-      case "lock":   setOpenDrawer("lock"); break;
-      case "page":   setOpenDrawer("page"); break;
-      case "object":
-        if (!isVip && onUpgradeVip) {
-          onUpgradeVip();
-          return;
-        }
-        setShowAssets(true);
-        break;
-      case "color":  setOpenDrawer("color"); break;
-      case "shape":  setOpenDrawer("shape"); break;
-      case "font":   setOpenDrawer("font"); break;
-      case "spec":   setOpenDrawer("spec"); break;
-      /* 「存」不再直接保存，改为打开存抽屉：保存 + 导出 SVG/PNG/透明 PNG */
-      case "save":   setOpenDrawer("save"); break;
-      case "door":
-        // 不再弹 WindowDrawer，直接触发进入空间
-        if (onEnterSpace) onEnterSpace("home");
-        break;
+    if (kind === "door") {
+      /* 门：直接回空间首页（不再弹 WindowDrawer） */
+      if (onEnterSpace) onEnterSpace("home");
+      return;
     }
+    lastSideToolRef.current = kind;
+    if (openDrawer === kind && drawerWRef.current > 0) return;   /* 已开：原地不动 */
+    setOpenDrawer(kind);
+    applyWidth(drawerWRef.current > 0
+      ? drawerWRef.current
+      : (lastExpandedRef.current || defaultRailWidth()));
   }
 
   const [pageClipboard, setPageClipboard] = useState<Page | null>(null);
@@ -593,7 +806,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             x: W / 2 - 40,
             y: H / 2 - 20,
             fontSize: 22,
-            color: "#1E1C19",
+            color: "#24333c",
             layer: "paper",
             fontFamily: currentFont,
           };
@@ -622,7 +835,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             y1: H / 2 - size / 2,
             x2: W / 2 + size / 2,
             y2: H / 2 + size / 2,
-            color: "#1E1C19",
+            color: "#24333c",
             strokeWidth: 2,
           };
           return { ...p, shapes: [...(p.shapes || []), shape], updatedAt: Date.now() };
@@ -791,6 +1004,61 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id]);
 
+  /* ── 第六步·保存到本地作品库（记忆空间读它） ──
+     缩略图直接取当前页的 SVG（同导出同源，不另做一套渲染）。 */
+  const [exportSheet, setExportSheet] = useState(false);
+
+  async function saveWorkNow() {
+    try {
+      const svg = (window as unknown as { __ranjingCommands?: { getPageSvg?: (t?: boolean) => string | null } }).__ranjingCommands?.getPageSvg?.(false);
+      const thumb = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : FALLBACK_WORK_THUMB;
+      const now = Date.now();
+      const prev = await getWork(doc.id).catch(() => null);
+      await saveWork({
+        id: doc.id,
+        title: pickWorkTitle(doc),
+        category: "草稿",
+        tags: `本地作品 / ${doc.pages.length} 页`,
+        dateLabel: workDateLabel(now),
+        description: "在苒境创作室保存的作品。点「继续创作」回到编辑器打开它。",
+        thumb,
+        doc: JSON.parse(JSON.stringify(doc)) as DocModel,
+        createdAt: prev?.createdAt ?? now,
+        updatedAt: now,
+      });
+      onSave?.();
+    } catch {
+      setSaveStatus("error");
+      setSaveError("本地作品保存失败（浏览器存储不可用）");
+    }
+  }
+
+  /* 记忆空间里点「继续创作」→ 主程序调这条命令把作品装回创作室 */
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__ranjingOpenWork = async (workId: string) => {
+      try {
+        const work = await getWork(workId);
+        if (!work) return;
+        const next = JSON.parse(JSON.stringify(work.doc)) as DocModel;
+        setDoc(next);
+        setCurrentPageId(next.pages?.[0]?.id || "");
+        saveLocalDoc(next);
+      } catch { /* 读不到就当没点过 */ }
+    };
+    return () => { delete (window as unknown as Record<string, unknown>).__ranjingOpenWork; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* 登录完成后回到创作室：exportKey 被主程序 +1 → 直接弹导出分享面板 */
+  const lastExportKeyRef = useRef(0);
+  useEffect(() => {
+    if (!exportKey || exportKey === lastExportKeyRef.current) return;
+    lastExportKeyRef.current = exportKey;
+    closeDrawer();
+    setExportSheet(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportKey]);
+
   useEffect(() => {
     if (doc.pages.length === 0) {
       const now = Date.now();
@@ -815,16 +1083,41 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
   }, [doc.pages, currentPageId]);
 
   const currentPage = doc.pages.find((p) => p.id === currentPageId) || null;
-  /* 关抽屉时，演示态那条滑出来的工具栏也一起收回去 ——
-     「用完关掉抽屉，它自己收回去」。非演示态不受影响。 */
-  const closeDrawer = () => { setOpenDrawer(null); setDemoRailOut(false); };
+  /* 关抽屉 = 收起：面板没了，外沿宽度同时归 0（工具列贴回画布左缘）；
+     演示态那条滑出来的工具栏也一起收回去 ——「用完关掉抽屉，它自己收回去」。
+     非演示态不受影响。 */
+  const closeDrawer = () => { setOpenDrawer(null); setDemoRailOut(false); applyWidth(0, { persist: false }); };
 
   const editorKey = currentPage
     ? `${currentPage.id}_${currentPage.paperW ?? 0}x${currentPage.paperH ?? 0}`
     : "none";
 
+  /* 拖动中优先用 ref 里的实时宽度 —— 防中途 re-render 把旧 state 写回去造成跳档 */
+  const railLiveW = railResizingRef.current ? drawerWRef.current : drawerW;
+  const railZoneCls =
+    "cd-railzone"
+    + (railLiveW === 0 ? " is-zero" : "")
+    + (railLiveW > 0 && railLiveW < 190 ? " is-narrow" : "")
+    + (railResizingRef.current ? " is-resizing" : "")
+    + (demoOn && !demoRailOut ? " is-hidden" : "");
+
+  /** 竖条键盘操作：←/→ 微调 8px，Home 收到 0，End 推到上限，Enter/Space 0↔展开 */
+  function onGripKeyDown(e: React.KeyboardEvent) {
+    const max = railLimits().max;
+    const cur = drawerWRef.current;
+    if (e.key === "ArrowLeft") { e.preventDefault(); ensureSideTool(); applyWidth(cur - 8); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); ensureSideTool(); applyWidth(cur + 8); }
+    else if (e.key === "Home") { e.preventDefault(); applyWidth(0); setOpenDrawer(null); }
+    else if (e.key === "End") { e.preventDefault(); ensureSideTool(); applyWidth(max); }
+    else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (cur > 0) { applyWidth(0); setOpenDrawer(null); }
+      else { ensureSideTool(); applyWidth(lastExpandedRef.current || defaultRailWidth()); }
+    }
+  }
+
   return (
-    <div className="creation-room" style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#F4F2EE" }}>
+    <div className="creation-room rj-ui ran-mirror-ui ran-space-a03" data-theme={uiTheme} style={{ position: "absolute", inset: 0, overflow: "hidden", background: "var(--rj-app-bg)" }}>
       <main style={{ position: "absolute", inset: 0, display: "flex" }}>
         {currentPage && (
           <Editor
@@ -920,114 +1213,120 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         )}
       </main>
 
-      {openDrawer === null && (() => {
-        /* ★ 分支菜单（用户 2026-09-27）：侧边栏只留一个「点」，
-           点开长出枝条，选完自动收回。参考 reactbits.dev/micro/branched-menu。
-           参数：trunk 14 / indent 40 / radius 10 / lineWidth 1.5 / width 240 / rowHeight 36 */
-        const ROW = 44, HEAD = 36, GAP = 14, PAD = 18, TRUNK = 14, INDENT = 52, RADIUS = 12, RAIL_W = 256;
-        /* 每项一个线性小图标（跟文字同色，1.3 号线）—— 参考里每行都有图标撑节奏 */
-        const 图标: Record<string, React.ReactNode> = {
-          // 规格：一个带分隔的框，像画布规格
-          spec: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><rect x="2.2" y="3" width="11.6" height="10" rx="1.6" /><path d="M2.2 6.4h11.6M6.2 6.4V13" /></svg>),
-          // 笔：一支斜着的笔
-          shape: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M11.4 2.6l2 2L6 12l-3.2 1.2L4 10z" /><path d="M10.2 3.8l2 2" /></svg>),
-          // 色：一滴色
-          color: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.4c2.4 2.8 3.8 4.7 3.8 6.4a3.8 3.8 0 0 1-7.6 0C4.2 7.1 5.6 5.2 8 2.4z" /></svg>),
-          // 字：一个 Aa 的字形骨架
-          font: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M2 13l3.6-9 3.6 9" /><path d="M3.2 10h4.8" /><path d="M10.4 13V7.6h2.1a2.2 2.2 0 0 1 0 4.4h-2.1" /></svg>),
-          // 页：一张带折角的纸
-          page: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M9.2 2.2H4.4A1.2 1.2 0 0 0 3.2 3.4v9.2a1.2 1.2 0 0 0 1.2 1.2h7.2a1.2 1.2 0 0 0 1.2-1.2V5.8z" /><path d="M9.2 2.2v3.6h3.6" /></svg>),
-          // 锁：一把闭着的锁（替掉那个彩色 emoji）
-          lock: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><rect x="3.4" y="7" width="9.2" height="6.4" rx="1.4" /><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7" /></svg>),
-          // 存：一个归档盒，往下的箭头
-          save: (<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.6v7.2" /><path d="M5.2 7.2L8 10l2.8-2.8" /><path d="M2.8 11.4v1.2a1.2 1.2 0 0 0 1.2 1.2h8a1.2 1.2 0 0 0 1.2-1.2v-1.2" /></svg>),
-          // 门：原来那个拱门（已换成跟着文字走的墨色）
-          door: (<svg width="15" height="15" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 20V8C2 3.58172 5.58172 0 10 0C14.4183 0 18 3.58172 18 8V20Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" /><line x1="10" y1="0" x2="10" y2="20" stroke="currentColor" strokeWidth="1" /></svg>),
-        };
-        /* 分组：标题压在主干上，子项从主干弯出去 */
-        const GROUPS: { 组名: string; 项: string[] }[] = [
-          { 组名: "画面", 项: ["spec", "shape", "color", "font"] },
-          { 组名: "页面", 项: ["page", "lock"] },
-          { 组名: "存档", 项: ["save"] },
-        ];
-        const defOf = (id: string) => SIDE_ITEMS.find((x) => x.id === id);
-        type 行 = { type: "head" | "item"; id: string; label: string; kind?: SideKind; glyph?: React.ReactNode; cy: number };
-        const rows: 行[] = [];
-        let y = PAD;
-        for (const g of GROUPS) {
-          rows.push({ type: "head", id: "head-" + g.组名, label: g.组名, cy: y + HEAD / 2 });
-          y += HEAD;
-          for (const id of g.项) {
-            const it = defOf(id); if (!it) continue;
-            rows.push({ type: "item", id, label: labelOf(it.id, it.def), kind: it.kind, glyph: 图标[id], cy: y + ROW / 2 });
-            y += ROW;
-          }
-          y += GAP;
-        }
-        y -= GAP;
-        rows.push({ type: "item", id: "door", label: "", kind: "door", glyph: 图标.door, cy: y + GAP + ROW / 2 });
-        y += GAP + ROW;
-        const H = y + PAD;
-        const items = rows.filter((r) => r.type === "item");
-        const lastCy = items[items.length - 1].cy;
-        return (
-          <div
-            className="cd-branch"
-            data-open={railOpen ? "1" : "0"}
-            /* ★ 演示态：没收着就滑出屏幕左边外面（纸零遮挡）。CSS 里已经有
-               translateY(-50%)，这里不能覆盖掉，只能往后接一个 translateX。 */
-            style={demoOn ? {
-              transform: demoRailOut
-                ? "translateY(-50%) translateX(0)"
-                : "translateY(-50%) translateX(-110%)",
-              transition: "transform .22s ease-out",
-              pointerEvents: demoRailOut ? undefined : "none",
-            } : undefined}
-          >
-            {/* ── 收起态：那一个「点」—— 就是中文字「点」 ── */}
-            <button
-              type="button"
-              className="cd-branch-dot"
-              onClick={() => setRailOpen((v) => !v)}
-              aria-label={railOpen ? "收起菜单" : "展开菜单"}
-            >
-              <span className="cd-branch-dot-char">点</span>
-            </button>
+      {/* ══ ★ 第三步C：外沿工具列 + 抽屉自由推拉 ═══════════════════════════
+          · 点工具 → 直接切换该抽屉内容（不再反复开关总菜单）
+          · 拖蓝色竖条（手机：抽屉边缘横滑 / 标题区拖动）→ 宽度 0~上限
+            逐像素跟手，松手原地停住；推到 0 = 收起，工具列贴回画布左缘
+          · 演示态：整块收进屏幕左边外面（纸零遮挡），左缘扫一下再滑出来 */}
+      <div
+        ref={railZoneRef}
+        className={railZoneCls}
+        style={{ "--rj-drawer-w": `${railLiveW}px` } as React.CSSProperties}
+      >
+        {openDrawer !== null && (
+          <>
+            {openDrawer === "box" && (
+              <BoxDrawer
+                onSpecPicked={(w, h) => { setCurrentPageSpec(w, h); closeDrawer(); }}
+                onPickTool={(kind) => { setDrawTool(kind); }}
+                onInsertText={(text) => { insertTextAtCenter(text); closeDrawer(); }}
+                onInsertShape={(kind) => { insertShapeAtCenter(kind); closeDrawer(); }}
+                brush={brush}
+                onBrushChange={(patch) => setBrush((b) => ({ ...b, ...patch }))}
+                pages={doc.pages}
+                currentPageId={currentPageId}
+                onSelectPage={(id) => { setCurrentPageId(id); }}
+                onAddPage={() => { addNewPage(); }}
+                onDeletePage={(id) => requestDeletePage(id)}
+                onRenamePage={(id, title) => renamePage(id, title)}
+                onExit={() => onBack && onBack()}
+                onConnectPickPage={onConnectPickPage}
+                currentFont={currentFont}
+                onFontChange={setCurrentFont}
+                onPicked={closeDrawer}
+                connectStage={connStage}
+              />
+            )}
+            {openDrawer === "palette" && (
+              <ColorDrawer
+                paperColor={paperColor}
+                paperAlpha={paperAlpha}
+                stageColor={stageColor}
+                stageAlpha={stageAlpha}
+                onPaperColorChange={setPaperColor}
+                onPaperAlphaChange={setPaperAlpha}
+                onStageColorChange={setStageColor}
+                onStageAlphaChange={setStageAlpha}
+                onPicked={closeDrawer}
+              />
+            )}
+            {openDrawer === "make" && (
+              <MakeDrawer
+                connectMode={connMode}
+                onConnectModeChange={changeConnMode}
+                connectStepText={connStepText}
+                connectDone={connStage === "done"}
+                connectCount={(doc.interactions || []).length}
+                linksCount={(doc.links || []).length}
+                demoOn={demoOn}
+                onDemoEnter={enterDemo}
+                onDemoExit={exitDemo}
+                onConnectCancel={cancelConnect}
+                onConnUndo={undoLastInteraction}
+                onConnClear={clearInteractions}
+                onOpenRoam={onOpenRoam}
+              />
+            )}
+            {openDrawer === "save" && (
+              <SaveDrawer
+                onClose={closeDrawer}
+                onSave={() => { void saveWorkNow(); }}
+                getDoc={() => doc}
+                onExportShare={onExportShare}
+                onOpenMemory={onOpenMemory}
+                onRestore={(restored) => {
+                  /* 整体替换文档；快照里已带全部页面，所以顺带把当前页指到第一页，
+                     避免停留在已被覆盖掉的页 id 上导致画布空掉 */
+                  applyDoc(() => restored);
+                  setCurrentPageId(restored.pages?.[0]?.id || "");
+                }}
+              />
+            )}
+          </>
+        )}
 
-            {/* ── 展开态：纯白卡片 + 一根主干 + 每个子项一条圆角弯枝 ── */}
-            <div className="cd-branch-panel">
-              <div className="cd-branch-card" style={{ height: H }}>
-                <svg className="cd-branch-svg" width={RAIL_W} height={H} viewBox={`0 0 ${RAIL_W} ${H}`} aria-hidden>
-                  <line className="cd-branch-trunk" x1={TRUNK} y1={PAD} x2={TRUNK} y2={lastCy} />
-                  {items.map((r, i) => (
-                    <path
-                      key={r.id}
-                      className="cd-branch-path"
-                      style={{ "--len": 70, transitionDelay: `${i * 26}ms` } as React.CSSProperties}
-                      d={`M${TRUNK} ${r.cy - RADIUS} Q ${TRUNK} ${r.cy} ${TRUNK + RADIUS} ${r.cy} L ${INDENT} ${r.cy}`}
-                    />
-                  ))}
-                </svg>
-                {rows.map((r) => r.type === "head" ? (
-                  <div key={r.id} className="cd-branch-head" style={{ top: r.cy - HEAD / 2, height: HEAD }}>
-                    {r.label}
-                  </div>
-                ) : (
-                  <SideEntryButton
-                    key={r.id}
-                    cls="cd-branch-item"
-                    glyph={r.glyph}
-                    label={r.label}
-                    style={{ top: r.cy - ROW / 2, height: ROW }}
-                    onClick={() => { onSideAction(r.kind as SideKind); setRailOpen(false); }}
-                    onRename={() => setRenaming({ id: r.id, label: r.label })}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+        {/* 桌面蓝色竖拖动条（手机端由 CSS 隐藏）；键盘也能操作 */}
+        <button
+          type="button"
+          className="cd-grip"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动推拉抽屉宽度（推到最里面即收起）"
+          tabIndex={0}
+          onKeyDown={onGripKeyDown}
+        />
+
+        {/* 外沿工具列：点一下直接切换；长按改名字 */}
+        <div className="cd-rail" role="toolbar" aria-label="工具">
+          {SIDE_ITEMS.map((it) => (
+            <SideEntryButton
+              key={it.id}
+              cls={"cd-rtab" + (openDrawer === it.kind ? " is-on" : "")}
+              label={labelOf(it.id, it.def)}
+              onClick={() => onSideAction(it.kind)}
+              onRename={() => setRenaming({ id: it.id, label: labelOf(it.id, it.def) })}
+            />
+          ))}
+          {/* 门：进空间首页（沿用旧分支菜单的拱门图标；门不改名） */}
+          <SideEntryButton
+            cls="cd-rtab is-door"
+            glyph={DOOR_GLYPH}
+            label=""
+            onClick={() => onSideAction("door")}
+            onRename={() => { /* 门不改名 */ }}
+          />
+        </div>
+      </div>
 
       {/* ══ ★ 演示态：左边缘的「隐形工具栏」提示 ══════════════════════════
          用户 2026-09-26 要的「可发现性」：工具栏收起来之后，屏上得看得出这儿藏着东西。
@@ -1053,13 +1352,13 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
             {/* 细把手：很短、半透明，只说"这里藏着东西" */}
             <div style={{
               width: 3, height: 46, borderRadius: 2, marginLeft: 1,
-              background: "rgba(201,168,124,.5)",
-              boxShadow: "0 0 7px rgba(201,168,124,.35)",
+              background: "rgba(65,73,83,.38)",
+              boxShadow: "0 0 7px rgba(65,73,83,.17)",
             }} />
             {demoHint && (
               <div style={{ marginLeft: 7, animation: "ranjingRailHint 2.4s ease-out 1 forwards" }}>
                 <svg width="13" height="20" viewBox="0 0 13 20" fill="none">
-                  <path d="M3 2 L10 10 L3 18" stroke="rgba(201,168,124,.95)" strokeWidth="2.4"
+                  <path d="M3 2 L10 10 L3 18" stroke="rgba(43,47,54,.74)" strokeWidth="2.4"
                     strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
@@ -1068,94 +1367,10 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
         </>
       )}
 
-      {openDrawer === "page" && (
-        <PageSheet
-          pages={doc.pages}
-          currentPageId={currentPageId}
-          links={doc.links}
-          onSelectPage={(id) => { setCurrentPageId(id); closeDrawer(); }}
-          onAddPage={() => { addNewPage(); }}
-          onDeletePage={(id) => requestDeletePage(id)}
-          onRenamePage={(id, title) => renamePage(id, title)}
-          onDuplicatePage={(id) => duplicatePage(id)}
-          onExit={() => onBack && onBack()}
-          onClose={closeDrawer}
-          dispatchAction={dispatchSheet}
-          connectMode={connMode}
-          onConnectModeChange={changeConnMode}
-          connectStage={connStage}
-          connectStepText={connStepText}
-          connectDone={connStage === "done"}
-          connectCount={(doc.interactions || []).length}
-          onConnectCancel={cancelConnect}
-          onConnUndo={undoLastInteraction}
-          onConnClear={clearInteractions}
-          demoOn={demoOn}
-          onDemoEnter={enterDemo}
-          onDemoExit={exitDemo}
-          onConnectPickPage={onConnectPickPage}
-          hasSelection={editorHasSelection}
-          framesCount={(currentPage as any)?.frames?.length || 0}
-          speedActive={(window as any).__ranjingPerfSpeed === 1400 ? "slow"
-            : (window as any).__ranjingPerfSpeed === 450 ? "fast"
-            : (window as any).__ranjingPerfSpeed === 800 ? "mid" : null}
-        />
-      )}
-      {openDrawer === "object" && <ObjectDrawer onClose={closeDrawer} />}
-      {openDrawer === "save" && (
-        <SaveDrawer
-          onClose={closeDrawer}
-          onSave={onSave}
-          getDoc={() => doc}
-          onRestore={(restored) => {
-            /* 整体替换文档；快照里已带全部页面，所以顺带把当前页指到第一页，
-               避免停留在已被覆盖掉的页 id 上导致画布空掉 */
-            applyDoc(() => restored);
-            setCurrentPageId(restored.pages?.[0]?.id || "");
-          }}
-        />
-      )}
-      {openDrawer === "shape" && (
-        <ShapeDrawer
-          onClose={closeDrawer}
-          onPickTool={(kind) => { setDrawTool(kind); }}
-          onInsertText={(text) => { insertTextAtCenter(text); closeDrawer(); }}
-          onInsertShape={(kind) => { insertShapeAtCenter(kind); closeDrawer(); }}
-          brush={brush}
-          onBrushChange={(patch) => setBrush((b) => ({ ...b, ...patch }))}
-        />
-      )}
-      {openDrawer === "color" && (
-        <ColorDrawer
-          paperColor={paperColor}
-          paperAlpha={paperAlpha}
-          stageColor={stageColor}
-          stageAlpha={stageAlpha}
-          onPaperColorChange={setPaperColor}
-          onPaperAlphaChange={setPaperAlpha}
-          onStageColorChange={setStageColor}
-          onStageAlphaChange={setStageAlpha}
-          onPicked={closeDrawer}
-          onClose={closeDrawer}
-        />
-      )}
-      {openDrawer === "font" && (
-        <FontDrawer
-          currentFont={currentFont}
-          onFontChange={setCurrentFont}
-          onPicked={closeDrawer}
-          onClose={closeDrawer}
-        />
-      )}
-      {openDrawer === "spec" && (
-        <SpecDrawer
-          onClose={closeDrawer}
-          onPicked={(w, h) => { setCurrentPageSpec(w, h); closeDrawer(); }}
-        />
-      )}
-      {openDrawer === "lock" && (
-        <LockDrawer onClose={closeDrawer} onPicked={closeDrawer} />
-      )}
+      {/* 第五步：底部弹层（页/连接）已拆掉 ——
+          页 → 文具盒 · 页（SidePanelBodies.PageListBody）
+          连接 → 制作工作台（SidePanelBodies.ConnectWorkbench）
+          这里不再另挂一份，避免两套。 */}
 
       {/* ★ 这里原来挂着一条"提示条"，把每一步该做什么写成字贴在画布顶上
           （「点延伸物那张纸」「在延伸物里点一个连接对象」…）。
@@ -1181,9 +1396,12 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
 
       <div style={{ position: "absolute", right: 18, bottom: 18, zIndex: 1600 }}>
         {saveStatus === "error" && (
-          <div style={{ background: "#F6EDEB", color: "#B4544A", padding: 8, borderRadius: 8 }}>{saveError}</div>
+          <div style={{ background: "var(--rj-danger-bg)", color: "var(--rj-danger)", padding: 8, borderRadius: 8 }}>{saveError}</div>
         )}
       </div>
+
+      {/* 第六步·导出分享面板（登录闸门在 App 层，登录完 exportKey+1 再弹这里） */}
+      <ExportShareSheet open={exportSheet} onClose={() => setExportSheet(false)} docTitle={pickWorkTitle(doc)} />
 
       {showAssets && (
         <AssetBrowser

@@ -58,6 +58,16 @@ export const SPEC_CATEGORIES: SpecCategory[] = [
     allowCustom: true,
   },
   {
+    id: "notebook",
+    title: "笔记本",
+    items: [
+      { name: "小方本", w: 800, h: 800 },
+      { name: "竖长本", w: 800, h: 1200 },
+      { name: "横宽本", w: 1200, h: 800 },
+    ],
+    allowCustom: true,
+  },
+  {
     id: "social",
     title: "社交媒体",
     items: [

@@ -26,6 +26,13 @@ export function secureEqual(a: string, b: string) {
 }
 
 export function validPhone(phone: string) { return /^1[3-9]\d{9}$/.test(phone); }
+/* 登录名：3-20 位，中文/字母/数字/下划线（第六步手稿：注册用登录名+密码） */
+export function validUsername(name: string) { return /^[A-Za-z0-9_一-龥]{3,20}$/.test(name); }
+export function validPassword(pwd: string) { return typeof pwd === "string" && pwd.length >= 6 && pwd.length <= 64; }
+/* 密码不明文入库：HMAC(secret, 用户名小写:密码)。用户名入盐，同名不同密码不撞哈希。 */
+export function passwordDigest(username: string, password: string) {
+  return hashValue(`pwd:${username.trim().toLowerCase()}:${password}`);
+}
 export function newCode() { return String(randomInt(100000, 1000000)); }
 export function newToken() { return randomBytes(32).toString("base64url"); }
 export function tokenHash(token: string) { return createHash("sha256").update(token).digest("hex"); }
@@ -61,6 +68,13 @@ async function createAuthTables() {
     expires_at TIMESTAMPTZ NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`;
   await sql`CREATE INDEX IF NOT EXISTS sessions_user_idx ON user_sessions(user_id)`;
+  /* 第六步：账号+密码注册。老表 phone 原本 NOT NULL（只有短信登录），
+     注册手稿里只填登录名/密码/验证码，所以补 username/password_hash 两列，
+     并放开 phone 的 NOT NULL —— 短信注册与账号注册两条路并存。 */
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT`;
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`;
+  await sql`ALTER TABLE users ALTER COLUMN phone DROP NOT NULL`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_key ON users (lower(username)) WHERE username IS NOT NULL`;
 }
 
 /* 过期数据清理：不需要每请求都做，每个进程每小时最多一次。
