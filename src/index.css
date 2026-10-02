@@ -936,15 +936,10 @@ button { -webkit-tap-highlight-color: transparent; }
   font-size: 14px;
   font-weight: 500;
   font-family: inherit;
-  cursor: pointer;
   text-align: left;
 }
 .cd-sub-head.is-open {
   background: rgba(36, 51, 60, .06);
-}
-.cd-sub-arrow {
-  color: #68767e;
-  font-size: 10px;
 }
 .cd-sub-body {
   display: flex;

@@ -1229,6 +1229,7 @@ export default function CreationLocalRoom({ onBack, initialText, docKey, onEnter
               <BoxDrawer
                 onSpecPicked={(w, h) => { setCurrentPageSpec(w, h); closeDrawer(); }}
                 onPickTool={(kind) => { setDrawTool(kind); }}
+                activeTool={drawTool}
                 onInsertText={(text) => { insertTextAtCenter(text); closeDrawer(); }}
                 onInsertShape={(kind) => { insertShapeAtCenter(kind); closeDrawer(); }}
                 brush={brush}

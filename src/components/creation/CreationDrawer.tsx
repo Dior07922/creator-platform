@@ -75,15 +75,24 @@ const LINE_ARTS: { kind: ShapeKind; name: string; icon: string }[] = [
 /** 文具盒 · 笔 —— 原「笔」抽屉整体搬进盒内当内容块（功能一字不动）。 */
 export function PenBody({
   onPickTool, onInsertText, onInsertShape,
-  brush, onBrushChange,
+  brush, onBrushChange, activeTool,
 }: {
   onPickTool: (kind: ShapeKind) => void;
   onInsertText: (text: string) => void;
   onInsertShape: (kind: ShapeKind) => void;
   brush: BrushParams;
   onBrushChange: (patch: Partial<BrushParams>) => void;
+  /** 当前拿在手里的工具（父组件状态）——滑竿控制器跟着它显示在对应笔旁 */
+  activeTool?: ShapeKind | null;
 }) {
   const [tab, setTab] = useState<"pen" | "shapes" | "emoji" | "line" | "eraser">("pen");
+  /** 滑竿控制器挂在哪支笔下面（默认第一支；父组件已选笔时跟随父状态） */
+  const [activePen, setActivePen] = useState<ShapeKind>(
+    () => PEN_TOOLS.find((p) => p.kind === activeTool)?.kind ?? PEN_TOOLS[0].kind,
+  );
+  useEffect(() => {
+    if (activeTool && PEN_TOOLS.some((p) => p.kind === activeTool)) setActivePen(activeTool);
+  }, [activeTool]);
 
   const tabsWrapStyle: React.CSSProperties = {
     display: "flex", gap: 2, padding: 4, margin: "0 0 10px 0",
@@ -145,120 +154,123 @@ export function PenBody({
 
         {tab === "pen" && (
           <>
-            {/* 笔列表 */}
+            {/* 笔列表：手稿——名字直接写「自由/蜡笔…」，滑竿跟着选中的笔走 */}
             <div style={sectionLabel}>笔</div>
             {PEN_TOOLS.map((t) => (
-              <button key={t.kind} type="button" className="cd-item"
-                onClick={() => onPickTool(t.kind)}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", fontSize: 14, width: "100%" }}>
-                <span style={{ width: 26, display: "flex", justifyContent: "center", flex: "none" }}>
-                  <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block", flex: "none" }}>
-                    <path
-                      d="M4 20 L7 17 L17 7 Q19 5 21 7 Q23 9 21 11 L11 21 L8 21 L4 20 Z"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={t.sw / 2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span>{t.name}</span>
-              </button>
+              <React.Fragment key={t.kind}>
+                <button type="button" className="cd-item"
+                  onClick={() => { onPickTool(t.kind); setActivePen(t.kind); }}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", fontSize: 14, width: "100%" }}>
+                  <span style={{ width: 26, display: "flex", justifyContent: "center", flex: "none" }}>
+                    <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block", flex: "none" }}>
+                      <path
+                        d="M4 20 L7 17 L17 7 Q19 5 21 7 Q23 9 21 11 L11 21 L8 21 L4 20 Z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={t.sw / 2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <span>{t.name}</span>
+                </button>
+
+                {/* 笔刷手感参数面板 —— perfect-freehand；
+                    手稿：控制器就挂在选中的这支笔下面（内容一字未动，只挪位置） */}
+                {activePen === t.kind && (
+                  <div style={{
+                    margin: "2px 0 10px", padding: "12px 10px",
+                    background: "var(--rj-surface-hover)", borderRadius: 10,
+                  }}>
+                    <div style={{ fontSize: 11, color: "var(--rj-text-muted)", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
+
+                    <PenSlider label="尺寸" value={brush.size ?? 0} min={0} max={40} step={1}
+                      onChange={(v) => onBrushChange({ size: v > 0 ? v : undefined })} />
+                    <PenSlider label="精简" value={brush.streamline} min={0} max={1} step={0.05}
+                      onChange={(v) => onBrushChange({ streamline: v })} />
+                    <PenSlider label="平滑" value={brush.smoothing} min={0} max={1} step={0.05}
+                      onChange={(v) => onBrushChange({ smoothing: v })} />
+
+                    {/* 缓释（easing） */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--rj-text-muted)", width: 52, flex: "none" }}>缓释</span>
+                      <select
+                        value={brush.easingName ?? "linear"}
+                        onChange={(e) => onBrushChange({ easingName: e.target.value as EasingName })}
+                        style={{
+                          flex: 1, minWidth: 0, height: 26, padding: "0 6px",
+                          border: "1px solid var(--rj-line)", borderRadius: 6,
+                          background: "var(--rj-surface-raised)", color: "var(--rj-text)", fontSize: 11, outline: "none",
+                        }}
+                      >
+                        <option value="linear">线性</option>
+                        <option value="easeIn">缓入</option>
+                        <option value="easeOut">缓出</option>
+                        <option value="easeInOut">缓入缓出</option>
+                      </select>
+                    </div>
+
+                    <PenSlider label="渐弱起步" value={brush.startTaper} min={0} max={60} step={1}
+                      onChange={(v) => onBrushChange({ startTaper: v })} />
+
+                    {/* 启动 cap */}
+                    <div style={rowStyle}>
+                      <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>启动</span>
+                      <button type="button" aria-pressed={!!brush.startCap}
+                        onClick={() => onBrushChange({ startCap: !brush.startCap })} style={toggleStyle(!!brush.startCap)}>
+                        <span style={knobStyle(!!brush.startCap)} />
+                      </button>
+                    </div>
+
+                    <PenSlider label="锥形端" value={brush.endTaper} min={0} max={60} step={1}
+                      onChange={(v) => onBrushChange({ endTaper: v })} />
+
+                    {/* 缓和结尾 cap */}
+                    <div style={rowStyle}>
+                      <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>缓和结尾</span>
+                      <button type="button" aria-pressed={!!brush.endCap}
+                        onClick={() => onBrushChange({ endCap: !brush.endCap })} style={toggleStyle(!!brush.endCap)}>
+                        <span style={knobStyle(!!brush.endCap)} />
+                      </button>
+                    </div>
+
+                    {/* 充满 */}
+                    <div style={rowStyle}>
+                      <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>充满</span>
+                      <button type="button" aria-pressed={!!brush.fill}
+                        onClick={() => onBrushChange({ fill: !brush.fill })} style={toggleStyle(!!brush.fill)}>
+                        <span style={knobStyle(!!brush.fill)} />
+                      </button>
+                    </div>
+
+                    <PenSlider label="中风" value={brush.thinning} min={-1} max={1} step={0.05}
+                      onChange={(v) => onBrushChange({ thinning: v })} />
+
+                    {/* 模拟压力 */}
+                    <div style={{ ...rowStyle, marginTop: 10, marginBottom: 0 }}>
+                      <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>模拟压力</span>
+                      <button type="button" aria-pressed={brush.simulatePressure}
+                        onClick={() => onBrushChange({ simulatePressure: !brush.simulatePressure })}
+                        style={toggleStyle(brush.simulatePressure)}>
+                        <span style={knobStyle(brush.simulatePressure)} />
+                      </button>
+                    </div>
+
+                    {/* 重置 */}
+                    <button
+                      type="button"
+                      onClick={() => onBrushChange({ ...BRUSH_DEFAULTS })}
+                      style={{
+                        width: "100%", height: 30, marginTop: 12, borderRadius: 6,
+                        border: "1px solid var(--rj-line)", background: "var(--rj-surface-raised)",
+                        color: "var(--rj-text-muted)", fontSize: 11, cursor: "pointer",
+                      }}
+                    >重置选项</button>
+                  </div>
+                )}
+              </React.Fragment>
             ))}
-
-
-            {/* 笔刷手感参数面板 —— perfect-freehand */}
-            <div style={{
-              marginTop: 14, padding: "12px 10px",
-              background: "var(--rj-surface-hover)", borderRadius: 10,
-            }}>
-              <div style={{ fontSize: 11, color: "var(--rj-text-muted)", letterSpacing: ".1em", marginBottom: 12 }}>笔刷手感</div>
-
-              <PenSlider label="尺寸" value={brush.size ?? 0} min={0} max={40} step={1}
-                onChange={(v) => onBrushChange({ size: v > 0 ? v : undefined })} />
-              <PenSlider label="精简" value={brush.streamline} min={0} max={1} step={0.05}
-                onChange={(v) => onBrushChange({ streamline: v })} />
-              <PenSlider label="平滑" value={brush.smoothing} min={0} max={1} step={0.05}
-                onChange={(v) => onBrushChange({ smoothing: v })} />
-
-              {/* 缓释（easing） */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 11, color: "var(--rj-text-muted)", width: 52, flex: "none" }}>缓释</span>
-                <select
-                  value={brush.easingName ?? "linear"}
-                  onChange={(e) => onBrushChange({ easingName: e.target.value as EasingName })}
-                  style={{
-                    flex: 1, minWidth: 0, height: 26, padding: "0 6px",
-                    border: "1px solid var(--rj-line)", borderRadius: 6,
-                    background: "var(--rj-surface-raised)", color: "var(--rj-text)", fontSize: 11, outline: "none",
-                  }}
-                >
-                  <option value="linear">线性</option>
-                  <option value="easeIn">缓入</option>
-                  <option value="easeOut">缓出</option>
-                  <option value="easeInOut">缓入缓出</option>
-                </select>
-              </div>
-
-              <PenSlider label="渐弱起步" value={brush.startTaper} min={0} max={60} step={1}
-                onChange={(v) => onBrushChange({ startTaper: v })} />
-
-              {/* 启动 cap */}
-              <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>启动</span>
-                <button type="button" aria-pressed={!!brush.startCap}
-                  onClick={() => onBrushChange({ startCap: !brush.startCap })} style={toggleStyle(!!brush.startCap)}>
-                  <span style={knobStyle(!!brush.startCap)} />
-                </button>
-              </div>
-
-
-              <PenSlider label="锥形端" value={brush.endTaper} min={0} max={60} step={1}
-                onChange={(v) => onBrushChange({ endTaper: v })} />
-
-              {/* 缓和结尾 cap */}
-              <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>缓和结尾</span>
-                <button type="button" aria-pressed={!!brush.endCap}
-                  onClick={() => onBrushChange({ endCap: !brush.endCap })} style={toggleStyle(!!brush.endCap)}>
-                  <span style={knobStyle(!!brush.endCap)} />
-                </button>
-              </div>
-
-              {/* 充满 */}
-              <div style={rowStyle}>
-                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>充满</span>
-                <button type="button" aria-pressed={!!brush.fill}
-                  onClick={() => onBrushChange({ fill: !brush.fill })} style={toggleStyle(!!brush.fill)}>
-                  <span style={knobStyle(!!brush.fill)} />
-                </button>
-              </div>
-
-              <PenSlider label="中风" value={brush.thinning} min={-1} max={1} step={0.05}
-                onChange={(v) => onBrushChange({ thinning: v })} />
-
-              {/* 模拟压力 */}
-              <div style={{ ...rowStyle, marginTop: 10, marginBottom: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--rj-text-muted)" }}>模拟压力</span>
-                <button type="button" aria-pressed={brush.simulatePressure}
-                  onClick={() => onBrushChange({ simulatePressure: !brush.simulatePressure })}
-                  style={toggleStyle(brush.simulatePressure)}>
-                  <span style={knobStyle(brush.simulatePressure)} />
-                </button>
-              </div>
-
-              {/* 重置 */}
-              <button
-                type="button"
-                onClick={() => onBrushChange({ ...BRUSH_DEFAULTS })}
-                style={{
-                  width: "100%", height: 30, marginTop: 12, borderRadius: 6,
-                  border: "1px solid var(--rj-line)", background: "var(--rj-surface-raised)",
-                  color: "var(--rj-text-muted)", fontSize: 11, cursor: "pointer",
-                }}
-              >重置选项</button>
-            </div>
           </>
         )}
 
@@ -402,51 +414,44 @@ function CustomSpecDialog({ onConfirm, onCancel }: { onConfirm: (w: number, h: n
   );
 }
 
-/** 文具盒 · 规格 —— 原「规格」抽屉内容；卡片选完直接回白纸执行。 */
+/** 文具盒 · 规格 —— 原「规格」抽屉内容；卡片选完直接回白纸执行。
+ *  手稿：「点开规格 所有模板卡片预览图」——不再一层层折叠，
+ *  每一类直接铺开：类名 + 按真实比例的缩略卡。 */
 export function SpecBody({ onPicked }: { onPicked?: (w: number, h: number) => void }) {
-  const [openCat, setOpenCat] = useState<string | null>("phone");
   const [picked, setPicked] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
 
   return (
     <div className="cd-body">
         {picked && <div className="cd-picked">当前规格：{picked}</div>}
-        {SPEC_CATEGORIES.map((c) => {
-          const open = openCat === c.id;
-          return (
-            <div className="cd-sub" key={c.id}>
-              <button type="button" className={`cd-sub-head ${open ? "is-open" : ""}`} onClick={() => setOpenCat(open ? null : c.id)}>
-                <span>{c.title}</span><span className="cd-sub-arrow">{open ? "▾" : "▸"}</span>
-              </button>
-              {open && (
-                <div className="cd-sub-body">
-                  {/* 手稿：「点开规格所有模板卡片预览图」——
-                      每条规格一张按真实比例的缩略卡，不再只是文字行 */}
-                  <div className="cd-spec-grid">
-                    {c.items.map((it) => {
-                      const ratio = it.w > 0 && it.h > 0 ? it.w / it.h : 1;
-                      const th = 46;
-                      const tw = Math.round(Math.min(56, Math.max(12, th * ratio)));
-                      return (
-                        <button key={it.name} type="button" className="cd-spec-card"
-                          onClick={() => { setPicked(it.name); onPicked?.(it.w, it.h); }}>
-                          <span className="cd-spec-thumb" style={{ width: tw, height: th }} />
-                          <span className="cd-spec-name">{it.name}</span>
-                          {it.w > 0 && it.h > 0 && (
-                            <span className="cd-spec-size">{it.w}×{it.h}</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {c.allowCustom && (
-                    <button type="button" className="cd-item" style={{ marginTop: 6 }} onClick={() => setCustomOpen(true)}>自定义…</button>
-                  )}
-                </div>
+        {SPEC_CATEGORIES.map((c) => (
+          <div className="cd-sub" key={c.id}>
+            <div className="cd-sub-head is-open"><span>{c.title}</span></div>
+            <div className="cd-sub-body">
+              {/* 每条规格一张按真实比例的缩略卡，不再只是文字行 */}
+              <div className="cd-spec-grid">
+                {c.items.map((it) => {
+                  const ratio = it.w > 0 && it.h > 0 ? it.w / it.h : 1;
+                  const th = 46;
+                  const tw = Math.round(Math.min(56, Math.max(12, th * ratio)));
+                  return (
+                    <button key={it.name} type="button" className="cd-spec-card"
+                      onClick={() => { setPicked(it.name); onPicked?.(it.w, it.h); }}>
+                      <span className="cd-spec-thumb" style={{ width: tw, height: th }} />
+                      <span className="cd-spec-name">{it.name}</span>
+                      {it.w > 0 && it.h > 0 && (
+                        <span className="cd-spec-size">{it.w}×{it.h}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {c.allowCustom && (
+                <button type="button" className="cd-item" style={{ marginTop: 6 }} onClick={() => setCustomOpen(true)}>自定义…</button>
               )}
             </div>
-          );
-        })}
+          </div>
+        ))}
       {customOpen && (
         <CustomSpecDialog
           onConfirm={(w, h) => { setCustomOpen(false); setPicked(`自定义 ${w}×${h}`); onPicked?.(w, h); }}

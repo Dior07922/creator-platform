@@ -476,7 +476,7 @@ export type BoxSub = "spec" | "pen" | "page" | "font";
 
 export function BoxDrawer({
   onSpecPicked,
-  onPickTool, onInsertText, onInsertShape, brush, onBrushChange,
+  onPickTool, onInsertText, onInsertShape, brush, onBrushChange, activeTool,
   pages, currentPageId, onSelectPage, onAddPage, onDeletePage, onRenamePage, onExit, onConnectPickPage,
   currentFont, onFontChange,
   onPicked,
@@ -488,6 +488,8 @@ export function BoxDrawer({
   onInsertShape: (kind: ShapeKind) => void;
   brush: BrushParams;
   onBrushChange: (patch: Partial<BrushParams>) => void;
+  /** 当前拿在手里的工具（传给笔页，让滑竿控制器跟着选中的笔走） */
+  activeTool?: ShapeKind | null;
   pages: Page[];
   currentPageId: string;
   onSelectPage: (id: string) => void;
@@ -550,6 +552,7 @@ export function BoxDrawer({
           onInsertShape={onInsertShape}
           brush={brush}
           onBrushChange={onBrushChange}
+          activeTool={activeTool}
         />
       )}
       {sub === "page" && (
