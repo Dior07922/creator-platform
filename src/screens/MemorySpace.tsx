@@ -11,6 +11,12 @@ import { useEffect, useRef, useState } from "react";
 import SceneHost from "../components/SceneHost";
 import { listWorks } from "../lib/works";
 
+/* 上线开关（用户 2026-10-02 定的规矩）：
+   false = 验收期：点「体验会员漫游」谁都能进 3D（只显示演示卡片，材料里的原行为）；
+   true  = 上线后：会员漫游为会员限定，非会员点「体验会员漫游」引导去登录/开通。
+   打开时同时收紧：漫游里的「碎碎念之神（会员记录）」入口也只给会员看。 */
+const MEMBER_ONLY_ROAM = false;
+
 export default function MemorySpace({ isMember, initialMode, onClose, onOpenWork, onNeedMembership, onOpenScene }: {
   isMember: boolean;
   /** "A" = 进场直接落会员漫游（优化版漫游页），非会员会停在会员门槛；默认 "B" 本地大厅 */
@@ -45,6 +51,7 @@ export default function MemorySpace({ isMember, initialMode, onClose, onOpenWork
       if (!alive) return;
       (window as unknown as Record<string, unknown>).__RANJING_WORKS__ = entries;
       (window as unknown as Record<string, unknown>).__RANJING_IS_MEMBER__ = isMember;
+      (window as unknown as Record<string, unknown>).__RANJING_MEMBER_ONLY__ = MEMBER_ONLY_ROAM;
       setReady(true);
     })();
     return () => { alive = false; };
@@ -94,7 +101,7 @@ export default function MemorySpace({ isMember, initialMode, onClose, onOpenWork
                 发不出去的信息 <span style={{ opacity: .6, marginLeft: 6 }}>免费公用功能</span>
               </button>
             )}
-            {mode === "A" && isMember && (
+            {mode === "A" && (!MEMBER_ONLY_ROAM || isMember) && (
               <button type="button" onClick={() => onOpenScene("murmur")} style={pillStyle}>
                 碎碎念之神 <span style={{ opacity: .6, marginLeft: 6 }}>会员记录</span>
               </button>
